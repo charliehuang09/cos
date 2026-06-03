@@ -1,0 +1,6 @@
+[submodule "third_party/abseil-cpp"]
+	path = third_party/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp
+[submodule "third_party/cpp-mjpeg-streamer"]
+	path = third_party/cpp-mjpeg-streamer
+	url = https://github.com/nadjieb/cpp-mjpeg-streamer
