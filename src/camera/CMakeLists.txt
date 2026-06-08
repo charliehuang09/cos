@@ -13,7 +13,7 @@ target_sources(nvjpeg_decode_node
   PRIVATE
     nvjpeg_decode_node.cc
 )
-target_link_libraries(nvjpeg_decode_node PRIVATE
+target_link_libraries(nvjpeg_decode_node PUBLIC
   nvjpeg
   absl::log
 )

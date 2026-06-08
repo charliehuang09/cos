@@ -27,6 +27,9 @@ option(ENABLE_CLANG_TIDY "Enable clang-tidy for static analysis" OFF)
 
 add_compile_options(-march=armv8-a+simd)
 
+find_package(CUDAToolkit REQUIRED)
+
+find_package(JPEG REQUIRED)
 find_package(wpilib REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)

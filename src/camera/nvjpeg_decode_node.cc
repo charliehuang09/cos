@@ -38,7 +38,11 @@ void NvjpegDecodeNode::Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer) {
   std::function<void()> task = [this, jpeg_buffer] {
     DecodeJpegBuffer(jpeg_buffer);
   };
-  tasks_.push(task);
+  {
+    std::lock_guard<std::timed_mutex> lock(mutex_);
+    tasks_.push(task);
+    cv_.notify_one();
+  }
 }
 
 void NvjpegDecodeNode::RegisterCallback(

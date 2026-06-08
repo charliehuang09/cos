@@ -1,8 +1,13 @@
+#include <string>
+
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/check.h"
-
 #include "absl/log/initialize.h"
+
+#include <opencv2/core.hpp>
+#include <opencv2/opencv.hpp>
+
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
@@ -10,10 +15,11 @@
 
 #include "absl/log/globals.h"
 
-ABSL_FLAG(int, fps, 0, "FPS");                       // NOLINT
-ABSL_FLAG(int, width, 0, "Width");                   // NOLINT
-ABSL_FLAG(int, height, 0, "Height");                 // NOLINT
-ABSL_FLAG(std::string, serial_id, "", "Serial id");  // NOLINT
+ABSL_FLAG(int, fps, 0, "FPS");                                      // NOLINT
+ABSL_FLAG(int, width, 0, "Width");                                  // NOLINT
+ABSL_FLAG(int, height, 0, "Height");                                // NOLINT
+ABSL_FLAG(std::string, serial_id, "", "Serial id");                 // NOLINT
+ABSL_FLAG(std::string, log_folder, "", "Log folder (end with /)");  // NOLINT
 
 ABSL_FLAG(std::string, path, "/stream",                             // NOLINT
           "Path for the stream. eg url is 10.9.71.101:8080/path");  // NOLINT
@@ -43,6 +49,7 @@ auto main(int argc, char* argv[]) -> int {
   CHECK(absl::GetFlag(FLAGS_width) != 0);
   CHECK(absl::GetFlag(FLAGS_height) != 0);
   CHECK(absl::GetFlag(FLAGS_serial_id) != "");
+  CHECK(absl::GetFlag(FLAGS_log_folder) != "");
 
   camera::UVCCameraConfig config{
       .name = absl::GetFlag(FLAGS_name),
@@ -70,13 +77,36 @@ auto main(int argc, char* argv[]) -> int {
 
   uvc_camera_node->RegisterCallback(
       [decoder = nvjpeg_decode_node.get()](const auto& buffer) {
-
+        decoder->Decode(buffer);
       });
 
-  // const std::function<void(std::shared_ptr<JpegBuffer>)>& callback) {
-  // uvc_camera_node->RegisterCallback([](const std::shared_ptr<camera::JpegBuffer>& buffer) {
-  //         buff
-  //         });
+  std::atomic<int> frame_index_atomic = 0;
+  nvjpeg_decode_node->RegisterCallback(
+      [frame_index_atomic = std::ref(frame_index_atomic),
+       log_folder = absl::GetFlag(FLAGS_log_folder)](NvBuffer* buffer) {
+        LOG(INFO) << buffer->buf_type;
+        const int height = buffer->planes[0].fmt.height;
+        const int width = buffer->planes[0].fmt.width;
+
+        cv::Mat i420(height + (height / 2), width, CV_8UC1);
+
+        auto* y_dst = i420.ptr<unsigned char>(0);
+        auto* u_dst = i420.ptr<unsigned char>(height);
+        auto* v_dst = i420.ptr<unsigned char>(height + (height / 4));
+
+        int frame_index = frame_index_atomic.get()++;
+
+        CopyPlane(buffer->planes[0], static_cast<int>(height),
+                  static_cast<int>(width), y_dst);
+        CopyPlane(buffer->planes[1], static_cast<int>(height / 2),
+                  static_cast<int>(width / 2), u_dst);
+        CopyPlane(buffer->planes[2], static_cast<int>(height / 2),
+                  static_cast<int>(width / 2), v_dst);
+
+        cv::Mat out;
+        cv::cvtColor(i420, out, cv::COLOR_YUV2BGR_I420);
+        cv::imwrite(log_folder + std::to_string(frame_index) + ".png", out);
+      });
 
   uvc_camera_node->Start();
 
