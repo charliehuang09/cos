@@ -83,10 +83,10 @@ auto main(int argc, char* argv[]) -> int {
   std::atomic<int> frame_index_atomic = 0;
   nvjpeg_decode_node->RegisterCallback(
       [frame_index_atomic = std::ref(frame_index_atomic),
-       log_folder = absl::GetFlag(FLAGS_log_folder)](NvBuffer* buffer) {
-        LOG(INFO) << buffer->buf_type;
-        const int height = buffer->planes[0].fmt.height;
-        const int width = buffer->planes[0].fmt.width;
+       log_folder = absl::GetFlag(FLAGS_log_folder)](
+          const std::shared_ptr<camera::DecodedJpegNvBuffer>& buffer) {
+        const int height = buffer->buffer->planes[0].fmt.height;
+        const int width = buffer->buffer->planes[0].fmt.width;
 
         cv::Mat i420(height + (height / 2), width, CV_8UC1);
 
@@ -96,11 +96,11 @@ auto main(int argc, char* argv[]) -> int {
 
         int frame_index = frame_index_atomic.get()++;
 
-        CopyPlane(buffer->planes[0], static_cast<int>(height),
+        CopyPlane(buffer->buffer->planes[0], static_cast<int>(height),
                   static_cast<int>(width), y_dst);
-        CopyPlane(buffer->planes[1], static_cast<int>(height / 2),
+        CopyPlane(buffer->buffer->planes[1], static_cast<int>(height / 2),
                   static_cast<int>(width / 2), u_dst);
-        CopyPlane(buffer->planes[2], static_cast<int>(height / 2),
+        CopyPlane(buffer->buffer->planes[2], static_cast<int>(height / 2),
                   static_cast<int>(width / 2), v_dst);
 
         cv::Mat out;

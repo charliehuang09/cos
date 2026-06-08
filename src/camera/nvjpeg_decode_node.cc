@@ -33,6 +33,7 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
   LOG(INFO) << "Destructing NvjpegDecodeNode";
   decode_thread_.request_stop();
   cv_.notify_one();
+  delete decoder_;
 }
 void NvjpegDecodeNode::Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer) {
   std::function<void()> task = [this, jpeg_buffer] {
@@ -46,7 +47,7 @@ void NvjpegDecodeNode::Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer) {
 }
 
 void NvjpegDecodeNode::RegisterCallback(
-    const std::function<void(NvBuffer*)>& callback) {
+    const std::function<void(std::shared_ptr<DecodedJpegNvBuffer>)>& callback) {
   std::unique_lock<std::timed_mutex> lock(mutex_, std::chrono::milliseconds(3));
   callbacks_.push_back(callback);
 }
@@ -56,14 +57,15 @@ void NvjpegDecodeNode::DecodeJpegBuffer(
   uint32_t pixfmt;
   uint32_t width;
   uint32_t height;
-  NvBuffer* buffer;
+  NvBuffer* buffer = nullptr;
 
   CHECK(!decoder_->decodeToBuffer(
       &buffer, static_cast<unsigned char*>(jpeg_buffer->ptr()),
       jpeg_buffer->size(), &pixfmt, &width, &height));
 
+  auto buffer_shared_ptr = std::make_shared<DecodedJpegNvBuffer>(buffer);
   for (const auto& callback : callbacks_) {
-    callback(buffer);
+    callback(buffer_shared_ptr);
   }
 }
 
