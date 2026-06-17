@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.16...4.0) 
-
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
+cmake_minimum_required(VERSION 3.16) 
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 
 project(COS CXX C CUDA)
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -28,10 +28,9 @@ option(ENABLE_CLANG_TIDY "Enable clang-tidy for static analysis" OFF)
 add_compile_options(-march=armv8-a+simd)
 
 find_package(CUDAToolkit REQUIRED)
-
 find_package(JPEG REQUIRED)
-find_package(wpilib REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(wpilib REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(vpi REQUIRED)
 find_package(libuvc REQUIRED)
