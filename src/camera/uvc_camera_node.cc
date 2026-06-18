@@ -40,7 +40,7 @@ void UVCCameraNode::CallBack(uvc_frame_t* frame) {
       std::make_shared<JpegBuffer>(frame->data_bytes);
   std::memcpy(buffer->ptr(), frame->data, frame->data_bytes);
 
-  for (int i = 0; i < callbacks_.size(); i++) {  // NOLINT
+  for (size_t i = 0; i < callbacks_.size(); i++) {  // NOLINT
     callbacks_[i](buffer);
   }
 }
