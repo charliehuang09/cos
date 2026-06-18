@@ -10,6 +10,7 @@
 namespace camera {
 
 struct UVCCameraConfig {
+  UVCCameraConfig(const std::string& path);
   std::string name;       // For debugging
   std::string serial_id;  // Used to find which camera to use
   int height;
