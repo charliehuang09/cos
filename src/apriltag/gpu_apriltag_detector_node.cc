@@ -12,12 +12,14 @@
 namespace apriltag {
 
 GPUApriltagDetectorNode::GPUApriltagDetectorNode(
-    uint image_width, uint image_height, const nlohmann::json& intrinsics)
+    uint image_width, uint image_height, const nlohmann::json& intrinsics,
+    vision::ImageFormat image_format)
     : camera_matrix_(
           utils::CameraMatrixFromJson<frc::apriltag::CameraMatrix>(intrinsics)),
       distortion_coefficients_(
           utils::DistortionCoefficientsFromJson<frc::apriltag::DistCoeffs>(
-              intrinsics)) {
+              intrinsics)),
+      image_format_(image_format) {
   LOG(INFO) << image_width << " " << image_height;
 
   apriltag_detector_ = apriltag_detector_create();
@@ -43,30 +45,15 @@ void GPUApriltagDetectorNode::RegisterCallback(
 
 void GPUApriltagDetectorNode::Detect(const camera::DecodedJpegNvBuffer& frame,
                                      double timestamp) {
-  cv::Mat gray = NvBufferToGray(frame);
-  CHECK(!gray.empty());
-  CHECK(gray.channels() == 1);
-
   auto detections = std::make_shared<std::vector<tag_detection_t>>();
   try {
-    absl::Status detection_status = gpu_detector_->Detect(gray.data, nullptr);
+    absl::Status detection_status =
+        gpu_detector_->Detect(frame.buffer->planes[0].data, nullptr);
     if (!detection_status.ok()) {
-      if (restart_detector_on_cuda_error) {
-        gpu_detector_ = std::make_unique<frc::apriltag::GpuDetector>(
-            gray.cols, gray.rows, apriltag_detector_, camera_matrix_,
-            distortion_coefficients_, image_format);
-      }
-      for (const auto& cb : callbacks_) {
-        cb(detections);
-      }
       return;
     }
   } catch (const std::exception& e) {
-    LOG(WARNING) << "Returning no detections because of exception: "
-                 << e.what();
-    for (const auto& cb : callbacks_) {
-      cb(detections);
-    }
+    LOG(WARNING) << "No detections because of exception: " << e.what();
     return;
   }
 

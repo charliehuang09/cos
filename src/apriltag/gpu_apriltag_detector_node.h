@@ -1,8 +1,8 @@
 #pragma once
 #include <functional>
 #include <memory>
-#include <vector>
 #include <nlohmann/json.hpp>
+#include <vector>
 #include "apriltag/apriltag_detector.h"
 #include "third_party/971apriltag/apriltag.h"
 
@@ -13,8 +13,9 @@ namespace apriltag {
 // with 'invalid device ordinal'.
 class GPUApriltagDetectorNode : public IApriltagDetectorNode {
  public:
-  GPUApriltagDetectorNode(uint image_width, uint image_height,
-                          const nlohmann::json& intrinsics);
+  GPUApriltagDetectorNode(
+      uint image_width, uint image_height, const nlohmann::json& intrinsics,
+      vision::ImageFormat image_format = vision::ImageFormat::MONO8);
   ~GPUApriltagDetectorNode() override;
 
   void RegisterCallback(
@@ -24,15 +25,14 @@ class GPUApriltagDetectorNode : public IApriltagDetectorNode {
               double timestamp) override;
 
  private:
-  static constexpr bool restart_detector_on_cuda_error = false;
-  static constexpr vision::ImageFormat image_format =
-      vision::ImageFormat::MONO8;
   frc::apriltag::CameraMatrix camera_matrix_;
   frc::apriltag::DistCoeffs distortion_coefficients_;
   apriltag_detector_t* apriltag_detector_;
   std::unique_ptr<frc::apriltag::GpuDetector> gpu_detector_;
-  std::vector<std::function<void(std::shared_ptr<std::vector<tag_detection_t>>)>>
+  std::vector<
+      std::function<void(std::shared_ptr<std::vector<tag_detection_t>>)>>
       callbacks_;
+  const vision::ImageFormat image_format_;
 };
 
 }  // namespace apriltag

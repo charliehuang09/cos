@@ -1,9 +1,9 @@
 #pragma once
 #include <functional>
 #include <memory>
-#include <vector>
 #include <nlohmann/json.hpp>
 #include <opencv2/objdetect/aruco_detector.hpp>
+#include <vector>
 #include "apriltag/apriltag_detector.h"
 
 namespace apriltag {
@@ -19,10 +19,11 @@ class OpenCVApriltagDetectorNode : public IApriltagDetectorNode {
               double timestamp) override;
 
  private:
-  cv::Mat camera_matrix_;
-  cv::Mat distortion_coefficients_;
+  const cv::Mat camera_matrix_;
+  const cv::Mat distortion_coefficients_;
   cv::aruco::ArucoDetector detector_;
-  std::vector<std::function<void(std::shared_ptr<std::vector<tag_detection_t>>)>>
+  std::vector<
+      std::function<void(std::shared_ptr<std::vector<tag_detection_t>>)>>
       callbacks_;
 };
 

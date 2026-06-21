@@ -30,9 +30,9 @@ using tag_detection_t = struct TagDetection {
 
 auto NvBufferToGray(const camera::DecodedJpegNvBuffer& nvbuf) -> cv::Mat {
   const auto& y_plane = nvbuf.buffer->planes[0];
-  return cv::Mat(static_cast<int>(y_plane.fmt.height),
-                 static_cast<int>(y_plane.fmt.width), CV_8UC1, y_plane.data,
-                 y_plane.fmt.stride);
+  return {static_cast<int>(y_plane.fmt.height),
+          static_cast<int>(y_plane.fmt.width), CV_8UC1, y_plane.data,
+          y_plane.fmt.stride};
 }
 
 class IApriltagDetectorNode {
