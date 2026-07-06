@@ -59,7 +59,7 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
   }
 }
 void NvjpegDecodeNode::Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer) {
-  std::function<void()> task = [this, jpeg_buffer] {
+  std::function<void()> task = [this, jpeg_buffer]() -> void {
     DecodeJpegBuffer(jpeg_buffer);
   };
   {

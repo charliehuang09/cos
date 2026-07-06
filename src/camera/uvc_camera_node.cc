@@ -30,23 +30,23 @@ UVCCameraConfig::UVCCameraConfig(const std::string& path) {
 UVCCameraNode::UVCCameraNode(const UVCCameraConfig& config)
     : name_(config.name) {
   {
-    int code = uvc_init(&context_, nullptr);
+    uvc_error_t code = uvc_init(&context_, nullptr);
     CHECK(!code) << "UVC failed to init will error code: " << code;
   }
   {
     const char* serial_id =
         config.serial_id.has_value() ? config.serial_id->c_str() : nullptr;
-    int code = uvc_find_device(context_, &device_, 0, 0, serial_id);
+    uvc_error_t code = uvc_find_device(context_, &device_, 0, 0, serial_id);
     CHECK(!code) << "UVC failed to find device with error code: " << code
                  << " camera_name: " << config.name;
   }
   {
-    int code = uvc_open(device_, &device_handle_);
+    uvc_error_t code = uvc_open(device_, &device_handle_);
     CHECK(!code) << "UVC failed to open device with error code: " << code
                  << " camera name: " << config.name;
   }
   {
-    int code = uvc_get_stream_ctrl_format_size(
+    uvc_error_t code = uvc_get_stream_ctrl_format_size(
         device_handle_, &ctrl_, UVC_FRAME_FORMAT_MJPEG, config.width,
         config.height, config.fps);
     CHECK(!code) << "UVC failed to get stream ctrl format with exit code: "
@@ -71,7 +71,7 @@ void UVCCameraNode::CallBack(uvc_frame_t* frame) {
 void UVCCameraNode::Start() {
   int code = uvc_start_streaming(
       device_handle_, &ctrl_,
-      [](uvc_frame_t* frame, void* ptr) {
+      [](uvc_frame_t* frame, void* ptr) -> void {
         auto uvc_camera_node = static_cast<UVCCameraNode*>(ptr);
         uvc_camera_node->CallBack(frame);
       },
