@@ -1,0 +1,4 @@
+interface:
+  display_name: "COS Build"
+  short_description: "Configure and build this COS repo"
+  default_prompt: "Use $cos-build to initialize submodules, configure Ninja, and build this repository."

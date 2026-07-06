@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Jetson Orin"
+  short_description: "Deploy and test on the dev Jetson Orin"
+  default_prompt: "Use $deploy-jetson-orin to deploy this repo to the dev Orin and test a binary."
