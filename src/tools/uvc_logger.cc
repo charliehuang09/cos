@@ -30,13 +30,6 @@ ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT
 ABSL_FLAG(std::optional<std::string>, log_folder, std::nullopt,  // NOLINT
           "Log folder (end with /). No logs if left blank");     // NOLINT
 
-auto CopyPlane(const NvBuffer::NvBufferPlane& plane, int rows, int cols,
-               unsigned char* dst) -> void {
-  for (int y = 0; y < rows; ++y) {
-    std::memcpy(dst + (y * cols), plane.data + (y * plane.fmt.stride), cols);
-  }
-}
-
 auto main(int argc, char* argv[]) -> int {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
@@ -73,27 +66,11 @@ auto main(int argc, char* argv[]) -> int {
     nvjpeg_decode_node->RegisterCallback(
         [frame_index_atomic = std::ref(frame_index_atomic),
          log_folder = absl::GetFlag(FLAGS_log_folder).value()](
-            const std::shared_ptr<camera::DecodedJpegNvBuffer>& buffer) {
-          const int height = buffer->buffer->planes[0].fmt.height;
-          const int width = buffer->buffer->planes[0].fmt.width;
-
-          cv::Mat i420(height + (height / 2), width, CV_8UC1);
-
-          auto* y_dst = i420.ptr<unsigned char>(0);
-          auto* u_dst = i420.ptr<unsigned char>(height);
-          auto* v_dst = i420.ptr<unsigned char>(height + (height / 4));
-
+            const std::shared_ptr<camera::DecodedJpegBuffer>& buffer) {
           int frame_index = frame_index_atomic.get()++;
 
-          CopyPlane(buffer->buffer->planes[0], static_cast<int>(height),
-                    static_cast<int>(width), y_dst);
-          CopyPlane(buffer->buffer->planes[1], static_cast<int>(height / 2),
-                    static_cast<int>(width / 2), u_dst);
-          CopyPlane(buffer->buffer->planes[2], static_cast<int>(height / 2),
-                    static_cast<int>(width / 2), v_dst);
-
-          cv::Mat out;
-          cv::cvtColor(i420, out, cv::COLOR_YUV2BGR_I420);
+          cv::Mat out(buffer->height, buffer->width, CV_8UC3,
+                      buffer->bgr.data(), buffer->stride);
           cv::imwrite(log_folder + std::to_string(frame_index) + ".png", out);
         });
   }

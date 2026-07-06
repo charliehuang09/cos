@@ -15,7 +15,11 @@ UVCCameraConfig::UVCCameraConfig(const std::string& path) {
 
   CHECK(config.at("camera_type").get<std::string>() == "uvc");
   name = config.at("name").get<std::string>();
-  serial_id = config.at("serial_id").get<std::string>();
+  if (config.at("serial_id").is_null()) {
+    serial_id = std::nullopt;
+  } else {
+    serial_id = config.at("serial_id").get<std::string>();
+  }
   height = config.at("height").get<int>();
   width = config.at("width").get<int>();
   fps = config.at("fps").get<int>();
@@ -30,8 +34,9 @@ UVCCameraNode::UVCCameraNode(const UVCCameraConfig& config)
     CHECK(!code) << "UVC failed to init will error code: " << code;
   }
   {
-    int code =
-        uvc_find_device(context_, &device_, 0, 0, config.serial_id.c_str());
+    const char* serial_id =
+        config.serial_id.has_value() ? config.serial_id->c_str() : nullptr;
+    int code = uvc_find_device(context_, &device_, 0, 0, serial_id);
     CHECK(!code) << "UVC failed to find device with error code: " << code
                  << " camera_name: " << config.name;
   }

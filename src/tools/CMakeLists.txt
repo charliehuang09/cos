@@ -8,7 +8,6 @@ target_link_libraries(uvc_logger PRIVATE
   uvc_camera_node
   stop
   absl::flags_parse
-  nvjpeg
   nvjpeg_decode_node
   JPEG::JPEG
   ${OpenCV_LIBS}
