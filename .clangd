@@ -6,8 +6,8 @@ CompileFlags:
   CompilationDatabase: build
   Add:
     - -isystem
-    - /home/charlie/orin-sdk/sysroots/armv8a-oe4t-linux/usr/include/c++/16.1.0
+    - /home/charlie/orin-sdk/sysroots/aarch64-oe4t-linux/usr/include/c++/16.1.0
     - -isystem
-    - /home/charlie/orin-sdk/sysroots/armv8a-oe4t-linux/usr/include/c++/16.1.0/aarch64-oe4t-linux
+    - /home/charlie/orin-sdk/sysroots/aarch64-oe4t-linux/usr/include/c++/16.1.0/aarch64-oe4t-linux
     - -isystem
-    - /home/charlie/orin-sdk/sysroots/armv8a-oe4t-linux/usr/include/c++/16.1.0/backward
+    - /home/charlie/orin-sdk/sysroots/aarch64-oe4t-linux/usr/include/c++/16.1.0/backward
