@@ -1,19 +1,23 @@
 #pragma once
 #include <condition_variable>
+#include <cstddef>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
+#include <vector>
 
-#include "NvJpegDecoder.h"
+#include <nvjpeg.h>
 
 #include "camera/uvc_camera_node.h"
 namespace camera {
 
-class DecodedJpegNvBuffer {
+class DecodedJpegBuffer {
  public:
-  ~DecodedJpegNvBuffer() { delete buffer; }
-  NvBuffer* buffer;
+  int width = 0;
+  int height = 0;
+  size_t stride = 0;
+  std::vector<unsigned char> bgr;
 };
 
 class NvjpegDecodeNode {
@@ -21,7 +25,7 @@ class NvjpegDecodeNode {
   NvjpegDecodeNode(const std::string& name);
   ~NvjpegDecodeNode();
   void RegisterCallback(
-      const std::function<void(std::shared_ptr<DecodedJpegNvBuffer>)>&
+      const std::function<void(std::shared_ptr<DecodedJpegBuffer>)>&
           callback);
   void Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer);
 
@@ -29,11 +33,12 @@ class NvjpegDecodeNode {
   void DecodeJpegBuffer(const std::shared_ptr<JpegBuffer>& jpeg_buffer);
 
  private:
-  NvJPEGDecoder* decoder_ = nullptr;
+  nvjpegHandle_t handle_ = nullptr;
+  nvjpegJpegState_t state_ = nullptr;
   std::condition_variable_any cv_;
   std::timed_mutex mutex_;
   std::queue<std::function<void()>> tasks_;
-  std::vector<std::function<void(std::shared_ptr<DecodedJpegNvBuffer>)>>
+  std::vector<std::function<void(std::shared_ptr<DecodedJpegBuffer>)>>
       callbacks_;
   std::jthread decode_thread_;
 };
