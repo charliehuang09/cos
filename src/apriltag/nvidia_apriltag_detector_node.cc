@@ -5,13 +5,21 @@
 #include <vpi/Array.h>
 #include <vpi/Image.h>
 #include <vpi/Stream.h>
-#include <vpi/algo/ConvertImageFormat.h>
 
+#include <cuda_runtime.h>
+
+#include <cstddef>
 #include <cstring>
-
-#include <opencv2/imgproc.hpp>
+#include <vector>
 
 namespace apriltag {
+namespace {
+
+auto CheckCuda(cudaError_t status) -> void {
+  CHECK(status == cudaSuccess) << cudaGetErrorString(status);
+}
+
+}  // namespace
 
 static const VPIAprilTagDecodeParams params = {                 // NOLINT
     NULL, 0, 1,                                                 // NOLINT
@@ -49,20 +57,21 @@ NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
 
 void NvidiaApriltagDetectorNode::Detect(
     const std::shared_ptr<camera::DecodedJpegBuffer>& buffer) {
-  cv::Mat bgr(buffer->height, buffer->width, CV_8UC3, buffer->bgr.data(),
-              buffer->stride);
-  cv::Mat gray;
-  cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
+  CHECK(buffer->output_format == NVJPEG_OUTPUT_Y);
 
   VPIImageData image_data{};
   CHECK(!vpiImageLockData(input_, VPI_LOCK_WRITE,
                           VPI_IMAGE_BUFFER_HOST_PITCH_LINEAR, &image_data));
 
   auto& plane = image_data.buffer.pitch.planes[0];
-  for (int row = 0; row < gray.rows; ++row) {
+  std::vector<unsigned char> gray(buffer->channel_sizes[0]);
+  CheckCuda(cudaMemcpy(gray.data(), buffer->destination.channel[0],
+                       buffer->channel_sizes[0], cudaMemcpyDeviceToHost));
+  for (int row = 0; row < buffer->height; ++row) {
     std::memcpy(static_cast<unsigned char*>(plane.pBase) +
                     static_cast<size_t>(row) * plane.pitchBytes,
-                gray.ptr(row), static_cast<size_t>(gray.cols));
+                gray.data() + static_cast<size_t>(row) * buffer->stride,
+                static_cast<size_t>(buffer->width));
   }
   CHECK(!vpiImageUnlock(input_));
 

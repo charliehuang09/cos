@@ -6,6 +6,8 @@
 #include "absl/log/log.h"
 
 namespace camera {
+using std::function;
+
 namespace {
 
 auto CheckNvjpeg(nvjpegStatus_t status) -> void {
@@ -16,32 +18,108 @@ auto CheckCuda(cudaError_t status) -> void {
   CHECK(status == cudaSuccess) << cudaGetErrorString(status);
 }
 
+auto ConfigureDestination(DecodedJpegBuffer* buffer,
+                          nvjpegOutputFormat_t output_format, int components,
+                          const std::array<int, NVJPEG_MAX_COMPONENT>& widths,
+                          const std::array<int, NVJPEG_MAX_COMPONENT>& heights)
+    -> void {
+  buffer->output_format = output_format;
+  buffer->width = widths[0];
+  buffer->height = heights[0];
+
+  auto set_channel = [buffer](int channel, size_t pitch, int height) -> void {
+    buffer->destination.pitch[channel] = pitch;
+    buffer->channel_sizes[channel] = pitch * static_cast<size_t>(height);
+    buffer->output_size += buffer->channel_sizes[channel];
+  };
+
+  switch (output_format) {
+    case NVJPEG_OUTPUT_RGBI:
+    case NVJPEG_OUTPUT_BGRI:
+      set_channel(0, static_cast<size_t>(widths[0]) * 3U, heights[0]);
+      break;
+    case NVJPEG_OUTPUT_RGB:
+    case NVJPEG_OUTPUT_BGR:
+      for (int channel = 0; channel < 3; ++channel) {
+        set_channel(channel, static_cast<size_t>(widths[0]), heights[0]);
+      }
+      break;
+    case NVJPEG_OUTPUT_Y:
+      set_channel(0, static_cast<size_t>(widths[0]), heights[0]);
+      break;
+    case NVJPEG_OUTPUT_YUV:
+    case NVJPEG_OUTPUT_UNCHANGED:
+      for (int channel = 0; channel < components; ++channel) {
+        set_channel(channel, static_cast<size_t>(widths[channel]),
+                    heights[channel]);
+      }
+      break;
+    case NVJPEG_OUTPUT_NV12:
+      set_channel(0, static_cast<size_t>(widths[0]), heights[0]);
+      set_channel(1, static_cast<size_t>(widths[1]) * 2U, heights[1]);
+      break;
+    case NVJPEG_OUTPUT_YUY2:
+      set_channel(0, static_cast<size_t>(widths[0]) * 2U, heights[0]);
+      break;
+    case NVJPEG_OUTPUT_UNCHANGEDI:
+      set_channel(
+          0, static_cast<size_t>(widths[0]) * static_cast<size_t>(components),
+          heights[0]);
+      break;
+    case NVJPEG_OUTPUT_UNCHANGEDI_U16:
+      set_channel(0,
+                  static_cast<size_t>(widths[0]) *
+                      static_cast<size_t>(components) * sizeof(unsigned short),
+                  heights[0]);
+      break;
+    default:
+      LOG(FATAL) << "Unsupported nvJPEG output format: " << output_format;
+  }
+
+  buffer->stride = buffer->destination.pitch[0];
+}
+
 }  // namespace
 
-NvjpegDecodeNode::NvjpegDecodeNode(const std::string& name) {
+DecodedJpegBuffer::~DecodedJpegBuffer() {
+  for (int channel = 0; channel < NVJPEG_MAX_COMPONENT; ++channel) {
+    if (channel_sizes[channel] != 0U &&
+        destination.channel[channel] != nullptr) {
+      cudaError_t status = cudaFree(destination.channel[channel]);
+      if (status != cudaSuccess) {
+        LOG(ERROR) << cudaGetErrorString(status);
+      }
+    }
+  }
+}
+
+NvjpegDecodeNode::NvjpegDecodeNode(const std::string& name,
+                                   nvjpegOutputFormat_t output_format)
+    : output_format_(output_format) {
   (void)name;
   CheckNvjpeg(nvjpegCreateSimple(&handle_));
   CheckNvjpeg(nvjpegJpegStateCreate(handle_, &state_));
-  decode_thread_ = std::jthread([this](const std::stop_token& stop_token) {
-    std::function<void()> task;
-    while (!stop_token.stop_requested()) {
-      {
-        std::unique_lock<std::timed_mutex> lock(mutex_);
-        cv_.wait(lock, [this, stop_token] {
-          return !tasks_.empty() || stop_token.stop_requested();
-        });
-        if (tasks_.empty()) {
-          continue;
+  decode_thread_ =
+      std::jthread([this](const std::stop_token& stop_token) -> void {
+        function<void()> task;
+        while (!stop_token.stop_requested()) {
+          {
+            std::unique_lock<std::timed_mutex> lock(mutex_);
+            cv_.wait(lock, [this, stop_token]() -> bool {
+              return !tasks_.empty() || stop_token.stop_requested();
+            });
+            if (tasks_.empty()) {
+              continue;
+            }
+            task = std::move(tasks_.front());
+            tasks_.pop();
+          }
+          if (stop_token.stop_requested()) {
+            break;
+          }
+          task();
         }
-        task = std::move(tasks_.front());
-        tasks_.pop();
-      }
-      if (stop_token.stop_requested()) {
-        break;
-      }
-      task();
-    }
-  });
+      });
 }
 
 NvjpegDecodeNode::~NvjpegDecodeNode() {
@@ -88,31 +166,24 @@ void NvjpegDecodeNode::DecodeJpegBuffer(
                                  heights.data()));
 
   auto buffer_shared_ptr = std::make_shared<DecodedJpegBuffer>();
-  buffer_shared_ptr->width = widths[0];
-  buffer_shared_ptr->height = heights[0];
-  buffer_shared_ptr->stride =
-      static_cast<size_t>(buffer_shared_ptr->width) * 3;
-  buffer_shared_ptr->bgr.resize(buffer_shared_ptr->stride *
-                                static_cast<size_t>(buffer_shared_ptr->height));
+  ConfigureDestination(buffer_shared_ptr.get(), output_format_, components,
+                       widths, heights);
 
-  unsigned char* device_buffer = nullptr;
-  CheckCuda(cudaMalloc(reinterpret_cast<void**>(&device_buffer),
-                       buffer_shared_ptr->bgr.size()));
-
-  nvjpegImage_t output = {};
-  output.channel[0] = device_buffer;
-  output.pitch[0] = buffer_shared_ptr->stride;
+  for (int channel = 0; channel < NVJPEG_MAX_COMPONENT; ++channel) {
+    if (buffer_shared_ptr->channel_sizes[channel] == 0U) {
+      continue;
+    }
+    CheckCuda(cudaMalloc(reinterpret_cast<void**>(
+                             &buffer_shared_ptr->destination.channel[channel]),
+                         buffer_shared_ptr->channel_sizes[channel]));
+  }
 
   CheckNvjpeg(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size(),
-                           NVJPEG_OUTPUT_BGRI, &output, nullptr));
+                           output_format_, &buffer_shared_ptr->destination,
+                           nullptr));
   CheckCuda(cudaDeviceSynchronize());
-  CheckCuda(cudaMemcpy(buffer_shared_ptr->bgr.data(), device_buffer,
-                       buffer_shared_ptr->bgr.size(), cudaMemcpyDeviceToHost));
-  CheckCuda(cudaFree(device_buffer));
 
-  for (size_t i = 0; i < callbacks_.size(); i++) {  // NOLINT
-    std::function<void(std::shared_ptr<DecodedJpegBuffer>)> callback =
-        callbacks_[i];
+  for (const auto& callback : callbacks_) {
     callback(buffer_shared_ptr);
   }
 }

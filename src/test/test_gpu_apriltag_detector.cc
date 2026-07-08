@@ -37,8 +37,8 @@ auto main(int argc, char* argv[]) -> int {
   camera::UVCCameraConfig config(config_path);
 
   auto uvc_camera_node = std::make_unique<camera::UVCCameraNode>(config);
-  auto nvjpeg_decode_node =
-      std::make_unique<camera::NvjpegDecodeNode>("test_gpu_apriltag_detector");
+  auto nvjpeg_decode_node = std::make_unique<camera::NvjpegDecodeNode>(
+      "test_gpu_apriltag_detector", NVJPEG_OUTPUT_Y);
   std::string detector_config_path = config_path;
   auto detector_node = std::make_unique<apriltag::NvidiaApriltagDetectorNode>(
       config.width, config.height, detector_config_path);
@@ -50,7 +50,8 @@ auto main(int argc, char* argv[]) -> int {
 
   detector_node->RegisterCallback(
       [&detection_frames, &tags_seen](
-          const std::shared_ptr<apriltag::NvidiaTagDetections>& detections) {
+          const std::shared_ptr<apriltag::NvidiaTagDetections>& detections)
+          -> void {
         const int frame_index = ++detection_frames;
         tags_seen += static_cast<int>(detections->tag_detections.size());
 
@@ -73,8 +74,8 @@ auto main(int argc, char* argv[]) -> int {
       });
 
   nvjpeg_decode_node->RegisterCallback(
-      [detector = detector_node.get(), &decoded_frames,
-       max_frames](const std::shared_ptr<camera::DecodedJpegBuffer>& buffer) {
+      [detector = detector_node.get(), &decoded_frames, max_frames](
+          const std::shared_ptr<camera::DecodedJpegBuffer>& buffer) -> void {
         detector->Detect(buffer);
         if (++decoded_frames >= max_frames) {
           stop::stop = true;
@@ -82,8 +83,8 @@ auto main(int argc, char* argv[]) -> int {
       });
 
   uvc_camera_node->RegisterCallback(
-      [decoder = nvjpeg_decode_node.get(), &submitted_frames, max_frames](
-          const std::shared_ptr<camera::JpegBuffer>& buffer) {
+      [decoder = nvjpeg_decode_node.get(), &submitted_frames,
+       max_frames](const std::shared_ptr<camera::JpegBuffer>& buffer) -> void {
         if (submitted_frames.fetch_add(1) >= max_frames) {
           stop::stop = true;
           return;

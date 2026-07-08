@@ -15,6 +15,7 @@ add_subdirectory(streamer)
 add_subdirectory(localization)
 add_subdirectory(logging)
 add_subdirectory(tools)
+add_subdirectory(test)
 add_subdirectory(main)
 add_subdirectory(examples)
 
