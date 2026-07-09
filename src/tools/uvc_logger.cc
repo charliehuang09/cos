@@ -1,5 +1,6 @@
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -8,6 +9,7 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
+#include <cuda_runtime.h>
 
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
@@ -69,8 +71,16 @@ auto main(int argc, char* argv[]) -> int {
             const std::shared_ptr<camera::DecodedJpegBuffer>& buffer) {
           int frame_index = frame_index_atomic.get()++;
 
+          CHECK(buffer->output_format == NVJPEG_OUTPUT_BGRI);
+
+          std::vector<unsigned char> bgr(buffer->channel_sizes[0]);
+          cudaError_t status =
+              cudaMemcpy(bgr.data(), buffer->destination.channel[0],
+                         buffer->channel_sizes[0], cudaMemcpyDeviceToHost);
+          CHECK(status == cudaSuccess) << cudaGetErrorString(status);
+
           cv::Mat out(buffer->height, buffer->width, CV_8UC3,
-                      buffer->bgr.data(), buffer->stride);
+                      bgr.data(), buffer->stride);
           cv::imwrite(log_folder + std::to_string(frame_index) + ".png", out);
         });
   }

@@ -9,3 +9,13 @@ target_compile_options(control_loop PRIVATE
 target_link_libraries(control_loop PRIVATE
   absl::log
 )
+
+find_package(Threads REQUIRED)
+
+add_library(thread_pool
+  thread_pool.cc
+)
+target_link_libraries(thread_pool PUBLIC
+  Threads::Threads
+  absl::check
+)

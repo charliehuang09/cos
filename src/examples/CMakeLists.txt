@@ -24,3 +24,12 @@ target_link_libraries(control_loop_example PRIVATE
 )
 target_include_directories(control_loop_example PRIVATE
 )
+
+add_executable(nvidia_apriltag_detect)
+target_sources(nvidia_apriltag_detect
+  PRIVATE
+    nvidia_apriltag_detect.cc
+)
+target_link_libraries(nvidia_apriltag_detect PRIVATE
+  nvidia_apriltag_detector_node
+)
