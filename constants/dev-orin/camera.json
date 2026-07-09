@@ -1,0 +1,10 @@
+{
+  "name": "dev_orin_camera",
+  "camera_type": "uvc",
+  "serial_id": null,
+  "height": 800,
+  "width": 1280,
+  "fps": 100,
+  "max_payload_size": 3072,
+  "max_frame_size": 2048589
+}

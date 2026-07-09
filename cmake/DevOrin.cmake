@@ -6,8 +6,10 @@ add_custom_target(dev-orin
     COMMAND ${CMAKE_COMMAND} -E echo "Deploying build/bin and build/lib to root@dev-orin:/root..."
     
     COMMAND ssh root@dev-orin "mkdir -p /root"
-    COMMAND scp -r ${CMAKE_BINARY_DIR}/bin root@dev-orin:/root/
-    COMMAND scp -r ${CMAKE_BINARY_DIR}/lib root@dev-orin:/root/
+
+    COMMAND rsync -avz --delete ${CMAKE_BINARY_DIR}/bin/ root@dev-orin:/root/bin/
+    COMMAND rsync -avz --delete ${CMAKE_BINARY_DIR}/lib/ root@dev-orin:/root/lib/
+    COMMAND rsync -avz --delete ${CMAKE_SOURCE_DIR}/constants/ root@dev-orin:/root/constants/
     
     COMMENT "Uploading folders to dev-orin..."
     VERBATIM
