@@ -59,7 +59,7 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
   }
 }
 void NvjpegDecodeNode::Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer) {
-  std::function<void()> task = [this, jpeg_buffer] {
+  std::function<void()> task = [this, jpeg_buffer]() -> void {
     DecodeJpegBuffer(jpeg_buffer);
   };
   {
@@ -90,8 +90,7 @@ void NvjpegDecodeNode::DecodeJpegBuffer(
   auto buffer_shared_ptr = std::make_shared<DecodedJpegBuffer>();
   buffer_shared_ptr->width = widths[0];
   buffer_shared_ptr->height = heights[0];
-  buffer_shared_ptr->stride =
-      static_cast<size_t>(buffer_shared_ptr->width) * 3;
+  buffer_shared_ptr->stride = static_cast<size_t>(buffer_shared_ptr->width) * 3;
   buffer_shared_ptr->bgr.resize(buffer_shared_ptr->stride *
                                 static_cast<size_t>(buffer_shared_ptr->height));
 
