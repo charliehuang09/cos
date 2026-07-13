@@ -1,16 +1,32 @@
 #include "streamer/jpeg_buffer_streamer_node.h"
 
+#include "absl/log/check.h"
+
 namespace streamer {
-JpegBufferStreamerNode::JpegBufferStreamerNode(std::string path, int port)
-    : path_(std::move(path)) {
+JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
+                                               std::string path, int port)
+    : input_path_(input_path), path_(std::move(path)) {
   streamer_.start(port);
 }
 
-void JpegBufferStreamerNode::Stream(
-    const std::shared_ptr<camera::JpegBuffer>& jpeg_buffer) {
-  std::string string_buffer(static_cast<char*>(jpeg_buffer->ptr()),
-                            jpeg_buffer->size());
+void JpegBufferStreamerNode::Stream(const camera::JpegBuffer& jpeg_buffer) {
+  std::string string_buffer(static_cast<char*>(jpeg_buffer.ptr),
+                            jpeg_buffer.size);
   streamer_.publish(path_, string_buffer);
+}
+
+auto JpegBufferStreamerNode::CreateCallback()
+    -> std::function<void(const control_loop::Context&)> {
+  return [this](const control_loop::Context& context) -> void {
+    const auto message_it = context->messages.find(input_path_);
+    if (message_it == context->messages.end() || message_it->second == nullptr) {
+      return;
+    }
+    auto* jpeg_buffer = dynamic_cast<camera::JpegBuffer*>(
+        message_it->second.get());
+    CHECK(jpeg_buffer != nullptr);
+    Stream(*jpeg_buffer);
+  };
 }
 
 }  // namespace streamer

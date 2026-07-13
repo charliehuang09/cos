@@ -1,24 +1,24 @@
 #pragma once
 #include <array>
-#include <condition_variable>
 #include <cstddef>
-#include <mutex>
-#include <queue>
 #include <string>
-#include <thread>
-#include <vector>
 
 #include <nvjpeg.h>
 
 #include "camera/uvc_camera_node.h"
+#include "control_loop/message.h"
 namespace camera {
 
-class DecodedJpegBuffer {
+class DecodedJpegBuffer : public control_loop::IMessage {
  public:
-  ~DecodedJpegBuffer();
+  ~DecodedJpegBuffer() override;
   DecodedJpegBuffer() = default;
-  DecodedJpegBuffer(const DecodedJpegBuffer&) = delete;
-  auto operator=(const DecodedJpegBuffer&) -> DecodedJpegBuffer& = delete;
+
+  DecodedJpegBuffer(DecodedJpegBuffer&& other) noexcept;
+
+  auto GetType() -> const std::type_info& override {
+    return typeid(DecodedJpegBuffer);
+  }
 
   int width = 0;
   int height = 0;
@@ -29,29 +29,25 @@ class DecodedJpegBuffer {
   nvjpegImage_t destination = {};
 };
 
+// using DecodedJpegBuffer = std::shared_ptr<DecodedJpegBufferInternal>;
+
 class NvjpegDecodeNode {
  public:
   explicit NvjpegDecodeNode(
-      const std::string& name,
+      std::string_view input_path, std::string_view output_path,
       nvjpegOutputFormat_t output_format = NVJPEG_OUTPUT_BGRI);
   ~NvjpegDecodeNode();
-  void RegisterCallback(
-      const std::function<void(std::shared_ptr<DecodedJpegBuffer>)>& callback);
-  void Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer);
+  auto CreateCallback() -> std::function<void(const control_loop::Context&)>;
 
  private:
-  void DecodeJpegBuffer(const std::shared_ptr<JpegBuffer>& jpeg_buffer);
+  auto DecodeJpegBuffer(const JpegBuffer* jpeg_buffer) -> DecodedJpegBuffer;
 
  private:
+  std::string input_path_;
+  std::string output_path_;
   nvjpegHandle_t handle_ = nullptr;
   nvjpegJpegState_t state_ = nullptr;
   nvjpegOutputFormat_t output_format_ = NVJPEG_OUTPUT_BGRI;
-  std::condition_variable_any cv_;
-  std::timed_mutex mutex_;
-  std::queue<std::function<void()>> tasks_;
-  std::vector<std::function<void(std::shared_ptr<DecodedJpegBuffer>)>>
-      callbacks_;
-  std::jthread decode_thread_;
 };
 
 }  // namespace camera

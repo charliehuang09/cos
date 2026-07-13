@@ -11,4 +11,5 @@ target_link_libraries(uvc_logger PRIVATE
   nvjpeg_decode_node
   JPEG::JPEG
   ${OpenCV_LIBS}
+  control_loop
 )

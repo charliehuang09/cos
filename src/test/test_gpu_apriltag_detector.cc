@@ -1,5 +1,9 @@
 #include <atomic>
+#include <condition_variable>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "absl/flags/flag.h"
@@ -12,6 +16,7 @@
 #include "apriltag/nvidia_apriltag_detector_node.h"
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
+#include "control_loop/control_loop.h"
 #include "utils/stop.h"
 
 ABSL_FLAG(std::string, config_path, "",          // NOLINT
@@ -21,12 +26,12 @@ ABSL_FLAG(int, max_frames, 100,                  // NOLINT
 ABSL_FLAG(bool, log_empty_frames, false,         // NOLINT
           "log frames with no tag detections");  // NOLINT
 
+using namespace std::chrono_literals;
+
 auto main(int argc, char* argv[]) -> int {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
-
-  stop::RegisterHandler();
 
   const std::string config_path = absl::GetFlag(FLAGS_config_path);
   CHECK(!config_path.empty()) << "--config_path is required";
@@ -36,24 +41,38 @@ auto main(int argc, char* argv[]) -> int {
 
   camera::UVCCameraConfig config(config_path);
 
-  auto uvc_camera_node = std::make_unique<camera::UVCCameraNode>(config);
+  control_loop::ControlLoop control_loop(20ms);
+  control_loop::ThreadPool thread_pool;
+
+  auto uvc_camera_node =
+      std::make_unique<camera::UVCCameraNode>("jpeg_stream", config);
+
+  control_loop.RegisterDependancy(uvc_camera_node->CreateCallback());
+
   auto nvjpeg_decode_node = std::make_unique<camera::NvjpegDecodeNode>(
-      "test_gpu_apriltag_detector", NVJPEG_OUTPUT_Y);
+      "jpeg_stream", "decoded_image", NVJPEG_OUTPUT_Y);
+
   std::string detector_config_path = config_path;
   auto detector_node = std::make_unique<apriltag::NvidiaApriltagDetectorNode>(
-      config.width, config.height, detector_config_path);
+      "decoded_image", "apriltag_detection", config.width, config.height,
+      detector_config_path, thread_pool);
 
   std::atomic<int> decoded_frames = 0;
   std::atomic<int> detection_frames = 0;
   std::atomic<int> submitted_frames = 0;
   std::atomic<int> tags_seen = 0;
+  std::mutex completion_mutex;
+  std::condition_variable completion_cv;
 
   detector_node->RegisterCallback(
-      [&detection_frames, &tags_seen](
+      [&detection_frames, &tags_seen, &completion_cv, max_frames](
           const std::shared_ptr<apriltag::NvidiaTagDetections>& detections)
           -> void {
         const int frame_index = ++detection_frames;
         tags_seen += static_cast<int>(detections->tag_detections.size());
+        if (frame_index >= max_frames) {
+          completion_cv.notify_one();
+        }
 
         if (detections->tag_detections.empty()) {
           if (absl::GetFlag(FLAGS_log_empty_frames)) {
@@ -71,33 +90,39 @@ auto main(int argc, char* argv[]) -> int {
                     << "),(" << detection.corners[3].x << ","
                     << detection.corners[3].y << ")]";
         }
+
       });
 
-  nvjpeg_decode_node->RegisterCallback(
-      [detector = detector_node.get(), &decoded_frames, max_frames](
-          const std::shared_ptr<camera::DecodedJpegBuffer>& buffer) -> void {
-        detector->Detect(buffer);
-        if (++decoded_frames >= max_frames) {
-          stop::stop = true;
-        }
-      });
-
-  uvc_camera_node->RegisterCallback(
-      [decoder = nvjpeg_decode_node.get(), &submitted_frames,
-       max_frames](const std::shared_ptr<camera::JpegBuffer>& buffer) -> void {
-        if (submitted_frames.fetch_add(1) >= max_frames) {
-          stop::stop = true;
+  control_loop.RegisterCallback(nvjpeg_decode_node->CreateCallback());
+  control_loop.RegisterCallback(
+      [&decoded_frames, &submitted_frames, detector = detector_node.get()](
+          const control_loop::Context& context) -> void {
+        const auto decoded = context->messages.find("decoded_image");
+        if (decoded == context->messages.end() || decoded->second == nullptr) {
           return;
         }
-        decoder->Decode(buffer);
+        if (submitted_frames.load() >= absl::GetFlag(FLAGS_max_frames)) {
+          return;
+        }
+        ++decoded_frames;
+        ++submitted_frames;
+        detector->Callback(context);
       });
 
   uvc_camera_node->Start();
+  control_loop.Start();
   LOG(INFO) << "Running GPU AprilTag detector for " << max_frames
             << " decoded frames";
 
-  stop::WaitUntilStop();
+  {
+    std::unique_lock lock(completion_mutex);
+    completion_cv.wait(lock, [&detection_frames, max_frames]() -> bool {
+      return detection_frames.load() >= max_frames;
+    });
+  }
 
+  control_loop.Stop();
+  thread_pool.Shutdown();
   uvc_camera_node.reset();
   nvjpeg_decode_node.reset();
   detector_node.reset();
@@ -107,5 +132,11 @@ auto main(int argc, char* argv[]) -> int {
             << " detection_frames=" << detection_frames.load()
             << " submitted_frames=" << submitted_frames.load()
             << " tags_seen=" << tags_seen.load();
-  return 0;
+
+  // Jetson's libnvidia-gpucomp process-exit finalizer double-frees memory when
+  // VPI and nvJPEG are loaded together. All resources owned by this test have
+  // been explicitly stopped and destroyed above, so bypass the broken library
+  // finalizer.
+  std::fflush(nullptr);
+  std::_Exit(EXIT_SUCCESS);
 }

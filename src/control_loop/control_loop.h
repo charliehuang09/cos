@@ -1,12 +1,13 @@
 #pragma once
 
-#include <any>
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <thread>
 #include <vector>
+
+#include "control_loop/message.h"
 
 namespace control_loop {
 
@@ -17,7 +18,7 @@ struct ContextInternal {
   ControlLoop* control_loop;
   std::stop_token stop_token;
   std::atomic<bool>* destructed;
-  std::unordered_map<std::string, std::any> messages;
+  std::unordered_map<std::string, std::unique_ptr<IMessage>> messages;
   ~ContextInternal();
 };
 
@@ -29,6 +30,7 @@ class ControlLoop {
   void RegisterCallback(std::function<void(const Context&)> callback);
   void RegisterDependancy(std::function<void(const Context&)>);
   void Start();
+  void Stop();
 
  private:
   std::jthread thread_;

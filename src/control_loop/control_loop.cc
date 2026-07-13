@@ -20,14 +20,12 @@ void ControlLoop::Start() {
       std::stop_source stop_source;
       std::atomic destructed = false;
 
-      auto context_internal = ContextInternal{
+      Context context(new ContextInternal{
           .start = std::chrono::steady_clock::now(),
           .control_loop = this,
           .stop_token = stop_source.get_token(),
           .destructed = &destructed,
-      };
-
-      Context context = std::make_shared<ContextInternal>(context_internal);
+      });
 
       for (const auto& dependancy : dependencies_) {
         dependancy(context);
@@ -44,10 +42,17 @@ void ControlLoop::Start() {
       if (!destructed) {
         LOG(WARNING) << "Command loop overun";
         stop_source.request_stop();
-        destructed.wait(true);
+        destructed.wait(false);
       }
     }
   });
+}
+
+void ControlLoop::Stop() {
+  thread_.request_stop();
+  if (thread_.joinable()) {
+    thread_.join();
+  }
 }
 
 void ControlLoop::RegisterCallback(
