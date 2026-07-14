@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstddef>
+#include <mutex>
 #include <string>
 
 #include <nvjpeg.h>
@@ -54,6 +55,7 @@ class NvjpegDecodeNode final : public control_loop::INode {
   std::string output_path_;
   nvjpegHandle_t handle_ = nullptr;
   nvjpegJpegState_t state_ = nullptr;
+  std::mutex decode_mutex_;
   nvjpegOutputFormat_t output_format_ = NVJPEG_OUTPUT_BGRI;
   control_loop::ThreadPool& thread_pool_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;

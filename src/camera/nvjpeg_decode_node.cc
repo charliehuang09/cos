@@ -153,6 +153,8 @@ auto NvjpegDecodeNode::CreateCallback()
 
 auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
     -> DecodedJpegBuffer {
+  std::lock_guard lock(decode_mutex_);
+
   int components = 0;
   nvjpegChromaSubsampling_t subsampling = NVJPEG_CSS_UNKNOWN;
   std::array<int, NVJPEG_MAX_COMPONENT> widths = {};
