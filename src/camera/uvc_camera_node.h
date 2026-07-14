@@ -8,6 +8,8 @@
 #include <optional>
 
 #include "control_loop/control_loop.h"
+#include "control_loop/node.h"
+
 #include "libuvc/libuvc.h"
 
 namespace camera {
@@ -48,12 +50,13 @@ class JpegBuffer final : public control_loop::IMessage {
   }
 };
 
-class UVCCameraNode {
+class UVCCameraNode final : public control_loop::INode {
  public:
   UVCCameraNode(std::string_view output_path, const UVCCameraConfig& config);
-  ~UVCCameraNode();
+  ~UVCCameraNode() override;
   void Start();
-  auto CreateCallback() -> std::function<void(const control_loop::Context&)>;
+  auto CreateCallback()
+      -> std::function<void(const control_loop::Context&)> override;
   void Callback(const control_loop::Context& context);
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
 

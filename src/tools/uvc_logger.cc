@@ -30,7 +30,7 @@ ABSL_FLAG(                                                  // NOLINT
 ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT
           "Streaming port. No stream if left blank");  // NOLINT
 
-ABSL_FLAG(std::optional<std::string>, log_folder, std::nullopt,  // NOLINT
+ABSL_FLAG(std::optional<std::string>, log_folder, std::nullopt,      // NOLINT
           "Folder for numbered PNG frames. No logs if left blank");  // NOLINT
 
 using namespace std::chrono_literals;
@@ -45,13 +45,14 @@ auto main(int argc, char* argv[]) -> int {
   camera::UVCCameraConfig config(absl::GetFlag(FLAGS_config_path));
 
   control_loop::ControlLoop control_loop(20ms);
+  control_loop::ThreadPool thread_pool;
 
   auto uvc_camera_node =
       std::make_unique<camera::UVCCameraNode>("jpeg_stream", config);
   control_loop.RegisterDependancy(uvc_camera_node->CreateCallback());
 
   auto nvjpeg_decode_node = std::make_unique<camera::NvjpegDecodeNode>(
-      "jpeg_stream", "decoded_buffer");
+      "jpeg_stream", "decoded_buffer", NVJPEG_OUTPUT_BGRI, thread_pool);
   control_loop.RegisterCallback(nvjpeg_decode_node->CreateCallback());
 
   if (absl::GetFlag(FLAGS_log_folder).has_value()) {
@@ -60,18 +61,15 @@ auto main(int argc, char* argv[]) -> int {
     CHECK(!log_folder.empty()) << "--log_folder must not be empty";
     std::filesystem::create_directories(log_folder);
 
-    control_loop.RegisterCallback(
+    nvjpeg_decode_node->RegisterCallback(
         [log_folder, frame_index = size_t{0}](
             const control_loop::Context& context) mutable -> void {
-          const auto message_it = context->messages.find("decoded_buffer");
-          if (message_it == context->messages.end() ||
-              message_it->second == nullptr) {
+          camera::DecodedJpegBuffer* buffer =
+              context->GetMessage<camera::DecodedJpegBuffer>(
+                  "decoded_buffer");
+          if (buffer == nullptr) {
             return;
           }
-
-          auto* buffer = dynamic_cast<camera::DecodedJpegBuffer*>(
-              message_it->second.get());
-          CHECK(buffer != nullptr);
           CHECK(buffer->output_format == NVJPEG_OUTPUT_BGRI);
 
           std::vector<unsigned char> bgr(buffer->channel_sizes[0]);

@@ -7,9 +7,11 @@
 
 #include "camera/uvc_camera_node.h"
 #include "control_loop/message.h"
+#include "control_loop/node.h"
+#include "control_loop/thread_pool.h"
 namespace camera {
 
-class DecodedJpegBuffer : public control_loop::IMessage {
+class DecodedJpegBuffer final : public control_loop::IMessage {
  public:
   ~DecodedJpegBuffer() override;
   DecodedJpegBuffer() = default;
@@ -24,20 +26,25 @@ class DecodedJpegBuffer : public control_loop::IMessage {
   int height = 0;
   size_t stride = 0;
   size_t output_size = 0;
-  nvjpegOutputFormat_t output_format = NVJPEG_OUTPUT_BGRI;
+  nvjpegOutputFormat_t output_format = NVJPEG_OUTPUT_Y;
+  ;
   std::array<size_t, NVJPEG_MAX_COMPONENT> channel_sizes = {};
   nvjpegImage_t destination = {};
 };
 
-// using DecodedJpegBuffer = std::shared_ptr<DecodedJpegBufferInternal>;
-
-class NvjpegDecodeNode {
+class NvjpegDecodeNode final : public control_loop::INode {
  public:
-  explicit NvjpegDecodeNode(
-      std::string_view input_path, std::string_view output_path,
-      nvjpegOutputFormat_t output_format = NVJPEG_OUTPUT_BGRI);
-  ~NvjpegDecodeNode();
-  auto CreateCallback() -> std::function<void(const control_loop::Context&)>;
+  explicit NvjpegDecodeNode(std::string_view input_path,
+                            std::string_view output_path,
+                            nvjpegOutputFormat_t output_format,
+                            control_loop::ThreadPool& thread_pool);
+  ~NvjpegDecodeNode() override;
+  auto CreateCallback()
+      -> std::function<void(const control_loop::Context&)> override;
+  void RegisterCallback(
+      const std::function<void(const control_loop::Context&)>& callback) {
+    callbacks_.emplace_back(callback);
+  };
 
  private:
   auto DecodeJpegBuffer(const JpegBuffer* jpeg_buffer) -> DecodedJpegBuffer;
@@ -48,6 +55,8 @@ class NvjpegDecodeNode {
   nvjpegHandle_t handle_ = nullptr;
   nvjpegJpegState_t state_ = nullptr;
   nvjpegOutputFormat_t output_format_ = NVJPEG_OUTPUT_BGRI;
+  control_loop::ThreadPool& thread_pool_;
+  std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
 };
 
 }  // namespace camera

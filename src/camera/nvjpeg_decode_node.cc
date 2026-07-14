@@ -108,10 +108,12 @@ DecodedJpegBuffer::DecodedJpegBuffer(DecodedJpegBuffer&& other) noexcept
 
 NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
                                    std::string_view output_path,
-                                   nvjpegOutputFormat_t output_format)
+                                   nvjpegOutputFormat_t output_format,
+                                   control_loop::ThreadPool& thread_pool)
     : input_path_(input_path),
       output_path_(output_path),
-      output_format_(output_format) {
+      output_format_(output_format),
+      thread_pool_(thread_pool) {
   CheckNvjpeg(nvjpegCreateSimple(&handle_));
   CheckNvjpeg(nvjpegJpegStateCreate(handle_, &state_));
 }
@@ -129,18 +131,23 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
 auto NvjpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
-    const auto message_it = context->messages.find(input_path_);
-    if (message_it == context->messages.end() || message_it->second == nullptr) {
+    JpegBuffer* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
+    if (jpeg_buffer == nullptr) {
       return;
     }
-    const std::unique_ptr<control_loop::IMessage>& message = message_it->second;
-    CHECK(message->GetType() == typeid(JpegBuffer));
 
-    std::unique_ptr<control_loop::IMessage> decoded_buffer =
-        std::make_unique<DecodedJpegBuffer>(
-            DecodeJpegBuffer(dynamic_cast<JpegBuffer*>(message.get())));
+    std::function<void()> task = [this, context, jpeg_buffer]() -> void {
+      std::unique_ptr<control_loop::IMessage> decoded_buffer =
+          std::make_unique<DecodedJpegBuffer>(DecodeJpegBuffer(jpeg_buffer));
 
-    context->messages[output_path_] = std::move(decoded_buffer);
+      context->SetMessage(output_path_, std::move(decoded_buffer));
+
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
+    };
+
+    thread_pool_.Submit(task);
   };
 }
 

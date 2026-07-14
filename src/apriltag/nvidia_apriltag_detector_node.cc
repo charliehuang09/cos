@@ -73,20 +73,20 @@ NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
   }
 }
 
-void NvidiaApriltagDetectorNode::Callback(const Context& context) {
-  if (!context->messages.contains(input_channel_)) [[unlikely]] {
-    return;
-  }
-  const auto& message = context->messages.at(input_channel_);
-  if (message == nullptr) {
-    return;
-  }
+auto NvidiaApriltagDetectorNode::CreateCallback()
+    -> std::function<void(const control_loop::Context&)> {
+  return [this](const control_loop::Context& context) -> void {
+    Callback(context);
+  };
+}
 
-  CHECK(message->GetType() == typeid(camera::DecodedJpegBuffer));
-  std::function<void()> task = [this, context]() -> void {
-    const auto& retained_message = context->messages.at(input_channel_);
-    auto* decoded_buffer =
-        dynamic_cast<camera::DecodedJpegBuffer*>(retained_message.get());
+void NvidiaApriltagDetectorNode::Callback(const Context& context) {
+  camera::DecodedJpegBuffer* decoded_buffer =
+      context->GetMessage<camera::DecodedJpegBuffer>(input_channel_);
+  if (decoded_buffer == nullptr) [[unlikely]] {
+    return;
+  }
+  std::function<void()> task = [this, context, decoded_buffer]() -> void {
     CHECK(decoded_buffer != nullptr);
     Detect(*decoded_buffer);
   };

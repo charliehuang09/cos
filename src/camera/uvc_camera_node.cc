@@ -81,7 +81,7 @@ void UVCCameraNode::Callback(const control_loop::Context& context) {
   if (buffer_ == nullptr) {
     return;
   }
-  context->messages[output_path_] = std::move(buffer_);
+  context->SetMessage(output_path_, std::move(buffer_));
 }
 
 void UVCCameraNode::Start() {

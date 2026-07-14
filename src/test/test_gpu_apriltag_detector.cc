@@ -17,7 +17,6 @@
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
 #include "control_loop/control_loop.h"
-#include "utils/stop.h"
 
 ABSL_FLAG(std::string, config_path, "",          // NOLINT
           "path to the uvc config json file");   // NOLINT
@@ -50,7 +49,7 @@ auto main(int argc, char* argv[]) -> int {
   control_loop.RegisterDependancy(uvc_camera_node->CreateCallback());
 
   auto nvjpeg_decode_node = std::make_unique<camera::NvjpegDecodeNode>(
-      "jpeg_stream", "decoded_image", NVJPEG_OUTPUT_Y);
+      "jpeg_stream", "decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
 
   std::string detector_config_path = config_path;
   auto detector_node = std::make_unique<apriltag::NvidiaApriltagDetectorNode>(
@@ -90,15 +89,15 @@ auto main(int argc, char* argv[]) -> int {
                     << "),(" << detection.corners[3].x << ","
                     << detection.corners[3].y << ")]";
         }
-
       });
 
   control_loop.RegisterCallback(nvjpeg_decode_node->CreateCallback());
-  control_loop.RegisterCallback(
-      [&decoded_frames, &submitted_frames, detector = detector_node.get()](
-          const control_loop::Context& context) -> void {
-        const auto decoded = context->messages.find("decoded_image");
-        if (decoded == context->messages.end() || decoded->second == nullptr) {
+  nvjpeg_decode_node->RegisterCallback(detector_node->CreateCallback());
+  nvjpeg_decode_node->RegisterCallback(
+      [&decoded_frames,
+       &submitted_frames](const control_loop::Context& context) -> void {
+        if (context->GetMessage<camera::DecodedJpegBuffer>("decoded_image") ==
+            nullptr) {
           return;
         }
         if (submitted_frames.load() >= absl::GetFlag(FLAGS_max_frames)) {
@@ -106,7 +105,6 @@ auto main(int argc, char* argv[]) -> int {
         }
         ++decoded_frames;
         ++submitted_frames;
-        detector->Callback(context);
       });
 
   uvc_camera_node->Start();

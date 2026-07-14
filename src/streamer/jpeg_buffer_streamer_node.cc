@@ -18,13 +18,11 @@ void JpegBufferStreamerNode::Stream(const camera::JpegBuffer& jpeg_buffer) {
 auto JpegBufferStreamerNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
-    const auto message_it = context->messages.find(input_path_);
-    if (message_it == context->messages.end() || message_it->second == nullptr) {
+    camera::JpegBuffer* jpeg_buffer =
+        context->GetMessage<camera::JpegBuffer>(input_path_);
+    if (jpeg_buffer == nullptr) {
       return;
     }
-    auto* jpeg_buffer = dynamic_cast<camera::JpegBuffer*>(
-        message_it->second.get());
-    CHECK(jpeg_buffer != nullptr);
     Stream(*jpeg_buffer);
   };
 }

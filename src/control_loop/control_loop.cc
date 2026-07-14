@@ -6,9 +6,23 @@
 
 namespace control_loop {
 
+ContextInternal::ContextInternal(
+    std::chrono::steady_clock::time_point start, ControlLoop* control_loop,
+    std::stop_token stop_token, std::atomic<bool>* destructed)
+    : start(start),
+      control_loop(control_loop),
+      stop_token(stop_token),
+      destructed(destructed) {}
+
 ContextInternal::~ContextInternal() {
   destructed->store(true);
   destructed->notify_all();
+}
+
+void ContextInternal::SetMessage(std::string_view path,
+                                 std::unique_ptr<IMessage> message) {
+  std::lock_guard lock(messages_mutex_);
+  messages_.emplace(path, std::move(message));
 }
 
 ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
@@ -20,12 +34,9 @@ void ControlLoop::Start() {
       std::stop_source stop_source;
       std::atomic destructed = false;
 
-      Context context(new ContextInternal{
-          .start = std::chrono::steady_clock::now(),
-          .control_loop = this,
-          .stop_token = stop_source.get_token(),
-          .destructed = &destructed,
-      });
+      Context context(new ContextInternal(std::chrono::steady_clock::now(),
+                                          this, stop_source.get_token(),
+                                          &destructed));
 
       for (const auto& dependancy : dependencies_) {
         dependancy(context);

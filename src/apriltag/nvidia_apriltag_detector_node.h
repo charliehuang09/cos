@@ -26,18 +26,20 @@ class NvidiaTagDetections {
   std::vector<tag_detection> tag_detections;
 };
 
-class NvidiaApriltagDetectorNode {
+class NvidiaApriltagDetectorNode final : public control_loop::INode {
  public:
   NvidiaApriltagDetectorNode(std::string_view input_channel,
                              std::string_view output_channel, int width,
                              int height, std::string_view config_path,
                              control_loop::ThreadPool& thread_pool);
-  ~NvidiaApriltagDetectorNode();
+  ~NvidiaApriltagDetectorNode() override;
   void RegisterCallback(
       const std::function<void(const std::shared_ptr<NvidiaTagDetections>&)>&
           callback);
   void Callback(const control_loop::Context& context);
   void Detect(const camera::DecodedJpegBuffer& buffer);
+  auto CreateCallback()
+      -> std::function<void(const control_loop::Context&)> override;
 
  private:
   void Detect(VPIImage image);

@@ -1,14 +1,16 @@
 #pragma once
 #include <nadjieb/mjpeg_streamer.hpp>
+
 #include "camera/uvc_camera_node.h"
 
 namespace streamer {
 
-class JpegBufferStreamerNode {
+class JpegBufferStreamerNode final : public control_loop::INode {
  public:
   JpegBufferStreamerNode(std::string_view input_path, std::string path,
                          int port);
-  auto CreateCallback() -> std::function<void(const control_loop::Context&)>;
+  auto CreateCallback()
+      -> std::function<void(const control_loop::Context&)> override;
 
  private:
   void Stream(const camera::JpegBuffer& jpeg_buffer);
