@@ -29,10 +29,11 @@ class NvidiaTagDetections {
 class NvidiaApriltagDetectorNode final : public control_loop::INode {
  public:
   NvidiaApriltagDetectorNode(std::string_view input_channel,
-                             std::string_view output_channel, int width,
-                             int height, std::string_view config_path,
+                             std::string_view output_channel,
+                             std::string_view config_path,
                              control_loop::ThreadPool& thread_pool);
   ~NvidiaApriltagDetectorNode() override;
+  void WarmUp();
   void RegisterCallback(
       const std::function<void(const std::shared_ptr<NvidiaTagDetections>&)>&
           callback);
@@ -56,6 +57,8 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   std::string output_channel_;
   control_loop::ThreadPool& thread_pool_;
   std::mutex detect_mutex_;
+  int width_;
+  int height_;
 };
 
 }  // namespace apriltag

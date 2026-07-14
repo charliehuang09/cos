@@ -53,8 +53,9 @@ auto main(int argc, char* argv[]) -> int {
 
   std::string detector_config_path = config_path;
   auto detector_node = std::make_unique<apriltag::NvidiaApriltagDetectorNode>(
-      "decoded_image", "apriltag_detection", config.width, config.height,
-      detector_config_path, thread_pool);
+      "decoded_image", "apriltag_detection", detector_config_path,
+      thread_pool);
+  detector_node->WarmUp();
 
   std::atomic<int> decoded_frames = 0;
   std::atomic<int> detection_frames = 0;

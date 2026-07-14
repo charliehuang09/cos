@@ -12,7 +12,10 @@
 
 #include <cstddef>
 #include <cstring>
+#include <fstream>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace apriltag {
 using control_loop::Context;
@@ -32,17 +35,25 @@ static const VPIBackend backend = VPIBackend::VPI_BACKEND_PVA;  // NOLINT
 static const int max_detections = 64;
 
 NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
-    std::string_view input_channel, std::string_view output_channel, int width,
-    int height, std::string_view config_path,
-    control_loop::ThreadPool& thread_pool)
+    std::string_view input_channel, std::string_view output_channel,
+    std::string_view config_path, control_loop::ThreadPool& thread_pool)
     : input_channel_(input_channel),
       output_channel_(output_channel),
       thread_pool_(thread_pool) {
 
+  std::ifstream config_file{std::string(config_path)};
+  CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
+  const nlohmann::json config = nlohmann::json::parse(config_file);
+  width_ = config.at("width").get<int>();
+  height_ = config.at("height").get<int>();
+  CHECK(width_ > 0);
+  CHECK(height_ > 0);
+
   CHECK(!vpiContextCreate(backend | VPI_BACKEND_CPU, &context_));
   CHECK(!vpiContextSetCurrent(context_));
 
-  CHECK(!vpiCreateAprilTagDetector(backend, width, height, &params, &payload_));
+  CHECK(
+      !vpiCreateAprilTagDetector(backend, width_, height_, &params, &payload_));
 
   CHECK(!vpiArrayCreate(max_detections, VPI_ARRAY_TYPE_APRILTAG_DETECTION, 0,
                         &detections_));
@@ -50,7 +61,7 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   // initializes VPI's CUDA/EGL stack, whose process-exit finalizers conflict
   // with the CUDA context used by nvJPEG on Jetson.
   CHECK(!vpiStreamCreate(backend | VPI_BACKEND_CPU, &stream_));
-  CHECK(!vpiImageCreate(width, height, VPI_IMAGE_FORMAT_U8,
+  CHECK(!vpiImageCreate(width_, height_, VPI_IMAGE_FORMAT_U8,
                         backend | VPI_BACKEND_CPU, &input_));
 }
 
@@ -71,6 +82,31 @@ NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
   if (context_ != nullptr) {
     vpiContextDestroy(context_);
   }
+}
+
+void NvidiaApriltagDetectorNode::WarmUp() {
+  std::lock_guard lock(detect_mutex_);
+  CHECK(!vpiContextPush(context_));
+
+  VPIImageData image_data{};
+  CHECK(!vpiImageLockData(input_, VPI_LOCK_WRITE,
+                          VPI_IMAGE_BUFFER_HOST_PITCH_LINEAR, &image_data));
+
+  auto& plane = image_data.buffer.pitch.planes[0];
+  for (int row = 0; row < height_; ++row) {
+    std::memset(static_cast<unsigned char*>(plane.pBase) +
+                    static_cast<size_t>(row) * plane.pitchBytes,
+                0, static_cast<size_t>(width_));
+  }
+  CHECK(!vpiImageUnlock(input_));
+
+  CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
+                                   input_, detections_));
+  CHECK(!vpiStreamSync(stream_));
+
+  VPIContext popped_context = nullptr;
+  CHECK(!vpiContextPop(&popped_context));
+  CHECK(popped_context == context_);
 }
 
 auto NvidiaApriltagDetectorNode::CreateCallback()
