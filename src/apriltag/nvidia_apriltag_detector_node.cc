@@ -1,7 +1,6 @@
 #include "apriltag/nvidia_apriltag_detector_node.h"
 
 #include "absl/log/check.h"
-#include "absl/log/log.h"
 
 #include <vpi/Array.h>
 #include <vpi/Context.h>
@@ -117,21 +116,26 @@ auto NvidiaApriltagDetectorNode::CreateCallback()
 }
 
 void NvidiaApriltagDetectorNode::Callback(const Context& context) {
-  camera::DecodedJpegBuffer* decoded_buffer =
+  auto* decoded_buffer =
       context->GetMessage<camera::DecodedJpegBuffer>(input_channel_);
   if (decoded_buffer == nullptr) [[unlikely]] {
     return;
   }
   std::function<void()> task = [this, context, decoded_buffer]() -> void {
     CHECK(decoded_buffer != nullptr);
-    Detect(*decoded_buffer);
+    std::unique_ptr<control_loop::IMessage> detections =
+        std::make_unique<NvidiaTagDetections>(Detect(*decoded_buffer));
+    context->SetMessage(output_channel_, std::move(detections));
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
   };
   thread_pool_.Submit(task);
   return;
 }
 
-void NvidiaApriltagDetectorNode::Detect(
-    const camera::DecodedJpegBuffer& buffer) {
+auto NvidiaApriltagDetectorNode::Detect(const camera::DecodedJpegBuffer& buffer)
+    -> std::vector<NvidiaTagDetections::tag_detection> {
   std::lock_guard lock(detect_mutex_);
   CHECK(!vpiContextPush(context_));
   CHECK(buffer.output_format == NVJPEG_OUTPUT_Y);
@@ -152,13 +156,15 @@ void NvidiaApriltagDetectorNode::Detect(
   }
   CHECK(!vpiImageUnlock(input_));
 
-  Detect(input_);
+  auto detections = Detect(input_);
   VPIContext popped_context = nullptr;
   CHECK(!vpiContextPop(&popped_context));
   CHECK(popped_context == context_);
+  return detections;
 }
 
-void NvidiaApriltagDetectorNode::Detect(VPIImage image) {
+auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
+    -> std::vector<NvidiaTagDetections::tag_detection> {
   CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
                                    image, detections_));
 
@@ -168,34 +174,26 @@ void NvidiaApriltagDetectorNode::Detect(VPIImage image) {
   CHECK(!vpiArrayLockData(detections_, VPI_LOCK_READ, VPI_ARRAY_BUFFER_HOST_AOS,
                           &detections_data));
 
-  auto* detections =
+  auto* detections_vpi =
       static_cast<VPIAprilTagDetection*>(detections_data.buffer.aos.data);
   int num_detections = *detections_data.buffer.aos.sizePointer;
 
-  auto detections_ptr = std::make_shared<NvidiaTagDetections>();
+  std::vector<NvidiaTagDetections::tag_detection> detections;
 
   for (int i = 0; i < num_detections; ++i) {
     NvidiaTagDetections::tag_detection detection;
-    detection.tag_id = detections[i].id;
+    detection.tag_id = detections_vpi[i].id;
 
     for (int j = 0; j < 4; ++j) {
-      detection.corners[j] =
-          cv::Point2f(detections[i].corners[j].x, detections[i].corners[j].y);
+      detection.corners[j] = cv::Point2f(detections_vpi[i].corners[j].x,
+                                         detections_vpi[i].corners[j].y);
     }
-    detections_ptr.get()->tag_detections.push_back(detection);
+    detections.push_back(detection);
   }
 
   CHECK(!vpiArrayUnlock(detections_));
 
-  for (const auto& callback : callbacks_) {
-    callback(detections_ptr);
-  }
-}
-
-void NvidiaApriltagDetectorNode::RegisterCallback(
-    const std::function<void(const std::shared_ptr<NvidiaTagDetections>&)>&
-        callback) {
-  callbacks_.push_back(callback);
+  return detections;
 }
 
 }  // namespace apriltag

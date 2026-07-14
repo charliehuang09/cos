@@ -53,8 +53,7 @@ auto main(int argc, char* argv[]) -> int {
 
   std::string detector_config_path = config_path;
   auto detector_node = std::make_unique<apriltag::NvidiaApriltagDetectorNode>(
-      "decoded_image", "apriltag_detection", detector_config_path,
-      thread_pool);
+      "decoded_image", "apriltag_detection", detector_config_path, thread_pool);
   detector_node->WarmUp();
 
   std::atomic<int> decoded_frames = 0;
@@ -65,9 +64,11 @@ auto main(int argc, char* argv[]) -> int {
   std::condition_variable completion_cv;
 
   detector_node->RegisterCallback(
-      [&detection_frames, &tags_seen, &completion_cv, max_frames](
-          const std::shared_ptr<apriltag::NvidiaTagDetections>& detections)
-          -> void {
+      [&detection_frames, &tags_seen, &completion_cv,
+       max_frames](const control_loop::Context& context) -> void {
+        const auto& detections =
+            context->GetMessage<apriltag::NvidiaTagDetections>(
+                "apriltag_detection");
         const int frame_index = ++detection_frames;
         tags_seen += static_cast<int>(detections->tag_detections.size());
         if (frame_index >= max_frames) {

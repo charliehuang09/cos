@@ -4,6 +4,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 #include "camera/nvjpeg_decode_node.h"
 
@@ -17,12 +18,20 @@
 
 namespace apriltag {
 
-class NvidiaTagDetections {
+class NvidiaTagDetections final : public control_loop::IMessage {
  public:
   struct tag_detection {
     int tag_id;
     std::array<cv::Point2d, 4> corners;
   };
+
+  auto GetType() -> const std::type_info& override {
+    return typeid(NvidiaTagDetections);
+  }
+
+  NvidiaTagDetections(std::vector<tag_detection> tag_detections_)
+      : tag_detections(std::move(tag_detections_)) {}
+
   std::vector<tag_detection> tag_detections;
 };
 
@@ -35,15 +44,18 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   ~NvidiaApriltagDetectorNode() override;
   void WarmUp();
   void RegisterCallback(
-      const std::function<void(const std::shared_ptr<NvidiaTagDetections>&)>&
-          callback);
+      const std::function<void(const control_loop::Context&)>& callback) {
+    callbacks_.emplace_back(callback);
+  };
   void Callback(const control_loop::Context& context);
-  void Detect(const camera::DecodedJpegBuffer& buffer);
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
 
  private:
-  void Detect(VPIImage image);
+  auto Detect(const camera::DecodedJpegBuffer& buffer)
+      -> std::vector<NvidiaTagDetections::tag_detection>;
+  auto Detect(VPIImage image)
+      -> std::vector<NvidiaTagDetections::tag_detection>;
 
  private:
   VPIImage input_ = nullptr;
@@ -51,8 +63,7 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   VPIPayload payload_ = nullptr;
   VPIArray detections_ = nullptr;
   VPIStream stream_ = nullptr;
-  std::vector<std::function<void(const std::shared_ptr<NvidiaTagDetections>&)>>
-      callbacks_;
+  std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   std::string input_channel_;
   std::string output_channel_;
   control_loop::ThreadPool& thread_pool_;
