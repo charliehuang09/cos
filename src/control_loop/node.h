@@ -1,6 +1,8 @@
 #pragma once
 
-#include "control_loop/control_loop.h"
+#include <functional>
+
+#include "control_loop/context.h"
 namespace control_loop {
 
 class INode {
