@@ -1,17 +1,19 @@
 #include "control_loop/control_loop.h"
 
 #include <chrono>
+#include <utility>
 
 #include "absl/log/log.h"
 
 namespace control_loop {
 
-ContextInternal::ContextInternal(
-    std::chrono::steady_clock::time_point start, ControlLoop* control_loop,
-    std::stop_token stop_token, std::atomic<bool>* destructed)
+ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
+                                 ControlLoop* control_loop,
+                                 std::stop_token stop_token,
+                                 std::atomic<bool>* destructed)
     : start(start),
       control_loop(control_loop),
-      stop_token(stop_token),
+      stop_token(std::move(stop_token)),
       destructed(destructed) {}
 
 ContextInternal::~ContextInternal() {
