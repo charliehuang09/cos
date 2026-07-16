@@ -12,7 +12,7 @@ target_sources(nvidia_apriltag_detector_node
   PRIVATE
     nvidia_apriltag_detector_node.cc
 )
-target_link_libraries(nvidia_apriltag_detector_node
+target_link_libraries(nvidia_apriltag_detector_node 
   PUBLIC
     ${OpenCV_LIBS}
     vpi

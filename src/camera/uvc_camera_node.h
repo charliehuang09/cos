@@ -4,11 +4,7 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
-
-#include "control_loop/control_loop.h"
-#include "control_loop/node.h"
 
 #include "libuvc/libuvc.h"
 
@@ -39,37 +35,36 @@ struct UVCCameraConfig {
 // dwMaxPayloadTransferSize: 3072
 // bInterfaceNumber: 1
 
-class JpegBuffer final : public control_loop::IMessage {
+class JpegBuffer {
  public:
-  JpegBuffer(size_t size) : size(size), ptr(std::malloc(size)) {}
-  ~JpegBuffer() override { std::free(ptr); }
-  size_t size;
-  void* ptr;
-  auto GetType() -> const std::type_info& override {
-    return typeid(JpegBuffer);
-  }
+  JpegBuffer(size_t size) : size_(size), ptr_(std::malloc(size)) {}
+  auto ptr() -> void* const { return ptr_; }
+
+  auto size() -> size_t const { return size_; }
+  ~JpegBuffer() { std::free(ptr_); }
+
+ private:
+  size_t size_;
+  void* ptr_;
 };
 
-class UVCCameraNode final : public control_loop::INode {
+class UVCCameraNode {
  public:
-  UVCCameraNode(std::string_view output_path, const UVCCameraConfig& config);
-  ~UVCCameraNode() override;
+  UVCCameraNode(const UVCCameraConfig& config);
+  ~UVCCameraNode();
+  void RegisterCallback(
+      const std::function<void(std::shared_ptr<JpegBuffer>)>& callback);
   void Start();
-  auto CreateCallback()
-      -> std::function<void(const control_loop::Context&)> override;
-  void Callback(const control_loop::Context& context);
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
 
  private:
-  std::string output_path_;
   std::string name_;
   uvc_context_t* context_;
   uvc_device_t* device_;
   uvc_device_handle_t* device_handle_;
   uvc_stream_ctrl_t ctrl_;
-  std::unique_ptr<JpegBuffer> buffer_;
+  std::vector<std::function<void(std::shared_ptr<JpegBuffer>)>> callbacks_;
   std::atomic<bool> start_ = false;
-  std::mutex mutex_;
 };
 
 }  // namespace camera

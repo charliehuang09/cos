@@ -12,7 +12,7 @@ TEST(ThreadPoolTest, ExecutesSubmittedTasks) {
   ThreadPool pool(2);
   std::promise<int> result;
 
-  pool.Submit([&result]() -> void { result.set_value(42); });
+  pool.Submit([&result] { result.set_value(42); });
 
   EXPECT_EQ(result.get_future().get(), 42);
 }
@@ -21,13 +21,13 @@ TEST(ThreadPoolTest, DrainsQueuedTasksOnShutdown) {
   ThreadPool pool(2);
   std::atomic<int> completed = 0;
   for (int i = 0; i < 100; ++i) {
-    pool.Submit([&completed]() -> void { ++completed; });
+    pool.Submit([&completed] { ++completed; });
   }
 
   pool.Shutdown();
 
   EXPECT_EQ(completed, 100);
-  EXPECT_DEATH(pool.Submit([] {}), "stopped thread pool");  // NOLINT
+  EXPECT_DEATH(pool.Submit([] {}), "stopped thread pool");
 }
 
 TEST(ThreadPoolTest, RejectsEmptyTasks) {
@@ -41,7 +41,7 @@ TEST(ThreadPoolTest, UsesOneWorkerWhenCountIsZero) {
   std::promise<void> completed;
 
   EXPECT_EQ(pool.Size(), 1U);
-  pool.Submit([&completed]() -> void { completed.set_value(); });
+  pool.Submit([&completed] { completed.set_value(); });
   completed.get_future().wait();
 }
 

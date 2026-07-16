@@ -27,9 +27,8 @@ UVCCameraConfig::UVCCameraConfig(const std::string& path) {
   max_frame_size = config.at("max_frame_size").get<int>();
 }
 
-UVCCameraNode::UVCCameraNode(std::string_view output_path,
-                             const UVCCameraConfig& config)
-    : output_path_(output_path), name_(config.name) {
+UVCCameraNode::UVCCameraNode(const UVCCameraConfig& config)
+    : name_(config.name) {
   {
     uvc_error_t code = uvc_init(&context_, nullptr);
     CHECK(!code) << "UVC failed to init will error code: " << code;
@@ -58,30 +57,15 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
   }
 }
 
-auto UVCCameraNode::CreateCallback()
-    -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) -> void {
-    Callback(context);
-  };
-}
-
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
-  auto buffer = std::make_unique<JpegBuffer>(frame->data_bytes);
-  std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
+  std::shared_ptr<JpegBuffer> buffer =
+      std::make_shared<JpegBuffer>(frame->data_bytes);
+  std::memcpy(buffer->ptr(), frame->data, frame->data_bytes);
 
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    buffer_ = std::move(buffer);
+  for (size_t i = 0; i < callbacks_.size(); i++) {  // NOLINT
+    callbacks_[i](buffer);
   }
-}
-
-void UVCCameraNode::Callback(const control_loop::Context& context) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (buffer_ == nullptr) {
-    return;
-  }
-  context->SetMessage(output_path_, std::move(buffer_));
 }
 
 void UVCCameraNode::Start() {
@@ -104,4 +88,8 @@ UVCCameraNode::~UVCCameraNode() {
   LOG(INFO) << name_ << " has been destructed";
 }
 
+void UVCCameraNode::RegisterCallback(
+    const std::function<void(std::shared_ptr<JpegBuffer>)>& callback) {
+  callbacks_.push_back(callback);
+}
 }  // namespace camera
