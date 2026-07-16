@@ -93,42 +93,33 @@ DecodedJpegBuffer::~DecodedJpegBuffer() {
   }
 }
 
-NvjpegDecodeNode::NvjpegDecodeNode(const std::string& name,
-                                   nvjpegOutputFormat_t output_format)
-    : output_format_(output_format) {
-  (void)name;
+DecodedJpegBuffer::DecodedJpegBuffer(DecodedJpegBuffer&& other) noexcept
+    : width(other.width),
+      height(other.height),
+      stride(other.stride),
+      output_size(other.output_size),
+      output_format(other.output_format),
+      channel_sizes(other.channel_sizes),
+      destination(other.destination) {
+  other.channel_sizes = {};
+  other.destination = {};
+  other.output_size = 0;
+}
+
+NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
+                                   std::string_view output_path,
+                                   nvjpegOutputFormat_t output_format,
+                                   control_loop::ThreadPool& thread_pool)
+    : input_path_(input_path),
+      output_path_(output_path),
+      output_format_(output_format),
+      thread_pool_(thread_pool) {
   CheckNvjpeg(nvjpegCreateSimple(&handle_));
   CheckNvjpeg(nvjpegJpegStateCreate(handle_, &state_));
-  decode_thread_ =
-      std::jthread([this](const std::stop_token& stop_token) -> void {
-        function<void()> task;
-        while (!stop_token.stop_requested()) {
-          {
-            std::unique_lock<std::timed_mutex> lock(mutex_);
-            cv_.wait(lock, [this, stop_token]() -> bool {
-              return !tasks_.empty() || stop_token.stop_requested();
-            });
-            if (tasks_.empty()) {
-              continue;
-            }
-            task = std::move(tasks_.front());
-            tasks_.pop();
-          }
-          if (stop_token.stop_requested()) {
-            break;
-          }
-          task();
-        }
-      });
 }
 
 NvjpegDecodeNode::~NvjpegDecodeNode() {
   LOG(INFO) << "Destructing NvjpegDecodeNode";
-  decode_thread_.request_stop();
-  cv_.notify_one();
-  if (decode_thread_.joinable()) {
-    decode_thread_.join();
-  }
   if (state_ != nullptr) {
     CheckNvjpeg(nvjpegJpegStateDestroy(state_));
   }
@@ -136,56 +127,64 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
     CheckNvjpeg(nvjpegDestroy(handle_));
   }
 }
-void NvjpegDecodeNode::Decode(const std::shared_ptr<JpegBuffer>& jpeg_buffer) {
-  std::function<void()> task = [this, jpeg_buffer]() -> void {
-    DecodeJpegBuffer(jpeg_buffer);
+
+auto NvjpegDecodeNode::CreateCallback()
+    -> std::function<void(const control_loop::Context&)> {
+  return [this](const control_loop::Context& context) -> void {
+    auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
+    if (jpeg_buffer == nullptr) {
+      return;
+    }
+
+    std::function<void()> task = [this, context, jpeg_buffer]() -> void {
+      std::unique_ptr<control_loop::IMessage> decoded_buffer =
+          std::make_unique<DecodedJpegBuffer>(DecodeJpegBuffer(jpeg_buffer));
+
+      context->SetMessage(output_path_, std::move(decoded_buffer));
+
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
+    };
+
+    thread_pool_.Submit(task);
   };
-  {
-    std::lock_guard<std::timed_mutex> lock(mutex_);
-    tasks_.push(task);
-    cv_.notify_one();
-  }
 }
 
-void NvjpegDecodeNode::RegisterCallback(
-    const std::function<void(std::shared_ptr<DecodedJpegBuffer>)>& callback) {
-  std::unique_lock<std::timed_mutex> lock(mutex_, std::chrono::milliseconds(3));
-  callbacks_.push_back(callback);
-}
+auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
+    -> DecodedJpegBuffer {
+  std::lock_guard lock(decode_mutex_);
 
-void NvjpegDecodeNode::DecodeJpegBuffer(
-    const std::shared_ptr<JpegBuffer>& jpeg_buffer) {
   int components = 0;
   nvjpegChromaSubsampling_t subsampling = NVJPEG_CSS_UNKNOWN;
   std::array<int, NVJPEG_MAX_COMPONENT> widths = {};
   std::array<int, NVJPEG_MAX_COMPONENT> heights = {};
-  const auto* jpeg_data = static_cast<unsigned char*>(jpeg_buffer->ptr());
+  const auto* jpeg_data = static_cast<unsigned char*>(jpeg_buffer->ptr);
 
-  CheckNvjpeg(nvjpegGetImageInfo(handle_, jpeg_data, jpeg_buffer->size(),
+  CheckNvjpeg(nvjpegGetImageInfo(handle_, jpeg_data, jpeg_buffer->size,
                                  &components, &subsampling, widths.data(),
                                  heights.data()));
 
-  auto buffer_shared_ptr = std::make_shared<DecodedJpegBuffer>();
-  ConfigureDestination(buffer_shared_ptr.get(), output_format_, components,
-                       widths, heights);
+  DecodedJpegBuffer decoded_buffer{};
+
+  ConfigureDestination(&decoded_buffer, output_format_, components, widths,
+                       heights);
 
   for (int channel = 0; channel < NVJPEG_MAX_COMPONENT; ++channel) {
-    if (buffer_shared_ptr->channel_sizes[channel] == 0U) {
+    if (decoded_buffer.channel_sizes[channel] == 0U) {
       continue;
     }
-    CheckCuda(cudaMalloc(reinterpret_cast<void**>(
-                             &buffer_shared_ptr->destination.channel[channel]),
-                         buffer_shared_ptr->channel_sizes[channel]));
+    CheckCuda(cudaMalloc(
+        reinterpret_cast<void**>(&decoded_buffer.destination.channel[channel]),
+        decoded_buffer.channel_sizes[channel]));
   }
 
-  CheckNvjpeg(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size(),
-                           output_format_, &buffer_shared_ptr->destination,
+  CheckNvjpeg(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size,
+                           output_format_, &decoded_buffer.destination,
                            nullptr));
   CheckCuda(cudaDeviceSynchronize());
 
-  for (const auto& callback : callbacks_) {
-    callback(buffer_shared_ptr);
-  }
+  return decoded_buffer;
 }
 
 }  // namespace camera

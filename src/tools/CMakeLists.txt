@@ -10,5 +10,7 @@ target_link_libraries(uvc_logger PRIVATE
   absl::flags_parse
   nvjpeg_decode_node
   JPEG::JPEG
+  control_loop
+  thread_pool
   ${OpenCV_LIBS}
 )

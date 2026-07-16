@@ -29,6 +29,10 @@ ssh root@dev-orin
 
 Use the interactive shell as the default after deployment so commands run in the same remote session and exploratory testing stays visible. Use direct SSH commands only for simple one-off checks when an interactive session is unnecessary.
 
+The dev Orin does not provide the `timeout` command. Do not wrap remote test
+commands with `timeout`; enforce any required time limit from the local SSH
+client or stop a stalled interactive command from the controlling session.
+
 ## Remote Layout
 
 The remote login lands in `/root`. Known directories include:
