@@ -20,5 +20,6 @@ target_compile_options(nvjpeg_decode_node PRIVATE
 target_link_libraries(nvjpeg_decode_node PUBLIC
   CUDA::cudart
   CUDA::nvjpeg
+  cuda_utils
   absl::log
 )

@@ -16,16 +16,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include "utils/cuda.h"
+
 namespace apriltag {
 using control_loop::Context;
-
-namespace {
-
-auto CheckCuda(cudaError_t status) -> void {
-  CHECK(status == cudaSuccess) << cudaGetErrorString(status);
-}
-
-}  // namespace
 
 static const VPIAprilTagDecodeParams params = {                 // NOLINT
     NULL, 0, 1,                                                 // NOLINT
@@ -119,6 +113,17 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
   auto* decoded_buffer =
       context->GetMessage<camera::DecodedJpegBuffer>(input_channel_);
   if (decoded_buffer == nullptr) [[unlikely]] {
+    auto* failed =
+        context->GetMessage<control_loop::FailedMessage>(input_channel_);
+    if (failed != nullptr) {
+      context->SetMessage(
+          output_channel_,
+          std::make_unique<control_loop::FailedMessage>(
+              output_channel_, "Upstream failed: " + failed->reason));
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
+    }
     return;
   }
   std::function<void()> task = [this, context, decoded_buffer]() -> void {
@@ -146,8 +151,9 @@ auto NvidiaApriltagDetectorNode::Detect(const camera::DecodedJpegBuffer& buffer)
 
   auto& plane = image_data.buffer.pitch.planes[0];
   std::vector<unsigned char> gray(buffer.channel_sizes[0]);
-  CheckCuda(cudaMemcpy(gray.data(), buffer.destination.channel[0],
-                       buffer.channel_sizes[0], cudaMemcpyDeviceToHost));
+  utils::CheckCuda(cudaMemcpy(gray.data(), buffer.destination.channel[0],
+                              buffer.channel_sizes[0],
+                              cudaMemcpyDeviceToHost));
   for (int row = 0; row < buffer.height; ++row) {
     std::memcpy(static_cast<unsigned char*>(plane.pBase) +
                     static_cast<size_t>(row) * plane.pitchBytes,

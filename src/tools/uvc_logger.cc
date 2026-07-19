@@ -15,6 +15,7 @@
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
+#include "utils/cuda.h"
 #include "utils/stop.h"
 
 #include "absl/log/globals.h"
@@ -73,10 +74,9 @@ auto main(int argc, char* argv[]) -> int {
           CHECK(buffer->output_format == NVJPEG_OUTPUT_BGRI);
 
           std::vector<unsigned char> bgr(buffer->channel_sizes[0]);
-          const cudaError_t status =
-              cudaMemcpy(bgr.data(), buffer->destination.channel[0],
-                         buffer->channel_sizes[0], cudaMemcpyDeviceToHost);
-          CHECK(status == cudaSuccess) << cudaGetErrorString(status);
+          utils::CheckCuda(cudaMemcpy(
+              bgr.data(), buffer->destination.channel[0],
+              buffer->channel_sizes[0], cudaMemcpyDeviceToHost));
 
           const cv::Mat image(buffer->height, buffer->width, CV_8UC3,
                               bgr.data(), buffer->stride);
@@ -93,9 +93,18 @@ auto main(int argc, char* argv[]) -> int {
       absl::GetFlag(FLAGS_port).has_value()) {
     jpeg_buffer_streamer_node =
         std::make_unique<streamer::JpegBufferStreamerNode>(
-            "jpeg_stream", absl::GetFlag(FLAGS_stream_path).value(),
+            absl::GetFlag(FLAGS_stream_path).value(),
             absl::GetFlag(FLAGS_port).value());
-    control_loop.RegisterCallback(jpeg_buffer_streamer_node->CreateCallback());
+    control_loop.RegisterCallback(
+        [&jpeg_buffer_streamer_node](
+            const control_loop::Context& context) -> void {
+          camera::JpegBuffer* jpeg_buffer =
+              context->GetMessage<camera::JpegBuffer>("jpeg_stream");
+          if (jpeg_buffer == nullptr) {
+            return;
+          }
+          jpeg_buffer_streamer_node->Stream(*jpeg_buffer);
+        });
   }
 
   uvc_camera_node->Start();
