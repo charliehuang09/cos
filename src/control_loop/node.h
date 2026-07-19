@@ -10,6 +10,7 @@ class INode {
   virtual ~INode() = default;
   virtual auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> = 0;
+  virtual void RegisterCallback(std::function<void(const control_loop::Context&)> callback) = 0;
 };
 
 }  // namespace control_loop

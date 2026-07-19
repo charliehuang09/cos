@@ -6,6 +6,10 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include "control_loop/control_loop.h"
 #include "control_loop/node.h"
@@ -57,6 +61,10 @@ class UVCCameraNode final : public control_loop::INode {
   void Start();
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
+  void RegisterCallback(
+      std::function<void(const control_loop::Context&)> callback) override {
+    callbacks_.emplace_back(std::move(callback));
+  }
   void Callback(const control_loop::Context& context);
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
 
@@ -70,6 +78,7 @@ class UVCCameraNode final : public control_loop::INode {
   std::unique_ptr<JpegBuffer> buffer_;
   std::atomic<bool> start_ = false;
   std::mutex mutex_;
+  std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
 };
 
 }  // namespace camera

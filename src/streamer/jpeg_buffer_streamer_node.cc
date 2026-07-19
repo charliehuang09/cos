@@ -24,6 +24,9 @@ auto JpegBufferStreamerNode::CreateCallback()
       return;
     }
     Stream(*jpeg_buffer);
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
   };
 }
 

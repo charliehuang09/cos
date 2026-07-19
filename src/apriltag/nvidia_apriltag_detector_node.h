@@ -44,8 +44,8 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   ~NvidiaApriltagDetectorNode() override;
   void WarmUp();
   void RegisterCallback(
-      const std::function<void(const control_loop::Context&)>& callback) {
-    callbacks_.emplace_back(callback);
+      std::function<void(const control_loop::Context&)> callback) override {
+    callbacks_.emplace_back(std::move(callback));
   };
   void Callback(const control_loop::Context& context);
   auto CreateCallback()

@@ -4,25 +4,19 @@
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "utils/cuda.h"
 
 namespace camera {
 using std::function;
 
-namespace {
-
-auto CheckNvjpeg(nvjpegStatus_t status) -> void {
+static auto CheckNvjpeg(nvjpegStatus_t status) -> void {
   CHECK(status == NVJPEG_STATUS_SUCCESS);
 }
 
-auto CheckCuda(cudaError_t status) -> void {
-  CHECK(status == cudaSuccess) << cudaGetErrorString(status);
-}
-
-auto ConfigureDestination(DecodedJpegBuffer* buffer,
-                          nvjpegOutputFormat_t output_format, int components,
-                          const std::array<int, NVJPEG_MAX_COMPONENT>& widths,
-                          const std::array<int, NVJPEG_MAX_COMPONENT>& heights)
-    -> void {
+static auto ConfigureDestination(
+    DecodedJpegBuffer* buffer, nvjpegOutputFormat_t output_format,
+    int components, const std::array<int, NVJPEG_MAX_COMPONENT>& widths,
+    const std::array<int, NVJPEG_MAX_COMPONENT>& heights) -> void {
   buffer->output_format = output_format;
   buffer->width = widths[0];
   buffer->height = heights[0];
@@ -79,8 +73,6 @@ auto ConfigureDestination(DecodedJpegBuffer* buffer,
   buffer->stride = buffer->destination.pitch[0];
 }
 
-}  // namespace
-
 DecodedJpegBuffer::~DecodedJpegBuffer() {
   for (int channel = 0; channel < NVJPEG_MAX_COMPONENT; ++channel) {
     if (channel_sizes[channel] != 0U &&
@@ -131,8 +123,23 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
 auto NvjpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
+    auto notify_callbacks = [this, &context]() -> void {
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
+    };
+
     auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
     if (jpeg_buffer == nullptr) {
+      auto* failed = context->GetMessage<control_loop::FailedMessage>(
+          input_path_);
+      if (failed != nullptr) {
+        context->SetMessage(
+            output_path_,
+            std::make_unique<control_loop::FailedMessage>(
+                output_path_, "Upstream failed: " + failed->reason));
+        notify_callbacks();
+      }
       return;
     }
 
@@ -174,7 +181,7 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
     if (decoded_buffer.channel_sizes[channel] == 0U) {
       continue;
     }
-    CheckCuda(cudaMalloc(
+    utils::CheckCuda(cudaMalloc(
         reinterpret_cast<void**>(&decoded_buffer.destination.channel[channel]),
         decoded_buffer.channel_sizes[channel]));
   }
@@ -182,7 +189,7 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
   CheckNvjpeg(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size,
                            output_format_, &decoded_buffer.destination,
                            nullptr));
-  CheckCuda(cudaDeviceSynchronize());
+  utils::CheckCuda(cudaDeviceSynchronize());
 
   return decoded_buffer;
 }

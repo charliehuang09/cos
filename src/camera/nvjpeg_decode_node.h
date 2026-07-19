@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <mutex>
 #include <string>
+#include <utility>
 
 #include <nvjpeg.h>
 
@@ -43,8 +44,8 @@ class NvjpegDecodeNode final : public control_loop::INode {
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
   void RegisterCallback(
-      const std::function<void(const control_loop::Context&)>& callback) {
-    callbacks_.emplace_back(callback);
+      std::function<void(const control_loop::Context&)> callback) override {
+    callbacks_.emplace_back(std::move(callback));
   };
 
  private:
