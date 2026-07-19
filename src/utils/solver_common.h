@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <typeinfo>
 #include <utility>
 #include <vector>
@@ -44,6 +45,10 @@ struct CameraSolverConfig {
 };
 
 using camera_constant_t = CameraSolverConfig;
+
+inline auto DetectionBatchChannel(std::string_view camera_name) -> std::string {
+  return "localization/" + std::string(camera_name) + "_detection_batch";
+}
 
 constexpr double kTagSize = 0.1651;
 constexpr double kMinTagAreaPixels = 100.0;

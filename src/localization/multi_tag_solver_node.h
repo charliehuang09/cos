@@ -10,7 +10,7 @@
 #include <wpi/apriltag/AprilTagFieldLayout.hpp>
 
 #include "control_loop/node.h"
-#include "localization/solver_common.h"
+#include "utils/solver_common.h"
 #include "localization/square_solver_node.h"
 
 namespace localization {

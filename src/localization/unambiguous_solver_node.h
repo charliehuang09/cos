@@ -2,23 +2,20 @@
 
 #include <cstddef>
 #include <functional>
-#include <mutex>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "control_loop/node.h"
 #include "localization/multi_tag_solver_node.h"
 #include "localization/position.h"
-#include "localization/solver_common.h"
+#include "utils/solver_common.h"
 
 namespace localization {
 
 class UnambiguousSolverNode final : public control_loop::INode {
  public:
-  UnambiguousSolverNode(std::vector<std::string> input_channels,
-                        std::string_view output_channel,
+  UnambiguousSolverNode(std::string_view output_channel,
                         const std::vector<camera_constant_t>& camera_constants,
                         const wpi::apriltag::AprilTagFieldLayout& layout =
                             kApriltagLayout);
@@ -46,22 +43,12 @@ class UnambiguousSolverNode final : public control_loop::INode {
   auto GetAmbiguousEstimates(
       const std::vector<std::vector<tag_detection_t>>& detection_batches,
       bool reject_far_tags) -> std::vector<ambiguous_estimate_t>;
-  void HandleCameraInput(const control_loop::Context& context,
-                         size_t camera_id);
-
-  struct PendingSolve {
-    size_t num_cameras_received = 0;
-    bool completed = false;
-  };
 
   std::string output_channel_;
-  std::vector<std::string> input_channels_;
+  std::vector<std::string> detection_batch_channels_;
   size_t num_cameras_ = 0;
   std::vector<MultiTagSolverNode> multitag_solvers_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
-  std::mutex pending_solves_mutex_;
-  std::unordered_map<const control_loop::ContextInternal*, PendingSolve>
-      pending_solves_;
   std::optional<position_estimate_t> prev_pose_estimate_;
 };
 

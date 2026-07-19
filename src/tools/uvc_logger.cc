@@ -93,9 +93,18 @@ auto main(int argc, char* argv[]) -> int {
       absl::GetFlag(FLAGS_port).has_value()) {
     jpeg_buffer_streamer_node =
         std::make_unique<streamer::JpegBufferStreamerNode>(
-            "jpeg_stream", absl::GetFlag(FLAGS_stream_path).value(),
+            absl::GetFlag(FLAGS_stream_path).value(),
             absl::GetFlag(FLAGS_port).value());
-    control_loop.RegisterCallback(jpeg_buffer_streamer_node->CreateCallback());
+    control_loop.RegisterCallback(
+        [&jpeg_buffer_streamer_node](
+            const control_loop::Context& context) -> void {
+          camera::JpegBuffer* jpeg_buffer =
+              context->GetMessage<camera::JpegBuffer>("jpeg_stream");
+          if (jpeg_buffer == nullptr) {
+            return;
+          }
+          jpeg_buffer_streamer_node->Stream(*jpeg_buffer);
+        });
   }
 
   uvc_camera_node->Start();

@@ -98,6 +98,7 @@ auto MultiTagSolverNode::AmbiguousSolve(
   std::vector<cv::Point2d> image_points;
   std::vector<int> tag_ids;
   std::vector<int> rejected_tag_ids;
+  std::vector<tag_detection_t> accepted_detections;
   double avg_distance = 0.0;
 
   for (const tag_detection_t& detection : detections) {
@@ -127,6 +128,7 @@ auto MultiTagSolverNode::AmbiguousSolve(
 
     avg_distance += cv::norm(tvec_tag);
     tag_ids.push_back(detection.tag_id);
+    accepted_detections.push_back(detection);
     image_points.insert(image_points.end(), detection.corners.begin(),
                         detection.corners.end());
     object_points.insert(object_points.end(), tag_corners_it->second.begin(),
@@ -139,7 +141,8 @@ auto MultiTagSolverNode::AmbiguousSolve(
 
   if (tag_ids.size() == 1) {
     const std::vector<ambiguous_estimate_t> square_estimates =
-        single_tag_solver_.AmbiguousSolve(detections, reject_far_tags);
+        single_tag_solver_.AmbiguousSolve(accepted_detections,
+                                          reject_far_tags);
     if (square_estimates.empty()) {
       return std::nullopt;
     }

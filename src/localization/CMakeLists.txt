@@ -1,15 +1,3 @@
-add_library(localization_solver_common)
-target_sources(localization_solver_common
-  PRIVATE
-    solver_common.cc
-)
-target_link_libraries(localization_solver_common PUBLIC
-  ${OpenCV_LIBS}
-  wpimath
-  apriltag
-  nvidia_apriltag_detector_node
-)
-
 add_library(square_solver_node)
 target_sources(square_solver_node
   PRIVATE

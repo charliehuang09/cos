@@ -51,3 +51,15 @@ target_link_libraries(cv_geometry_utils PUBLIC
 target_link_libraries(cv_geometry_utils PRIVATE
   apriltag
 )
+
+add_library(localization_solver_common)
+target_sources(localization_solver_common
+  PRIVATE
+    solver_common.cc
+)
+target_link_libraries(localization_solver_common PUBLIC
+  ${OpenCV_LIBS}
+  wpimath
+  apriltag
+  nvidia_apriltag_detector_node
+)

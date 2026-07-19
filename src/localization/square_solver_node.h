@@ -9,7 +9,7 @@
 #include <wpi/math/geometry/Pose3d.hpp>
 
 #include "control_loop/node.h"
-#include "localization/solver_common.h"
+#include "utils/solver_common.h"
 
 namespace localization {
 

@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <stdexcept>
 #include <utility>
 
 #include <wpi/math/geometry/Quaternion.hpp>
@@ -12,17 +11,20 @@
 namespace localization {
 
 UnambiguousSolverNode::UnambiguousSolverNode(
-    std::vector<std::string> input_channels, std::string_view output_channel,
+    std::string_view output_channel,
     const std::vector<camera_constant_t>& camera_constants,
     const wpi::apriltag::AprilTagFieldLayout& layout)
     : output_channel_(output_channel),
-      input_channels_(std::move(input_channels)),
       num_cameras_(camera_constants.size()) {
+  detection_batch_channels_.reserve(camera_constants.size());
   multitag_solvers_.reserve(camera_constants.size());
   for (size_t camera_id = 0; camera_id < camera_constants.size();
        ++camera_id) {
     const camera_constant_t& constants = camera_constants[camera_id];
-    multitag_solvers_.emplace_back(input_channels_.at(camera_id),
+    const std::string detection_batch_channel =
+        DetectionBatchChannel(constants.name);
+    detection_batch_channels_.push_back(detection_batch_channel);
+    multitag_solvers_.emplace_back(detection_batch_channel,
                                    output_channel_, constants.intrinsics_path,
                                    constants.extrinsics_path, layout);
   }
@@ -35,66 +37,48 @@ void UnambiguousSolverNode::RegisterCallback(
 
 auto UnambiguousSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  throw std::logic_error(
-      "UnambiguousSolverNode requires CreateCallback(camera_id)");
-}
-
-void UnambiguousSolverNode::HandleCameraInput(
-    const control_loop::Context& context, size_t camera_id) {
-  if (camera_id >= num_cameras_) {
-    throw std::out_of_range("UnambiguousSolverNode camera_id out of range");
-  }
-
-  if (context->GetMessage<control_loop::IMessage>(output_channel_) !=
-      nullptr) {
-    return;
-  }
-
-  std::vector<std::vector<tag_detection_t>> detection_batches;
-  {
-    std::lock_guard lock(pending_solves_mutex_);
-    PendingSolve& pending = pending_solves_[context.get()];
-    if (pending.completed) {
+  return [this](const control_loop::Context& context) {
+    if (context->GetMessage<control_loop::IMessage>(output_channel_) !=
+        nullptr) {
       return;
     }
-    ++pending.num_cameras_received;
 
-    if (pending.num_cameras_received < num_cameras_) {
-      return;
-    }
-    pending.completed = true;
+    std::vector<std::vector<tag_detection_t>> detection_batches;
     detection_batches.reserve(num_cameras_);
-    for (const std::string& input_channel : input_channels_) {
+    for (const std::string& detection_batch_channel :
+         detection_batch_channels_) {
       auto* maybe_detection_batch =
-          context->GetMessage<control_loop::IMessage>(input_channel);
-      if (maybe_detection_batch->GetType() == typeid(control_loop::FailedMessage)) {
+          context->GetMessage<control_loop::IMessage>(detection_batch_channel);
+      if (maybe_detection_batch == nullptr) {
+        return;
+      }
+      if (maybe_detection_batch->GetType() ==
+          typeid(control_loop::FailedMessage)) {
         detection_batches.emplace_back();
         continue;
       }
 
-      auto detection_batch = static_cast<apriltag::NvidiaTagDetections*>(maybe_detection_batch);
+      auto* detection_batch =
+          static_cast<apriltag::NvidiaTagDetections*>(maybe_detection_batch);
       detection_batches.push_back(detection_batch->tag_detections);
     }
-  }
 
-  auto result = Solve(detection_batches);
-  if (!result.has_value()) {
-    context->SetMessage(
-        output_channel_,
-        std::make_unique<control_loop::FailedMessage>(
-            output_channel_,
-            "Unambiguous solver produced no position estimate"));
-  } else {
-    context->SetMessage(
-        output_channel_,
-        std::make_unique<PositionEstimate>(std::move(*result)));
-  }
-  for (const auto& callback : callbacks_) {
-    callback(context);
-  }
-
-  std::lock_guard lock(pending_solves_mutex_);
-  pending_solves_.erase(context.get());
+    auto result = Solve(detection_batches);
+    if (!result.has_value()) {
+      context->SetMessage(
+          output_channel_,
+          std::make_unique<control_loop::FailedMessage>(
+              output_channel_,
+              "Unambiguous solver produced no position estimate"));
+    } else {
+      context->SetMessage(
+          output_channel_,
+          std::make_unique<PositionEstimate>(std::move(*result)));
+    }
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
+  };
 }
 
 auto UnambiguousSolverNode::Cost(const wpi::math::Pose3d& a,
