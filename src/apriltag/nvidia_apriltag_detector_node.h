@@ -28,6 +28,9 @@ class NvidiaTagDetections final : public control_loop::IMessage {
   auto GetType() -> const std::type_info& override {
     return typeid(NvidiaTagDetections);
   }
+  auto GetSize() -> size_t override {
+    return sizeof(*this) + tag_detections.capacity() * sizeof(tag_detection);
+  }
 
   NvidiaTagDetections(std::vector<tag_detection> tag_detections_)
       : tag_detections(std::move(tag_detections_)) {}

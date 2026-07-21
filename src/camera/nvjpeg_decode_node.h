@@ -22,6 +22,7 @@ class DecodedJpegBuffer final : public control_loop::IMessage {
   auto GetType() -> const std::type_info& override {
     return typeid(DecodedJpegBuffer);
   }
+  auto GetSize() -> size_t override { return sizeof(*this) + output_size; }
 
   int width = 0;
   int height = 0;

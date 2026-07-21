@@ -57,6 +57,7 @@ class JpegBuffer final : public control_loop::IMessage {
   auto GetType() -> const std::type_info& override {
     return typeid(JpegBuffer);
   }
+  auto GetSize() -> size_t override { return sizeof(*this) + size; }
 };
 
 class UVCCameraNode final : public control_loop::INode {
