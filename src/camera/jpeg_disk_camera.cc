@@ -68,7 +68,9 @@ void JpegDiskCamera::UpdateJpegBuffer() {
   while (jpeg_buffers_.size() < queue_length_ && !file_paths_.empty()) {
     std::ifstream file(file_paths_.front().first,
                        std::ios::binary | std::ios::ate);
-    JpegBuffer buffer(file.tellg(), file_paths_.front().second);
+    const std::streampos file_size = file.tellg();
+    CHECK(file_size != std::streampos(-1));
+    JpegBuffer buffer(file_size, file_paths_.front().second);
     file.seekg(0);
     file.read(static_cast<char*>(buffer.ptr), buffer.size);
     file_paths_.pop();
