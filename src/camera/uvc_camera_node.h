@@ -41,9 +41,18 @@ struct UVCCameraConfig {
 
 class JpegBuffer final : public control_loop::IMessage {
  public:
-  JpegBuffer(size_t size) : size(size), ptr(std::malloc(size)) {}
+  JpegBuffer() : size(0), timestamp(0), ptr(nullptr) {}
+  JpegBuffer(size_t size, double timestamp)
+      : size(size), timestamp(timestamp), ptr(std::malloc(size)) {}
   ~JpegBuffer() override { std::free(ptr); }
+  JpegBuffer(const JpegBuffer&) = delete;
+  JpegBuffer(JpegBuffer&& other) noexcept
+      : size(other.size), timestamp(other.timestamp), ptr(other.ptr) {
+    other.ptr = nullptr;
+  }
+
   size_t size;
+  double timestamp;
   void* ptr;
   auto GetType() -> const std::type_info& override {
     return typeid(JpegBuffer);

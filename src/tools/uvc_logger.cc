@@ -64,9 +64,8 @@ auto main(int argc, char* argv[]) -> int {
 
     nvjpeg_decode_node->RegisterCallback(
         [log_folder](const control_loop::Context& context) -> void {
-          camera::DecodedJpegBuffer* buffer =
-              context->GetMessage<camera::DecodedJpegBuffer>(
-                  "decoded_buffer");
+          auto* buffer =
+              context->GetMessage<camera::DecodedJpegBuffer>("decoded_buffer");
           if (buffer == nullptr) {
             return;
           }

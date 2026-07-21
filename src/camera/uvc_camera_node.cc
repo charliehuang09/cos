@@ -67,7 +67,7 @@ auto UVCCameraNode::CreateCallback()
 
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
-  auto buffer = std::make_unique<JpegBuffer>(frame->data_bytes);
+  auto buffer = std::make_unique<JpegBuffer>(frame->data_bytes, 0);  // TODO
   std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
 
   {
