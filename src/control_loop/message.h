@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <typeinfo>
 namespace control_loop {
 
@@ -9,5 +10,6 @@ class IMessage {
 
   // Interface
   virtual auto GetType() -> const std::type_info& = 0;
+  virtual auto GetSize() -> std::size_t = 0;
 };
 }  // namespace control_loop

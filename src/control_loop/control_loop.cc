@@ -21,12 +21,6 @@ ContextInternal::~ContextInternal() {
   destructed->notify_all();
 }
 
-void ContextInternal::SetMessage(std::string_view path,
-                                 std::unique_ptr<IMessage> message) {
-  std::lock_guard lock(messages_mutex_);
-  messages_.emplace(path, std::move(message));
-}
-
 ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
 
 void ControlLoop::Start() {
@@ -48,9 +42,8 @@ void ControlLoop::Start() {
         callback(context);
       }
 
-      context.reset();
-
       std::this_thread::sleep_for(period_);
+      context.reset();
 
       if (!destructed) {
         LOG(WARNING) << "Command loop overun";

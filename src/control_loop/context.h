@@ -32,7 +32,19 @@ struct ContextInternal {
     return dynamic_cast<T*>(message_it->second.get());
   }
 
-  void SetMessage(std::string_view path, std::unique_ptr<IMessage> message);
+  void SetMessage(std::string_view path, std::unique_ptr<IMessage> message) {
+    std::lock_guard lock(messages_mutex_);
+    messages_.emplace(path, std::move(message));
+  }
+
+  auto GetSize() -> size_t {
+    std::lock_guard lock(messages_mutex_);
+    size_t size = 0;
+    for (auto& message : messages_) {
+      size += message.second->GetSize();
+    }
+    return size;
+  }
 
   std::optional<std::chrono::steady_clock::time_point> start;
   ControlLoop* control_loop;
