@@ -37,6 +37,7 @@ client or stop a stalled interactive command from the controlling session.
 
 The remote login lands in `/root`. Known directories include:
 
+- `/cos-logs` - logs that can be used as test inputs
 - `/root/bin` - deployed binaries to test
 - `/root/constants` - deployed constants/configuration
 - `/root/lib` - deployed libraries
