@@ -3,6 +3,8 @@
 #include <wpi/system/Timer.hpp>
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <fstream>
 
 namespace camera {
@@ -15,9 +17,21 @@ JpegDiskCamera::JpegDiskCamera(std::string_view folder_path,
       queue_length_(queue_length) {
   std::vector<std::pair<std::filesystem::path, double>> file_paths_vector;
   for (const auto& entry : std::filesystem::directory_iterator(folder_path)) {
-    if (entry.is_regular_file()) {
-      file_paths_vector.emplace_back(entry.path(),
-                                     GetTimestamp(entry.path().filename()));
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+
+    std::string extension = entry.path().extension().string();
+    std::ranges::transform(extension, extension.begin(), [](unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
+    if (extension != ".jpg" && extension != ".jpeg") {
+      continue;
+    }
+
+    if (const auto timestamp = GetTimestamp(entry.path());
+        timestamp.has_value()) {
+      file_paths_vector.emplace_back(entry.path(), timestamp.value());
     }
   }
 
@@ -34,8 +48,19 @@ JpegDiskCamera::JpegDiskCamera(std::string_view folder_path,
   UpdateJpegBuffer();
 }
 
-auto JpegDiskCamera::GetTimestamp(const std::string& filename) -> double {
-  return std::stod(filename.substr(0, filename.size() - 4));
+auto JpegDiskCamera::GetTimestamp(const std::filesystem::path& path)
+    -> std::optional<double> {
+  const std::string stem = path.stem().string();
+  try {
+    size_t parsed_characters = 0;
+    const double timestamp = std::stod(stem, &parsed_characters);
+    if (parsed_characters == stem.size() && std::isfinite(timestamp)) {
+      return timestamp;
+    }
+  } catch (const std::invalid_argument&) {
+  } catch (const std::out_of_range&) {
+  }
+  return std::nullopt;
 }
 
 void JpegDiskCamera::UpdateJpegBuffer() {

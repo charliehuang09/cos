@@ -20,7 +20,7 @@ class JpegDiskCamera final : public control_loop::INode {
 
  private:
   void Callback(const control_loop::Context& context);
-  auto GetTimestamp(const std::string& filename) -> double;
+  auto GetTimestamp(const std::filesystem::path& path) -> std::optional<double>;
   void UpdateJpegBuffer();
 
  private:

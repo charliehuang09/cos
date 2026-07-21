@@ -29,6 +29,10 @@ auto main(int argc, char* argv[]) -> int {
                              absl::GetFlag(FLAGS_compression)};
 
   fs::path output_path = absl::GetFlag(FLAGS_output_folder);
+  fs::create_directories(output_path);
+  CHECK(fs::is_directory(output_path))
+      << "Output path is not a directory: " << output_path;
+
   for (const auto& entry :
        fs::directory_iterator(absl::GetFlag(FLAGS_input_folder))) {
     if (!entry.is_regular_file()) {
@@ -51,7 +55,9 @@ auto main(int argc, char* argv[]) -> int {
         output_path / (entry.path().stem().string() + ".jpg");
 
     std::ofstream out(output_file_path, std::ios::binary);
+    CHECK(out.is_open()) << "Failed to open " << output_file_path;
     out.write(reinterpret_cast<const char*>(jpeg_data.data()),
               jpeg_data.size());
+    CHECK(out.good()) << "Failed to write " << output_file_path;
   }
 }
