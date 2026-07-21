@@ -12,5 +12,6 @@ target_link_libraries(uvc_logger PRIVATE
   JPEG::JPEG
   control_loop
   thread_pool
+  wpilibc
   ${OpenCV_LIBS}
 )

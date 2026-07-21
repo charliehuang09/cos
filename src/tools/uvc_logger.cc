@@ -11,6 +11,7 @@
 #include <cuda_runtime.h>
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
+#include <wpi/system/Timer.hpp>
 
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
@@ -31,7 +32,7 @@ ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT
           "Streaming port. No stream if left blank");  // NOLINT
 
 ABSL_FLAG(std::optional<std::string>, log_folder, std::nullopt,      // NOLINT
-          "Folder for numbered PNG frames. No logs if left blank");  // NOLINT
+          "Folder for timestamped PNG frames. No logs if left blank");  // NOLINT
 
 using namespace std::chrono_literals;
 
@@ -62,8 +63,7 @@ auto main(int argc, char* argv[]) -> int {
     std::filesystem::create_directories(log_folder);
 
     nvjpeg_decode_node->RegisterCallback(
-        [log_folder, frame_index = size_t{0}](
-            const control_loop::Context& context) mutable -> void {
+        [log_folder](const control_loop::Context& context) -> void {
           camera::DecodedJpegBuffer* buffer =
               context->GetMessage<camera::DecodedJpegBuffer>(
                   "decoded_buffer");
@@ -80,8 +80,9 @@ auto main(int argc, char* argv[]) -> int {
 
           const cv::Mat image(buffer->height, buffer->width, CV_8UC3,
                               bgr.data(), buffer->stride);
+          const double timestamp = wpi::Timer::GetTimestamp().value();
           const std::filesystem::path image_path =
-              log_folder / (std::to_string(frame_index++) + ".png");
+              log_folder / (std::to_string(timestamp) + ".png");
           CHECK(cv::imwrite(image_path.string(), image))
               << "Failed to write " << image_path;
         });
