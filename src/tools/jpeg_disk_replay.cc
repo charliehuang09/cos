@@ -24,7 +24,7 @@ auto main(int argc, char* argv[]) -> int {
   control_loop::ControlLoop control_loop(15ms);
 
   auto jpeg_stream_node = std::make_unique<camera::JpegDiskCamera>(
-      absl::GetFlag(FLAGS_log_path), "jpeg_stream", 500);
+      absl::GetFlag(FLAGS_log_path), "jpeg_stream");
 
   auto jpeg_buffer_streamer_node =
       std::make_unique<streamer::JpegBufferStreamerNode>(
