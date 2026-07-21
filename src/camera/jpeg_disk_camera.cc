@@ -7,7 +7,9 @@
 #include <cctype>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include "absl/log/check.h"
+#include "utils/stop.h"
 
 namespace camera {
 
@@ -74,6 +76,9 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
 
   if (!image.has_value()) {
     context->SetMessage(output_channel_, std::make_unique<JpegBuffer>());
+    if (file_paths_.empty()) {
+      stop::stop = true;
+    }
     return;
   }
 

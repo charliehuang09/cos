@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <csignal>
-#include <iostream>
 #include <thread>
 
 #include "absl/log/log.h"
@@ -13,8 +12,8 @@ using namespace std::literals::chrono_literals;
 
 constexpr std::chrono::seconds kwait_interval = 1s;
 constexpr std::chrono::seconds kwait_until_kill = 10s;
-std::atomic<bool> stop(false);
-std::atomic<bool> registered_handler(false);
+inline std::atomic<bool> stop(false);
+inline std::atomic<bool> registered_handler(false);
 
 inline void SignalHandler(int signal) {
   stop = true;
@@ -38,7 +37,7 @@ inline void RegisterHandler() {
   // std::signal(SIGPIPE, SignalHander);
   // std::signal(SIGALRM, SignalHander);
 
-  std::thread([] {
+  std::thread([]() -> void {
     while (!stop) {
       std::this_thread::sleep_for(stop::kwait_interval);
     }

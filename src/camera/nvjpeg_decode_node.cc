@@ -1,6 +1,7 @@
 #include "camera/nvjpeg_decode_node.h"
 
 #include <array>
+#include <iostream>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -10,9 +11,9 @@ using std::function;
 
 namespace {
 
-auto CheckNvjpeg(nvjpegStatus_t status) -> void {
-  CHECK(status == NVJPEG_STATUS_SUCCESS);
-}
+// auto CheckNvjpeg(nvjpegStatus_t status) -> void {
+//   CHECK(status == NVJPEG_STATUS_SUCCESS);
+// }
 
 auto CheckCuda(cudaError_t status) -> void {
   CHECK(status == cudaSuccess) << cudaGetErrorString(status);
@@ -115,17 +116,17 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
       output_path_(output_path),
       output_format_(output_format),
       thread_pool_(thread_pool) {
-  CheckNvjpeg(nvjpegCreateSimple(&handle_));
-  CheckNvjpeg(nvjpegJpegStateCreate(handle_, &state_));
+  CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegJpegStateCreate(handle_, &state_) == NVJPEG_STATUS_SUCCESS);
 }
 
 NvjpegDecodeNode::~NvjpegDecodeNode() {
   LOG(INFO) << "Destructing NvjpegDecodeNode";
   if (state_ != nullptr) {
-    CheckNvjpeg(nvjpegJpegStateDestroy(state_));
+    CHECK(nvjpegJpegStateDestroy(state_) == NVJPEG_STATUS_SUCCESS);
   }
   if (handle_ != nullptr) {
-    CheckNvjpeg(nvjpegDestroy(handle_));
+    CHECK(nvjpegDestroy(handle_) == NVJPEG_STATUS_SUCCESS);
   }
 }
 
@@ -133,7 +134,7 @@ auto NvjpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
-    if (jpeg_buffer == nullptr) {
+    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr) {
       return;
     }
 
@@ -162,9 +163,10 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
   std::array<int, NVJPEG_MAX_COMPONENT> heights = {};
   const auto* jpeg_data = static_cast<unsigned char*>(jpeg_buffer->ptr);
 
-  CheckNvjpeg(nvjpegGetImageInfo(handle_, jpeg_data, jpeg_buffer->size,
-                                 &components, &subsampling, widths.data(),
-                                 heights.data()));
+  CHECK_EQ(
+      nvjpegGetImageInfo(handle_, jpeg_data, jpeg_buffer->size, &components,
+                         &subsampling, widths.data(), heights.data()),
+      NVJPEG_STATUS_SUCCESS);
 
   DecodedJpegBuffer decoded_buffer{};
   decoded_buffer.timestamp = jpeg_buffer->timestamp;
@@ -181,9 +183,9 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
         decoded_buffer.channel_sizes[channel]));
   }
 
-  CheckNvjpeg(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size,
-                           output_format_, &decoded_buffer.destination,
-                           nullptr));
+  CHECK(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size,
+                     output_format_, &decoded_buffer.destination,
+                     nullptr) == NVJPEG_STATUS_SUCCESS);
   CheckCuda(cudaDeviceSynchronize());
 
   return decoded_buffer;
