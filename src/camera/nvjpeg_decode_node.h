@@ -56,7 +56,12 @@ class NvjpegDecodeNode final : public control_loop::INode {
   std::string input_path_;
   std::string output_path_;
   nvjpegHandle_t handle_ = nullptr;
+  nvjpegJpegDecoder_t decoder_ = nullptr;
   nvjpegJpegState_t state_ = nullptr;
+  nvjpegJpegStream_t jpeg_stream_ = nullptr;
+  nvjpegDecodeParams_t decode_params_ = nullptr;
+  nvjpegBufferPinned_t pinned_buffer_ = nullptr;
+  nvjpegBufferDevice_t device_buffer_ = nullptr;
   std::mutex decode_mutex_;
   nvjpegOutputFormat_t output_format_ = NVJPEG_OUTPUT_BGRI;
   control_loop::ThreadPool& thread_pool_;

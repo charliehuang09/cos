@@ -117,13 +117,45 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
       output_format_(output_format),
       thread_pool_(thread_pool) {
   CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
-  CHECK(nvjpegJpegStateCreate(handle_, &state_) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecoderStateCreate(handle_, decoder_, &state_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegJpegStreamCreate(handle_, &jpeg_stream_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeParamsCreate(handle_, &decode_params_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeParamsSetOutputFormat(decode_params_, output_format_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegBufferPinnedCreate(handle_, nullptr, &pinned_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegBufferDeviceCreate(handle_, nullptr, &device_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegStateAttachPinnedBuffer(state_, pinned_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegStateAttachDeviceBuffer(state_, device_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
 }
 
 NvjpegDecodeNode::~NvjpegDecodeNode() {
   LOG(INFO) << "Destructing NvjpegDecodeNode";
+  if (device_buffer_ != nullptr) {
+    CHECK(nvjpegBufferDeviceDestroy(device_buffer_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (pinned_buffer_ != nullptr) {
+    CHECK(nvjpegBufferPinnedDestroy(pinned_buffer_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (decode_params_ != nullptr) {
+    CHECK(nvjpegDecodeParamsDestroy(decode_params_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (jpeg_stream_ != nullptr) {
+    CHECK(nvjpegJpegStreamDestroy(jpeg_stream_) == NVJPEG_STATUS_SUCCESS);
+  }
   if (state_ != nullptr) {
     CHECK(nvjpegJpegStateDestroy(state_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (decoder_ != nullptr) {
+    CHECK(nvjpegDecoderDestroy(decoder_) == NVJPEG_STATUS_SUCCESS);
   }
   if (handle_ != nullptr) {
     CHECK(nvjpegDestroy(handle_) == NVJPEG_STATUS_SUCCESS);
@@ -183,9 +215,16 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
         decoded_buffer.channel_sizes[channel]));
   }
 
-  CHECK(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size,
-                     output_format_, &decoded_buffer.destination,
-                     nullptr) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegJpegStreamParse(handle_, jpeg_data, jpeg_buffer->size, 0, 0,
+                              jpeg_stream_) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeJpegHost(handle_, decoder_, state_, decode_params_,
+                             jpeg_stream_) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeJpegTransferToDevice(handle_, decoder_, state_,
+                                         jpeg_stream_,
+                                         nullptr) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeJpegDevice(handle_, decoder_, state_,
+                               &decoded_buffer.destination,
+                               nullptr) == NVJPEG_STATUS_SUCCESS);
   CheckCuda(cudaDeviceSynchronize());
 
   return decoded_buffer;
