@@ -22,11 +22,8 @@ target_sources(compress_jpeg
     compress_jpeg.cc
 )
 target_link_libraries(compress_jpeg PRIVATE
-  uvc_camera_node
-  jpeg_buffer_streamer_node
-  stop
   absl::flags_parse
-  JPEG::JPEG
+  absl::check
   ${OpenCV_LIBS}
 )
 
