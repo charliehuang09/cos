@@ -7,6 +7,7 @@ target_link_libraries(uvc_camera_node PRIVATE
   uvc
   absl::log
   nlohmann_json::nlohmann_json
+  wpilibc
 )
 
 add_library(nvjpeg_decode_node)

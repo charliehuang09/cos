@@ -11,7 +11,6 @@
 #include <cuda_runtime.h>
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
-#include <wpi/system/Timer.hpp>
 
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
@@ -79,9 +78,8 @@ auto main(int argc, char* argv[]) -> int {
 
           const cv::Mat image(buffer->height, buffer->width, CV_8UC3,
                               bgr.data(), buffer->stride);
-          const double timestamp = wpi::Timer::GetTimestamp().value();
           const std::filesystem::path image_path =
-              log_folder / (std::to_string(timestamp) + ".png");
+              log_folder / (std::to_string(buffer->timestamp) + ".png");
           CHECK(cv::imwrite(image_path.string(), image))
               << "Failed to write " << image_path;
         });

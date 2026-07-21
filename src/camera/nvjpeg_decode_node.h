@@ -27,6 +27,7 @@ class DecodedJpegBuffer final : public control_loop::IMessage {
   int height = 0;
   size_t stride = 0;
   size_t output_size = 0;
+  double timestamp = 0;
   nvjpegOutputFormat_t output_format = NVJPEG_OUTPUT_Y;
   ;
   std::array<size_t, NVJPEG_MAX_COMPONENT> channel_sizes = {};
