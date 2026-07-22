@@ -32,11 +32,10 @@ auto main() -> int {
       "jpeg_buffer", "decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
   control_loop.RegisterCallback(nvjpeg_decode_node->CreateCallback());
 
-  auto nvidia_apriltag_detector_node = std::make_unique<
-      apriltag::NvidiaApriltagDetectorNode>(
-      "decoded_image", "apriltag_detections",
-      "/root/constants/dev-orin/camera.json",
-      thread_pool);  // The camera that caputred the log was last year's camera, but the intrinsics parameters should be the same.
+  auto nvidia_apriltag_detector_node =
+      std::make_unique<apriltag::NvidiaApriltagDetectorNode>(
+          "decoded_image", "apriltag_detections",
+          "/root/constants/dev-orin/camera.json", thread_pool);
   nvjpeg_decode_node->RegisterCallback(
       nvidia_apriltag_detector_node->CreateCallback());
 
