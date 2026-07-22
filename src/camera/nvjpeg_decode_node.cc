@@ -115,7 +115,7 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
       output_path_(output_path),
       output_format_(output_format),
       thread_pool_(thread_pool),
-      dependencies_({input_path_}) {
+      dependencies_({{input_path_, typeid(JpegBuffer)}}) {
   CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
         NVJPEG_STATUS_SUCCESS);
@@ -230,7 +230,8 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
   return decoded_buffer;
 }
 
-auto NvjpegDecodeNode::GetDependencies() -> const std::vector<std::string>& {
+auto NvjpegDecodeNode::GetDependencies()
+    -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
 }
 

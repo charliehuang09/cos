@@ -53,7 +53,8 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   void Callback(const control_loop::Context& context);
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
-  auto GetDependencies() -> const std::vector<std::string>& override;
+  auto GetDependencies()
+      -> const std::vector<control_loop::MessageDescriptor>& override;
 
  private:
   auto Detect(const camera::DecodedJpegBuffer& buffer)
@@ -74,7 +75,7 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   std::mutex detect_mutex_;
   int width_;
   int height_;
-  std::vector<std::string> dependencies_;
+  std::vector<control_loop::MessageDescriptor> dependencies_;
 };
 
 }  // namespace apriltag

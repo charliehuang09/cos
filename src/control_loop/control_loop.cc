@@ -1,6 +1,7 @@
 #include "control_loop/control_loop.h"
 
 #include <chrono>
+#include <unordered_set>
 #include <utility>
 
 #include "absl/log/log.h"
@@ -26,7 +27,6 @@ ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
 void ControlLoop::Start() {
   thread_ = std::jthread([this](const std::stop_token& stop_token) -> void {
     while (!stop_token.stop_requested()) {
-      VLOG(1) << "Control loop";
       std::stop_source stop_source;
       std::atomic destructed = false;
 
@@ -69,6 +69,15 @@ void ControlLoop::RegisterCallback(
 void ControlLoop::RegisterDependancy(
     std::function<void(const Context&)> dependancy) {
   dependencies_.emplace_back(dependancy);
+}
+
+void ControlLoop::RegisterNode(const std::shared_ptr<INode>& node) {
+  nodes_.emplace_back(node);
+}
+
+auto ControlLoop::ValidateNodeGraph() -> bool {
+  std::unordered_set<std::string> publishers;
+  return true;
 }
 
 }  // namespace control_loop

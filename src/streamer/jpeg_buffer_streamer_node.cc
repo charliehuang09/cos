@@ -6,7 +6,7 @@ JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
                                                std::string path, int port)
     : input_path_(input_path),
       path_(std::move(path)),
-      dependencies_({input_path_}) {
+      dependencies_({{input_path_, typeid(camera::JpegBuffer)}}) {
   streamer_.start(port);
 }
 
@@ -28,7 +28,7 @@ auto JpegBufferStreamerNode::CreateCallback()
 }
 
 auto JpegBufferStreamerNode::GetDependencies()
-    -> const std::vector<std::string>& {
+    -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
 }
 

@@ -98,7 +98,8 @@ auto JpegDiskCamera::CreateCallback()
   };
 }
 
-auto JpegDiskCamera::GetDependencies() -> const std::vector<std::string>& {
+auto JpegDiskCamera::GetDependencies()
+    -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
 }
 }  // namespace camera

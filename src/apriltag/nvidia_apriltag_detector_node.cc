@@ -39,7 +39,7 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
     : input_channel_(input_channel),
       output_channel_(output_channel),
       thread_pool_(thread_pool),
-      dependencies_({input_channel_}) {
+      dependencies_({{input_channel_, typeid(camera::DecodedJpegBuffer)}}) {
 
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
@@ -198,7 +198,7 @@ auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
 }
 
 auto NvidiaApriltagDetectorNode::GetDependencies()
-    -> const std::vector<std::string>& {
+    -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
 }
 
