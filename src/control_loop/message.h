@@ -2,8 +2,8 @@
 #include <cstddef>
 #include <string>
 #include <typeindex>
+#include <unordered_set>
 #include <utility>
-#include <vector>
 
 namespace control_loop {
 
@@ -22,18 +22,19 @@ class MessageDescriptor {
   MessageDescriptor(std::string_view channel, std::type_index type)
       : channel_(channel), types_({type}) {}
   MessageDescriptor(std::string_view channel,
-                    std::vector<std::type_index> types)
+                    std::unordered_set<std::type_index> types)
       : channel_(channel), types_(std::move(types)) {}
   [[nodiscard]] auto GetChannel() const -> const std::string& {
     return channel_;
   }
-  [[nodiscard]] auto GetTypes() const -> const std::vector<std::type_index>& {
+  [[nodiscard]] auto GetTypes() const
+      -> const std::unordered_set<std::type_index>& {
     return types_;
   }
 
  private:
   std::string channel_;
-  std::vector<std::type_index> types_;
+  std::unordered_set<std::type_index> types_;
 };
 
 }  // namespace control_loop
