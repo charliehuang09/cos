@@ -11,10 +11,10 @@ class INode {
   virtual ~INode() = default;
   virtual auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> = 0;
-  [[nodiscard]] virtual auto GetDependencies()
+  [[nodiscard]] virtual auto GetDependencies() const
       -> const std::vector<MessageDescriptor>& = 0;
-  // [[nodiscard]] virtual auto GetDependents() const
-  //     -> const std::vector<std::string>& = 0;
+  [[nodiscard]] virtual auto GetPublications() const
+      -> const std::vector<MessageDescriptor>& = 0;
 };
 
 }  // namespace control_loop

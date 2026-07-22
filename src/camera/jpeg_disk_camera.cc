@@ -15,7 +15,8 @@ namespace camera {
 
 JpegDiskCamera::JpegDiskCamera(std::string_view folder_path,
                                std::string_view output_channel)
-    : output_channel_(output_channel) {
+    : output_channel_(output_channel),
+      publications_({{output_channel_, typeid(JpegBuffer)}}) {
   std::vector<std::pair<std::filesystem::path, double>> file_paths_vector;
   for (const auto& entry : std::filesystem::directory_iterator(folder_path)) {
     if (!entry.is_regular_file()) {
@@ -98,8 +99,13 @@ auto JpegDiskCamera::CreateCallback()
   };
 }
 
-auto JpegDiskCamera::GetDependencies()
+auto JpegDiskCamera::GetDependencies() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
+}
+
+auto JpegDiskCamera::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 }  // namespace camera

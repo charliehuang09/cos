@@ -68,7 +68,9 @@ class UVCCameraNode final : public control_loop::INode {
       -> std::function<void(const control_loop::Context&)> override;
   void Callback(const control_loop::Context& context);
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
-  auto GetDependencies()
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
 
  private:
@@ -82,6 +84,7 @@ class UVCCameraNode final : public control_loop::INode {
   std::atomic<bool> start_ = false;
   std::mutex mutex_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
 };
 
 }  // namespace camera

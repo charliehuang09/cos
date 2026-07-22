@@ -50,10 +50,12 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
       const std::function<void(const control_loop::Context&)>& callback) {
     callbacks_.emplace_back(callback);
   };
-  void Callback(const control_loop::Context& context);
+  void Callback(const control_loop::Context& context);  // Private?
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
-  auto GetDependencies()
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
 
  private:
@@ -76,6 +78,7 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   int width_;
   int height_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
 };
 
 }  // namespace apriltag

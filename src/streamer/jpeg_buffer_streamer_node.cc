@@ -27,9 +27,14 @@ auto JpegBufferStreamerNode::CreateCallback()
   };
 }
 
-auto JpegBufferStreamerNode::GetDependencies()
+auto JpegBufferStreamerNode::GetDependencies() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
+}
+
+auto JpegBufferStreamerNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 
 }  // namespace streamer

@@ -48,7 +48,9 @@ class NvjpegDecodeNode final : public control_loop::INode {
       const std::function<void(const control_loop::Context&)>& callback) {
     callbacks_.emplace_back(callback);
   };
-  auto GetDependencies()
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
 
  private:
@@ -69,6 +71,7 @@ class NvjpegDecodeNode final : public control_loop::INode {
   control_loop::ThreadPool& thread_pool_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
 };
 
 }  // namespace camera

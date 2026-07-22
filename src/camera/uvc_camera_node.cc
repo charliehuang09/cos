@@ -30,7 +30,9 @@ UVCCameraConfig::UVCCameraConfig(const std::string& path) {
 
 UVCCameraNode::UVCCameraNode(std::string_view output_path,
                              const UVCCameraConfig& config)
-    : output_path_(output_path), name_(config.name) {
+    : output_path_(output_path),
+      name_(config.name),
+      publications_({{output_path_, typeid(JpegBuffer)}}) {
   {
     uvc_error_t code = uvc_init(&context_, nullptr);
     CHECK(!code) << "UVC failed to init will error code: " << code;
@@ -106,9 +108,14 @@ UVCCameraNode::~UVCCameraNode() {
   LOG(INFO) << name_ << " has been destructed";
 }
 
-auto UVCCameraNode::GetDependencies()
+auto UVCCameraNode::GetDependencies() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
+}
+
+auto UVCCameraNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 
 }  // namespace camera

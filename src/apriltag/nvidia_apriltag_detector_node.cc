@@ -39,8 +39,8 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
     : input_channel_(input_channel),
       output_channel_(output_channel),
       thread_pool_(thread_pool),
-      dependencies_({{input_channel_, typeid(camera::DecodedJpegBuffer)}}) {
-
+      dependencies_({{input_channel_, typeid(camera::DecodedJpegBuffer)}}),
+      publications_({{output_channel_, typeid(NvidiaTagDetections)}}) {
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
   const nlohmann::json config = nlohmann::json::parse(config_file);
@@ -197,9 +197,14 @@ auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
   return detections;
 }
 
-auto NvidiaApriltagDetectorNode::GetDependencies()
+auto NvidiaApriltagDetectorNode::GetDependencies() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
+}
+
+auto NvidiaApriltagDetectorNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 
 }  // namespace apriltag

@@ -115,7 +115,8 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
       output_path_(output_path),
       output_format_(output_format),
       thread_pool_(thread_pool),
-      dependencies_({{input_path_, typeid(JpegBuffer)}}) {
+      dependencies_({{input_path_, typeid(JpegBuffer)}}),
+      publications_({{output_path_, typeid(DecodedJpegBuffer)}}) {
   CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
         NVJPEG_STATUS_SUCCESS);
@@ -230,9 +231,14 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
   return decoded_buffer;
 }
 
-auto NvjpegDecodeNode::GetDependencies()
+auto NvjpegDecodeNode::GetDependencies() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
+}
+
+auto NvjpegDecodeNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 
 }  // namespace camera

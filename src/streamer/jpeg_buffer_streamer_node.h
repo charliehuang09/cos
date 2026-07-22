@@ -11,7 +11,9 @@ class JpegBufferStreamerNode final : public control_loop::INode {
                          int port);
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
-  auto GetDependencies()
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
 
  private:
@@ -22,6 +24,7 @@ class JpegBufferStreamerNode final : public control_loop::INode {
   std::string input_path_;
   std::string path_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
 };
 
 }  // namespace streamer

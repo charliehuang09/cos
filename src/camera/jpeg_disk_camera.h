@@ -14,7 +14,9 @@ class JpegDiskCamera final : public control_loop::INode {
   JpegDiskCamera(std::string_view folder_path, std::string_view output_channel);
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
-  auto GetDependencies()
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
 
  private:
@@ -26,6 +28,7 @@ class JpegDiskCamera final : public control_loop::INode {
   std::queue<std::pair<std::filesystem::path, double>> file_paths_;
   std::optional<double> replay_start_time_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
 };
 
 }  // namespace camera
