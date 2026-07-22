@@ -96,6 +96,9 @@ auto JpegDiskCamera::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     Callback(context);
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
   };
 }
 
@@ -107,5 +110,10 @@ auto JpegDiskCamera::GetDependencies() const
 auto JpegDiskCamera::GetPublications() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return publications_;
+}
+
+void JpegDiskCamera::RegisterCallback(
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.emplace_back(callback);
 }
 }  // namespace camera

@@ -15,6 +15,8 @@ class INode {
       -> const std::vector<MessageDescriptor>& = 0;
   [[nodiscard]] virtual auto GetPublications() const
       -> const std::vector<MessageDescriptor>& = 0;
+  virtual void RegisterCallback(
+      const std::function<void(const control_loop::Context&)>& callback) = 0;
 };
 
 }  // namespace control_loop

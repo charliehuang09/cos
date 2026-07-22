@@ -20,7 +20,8 @@ class ControlLoop {
   void Stop();
 
  private:
-  auto ValidateNodeGraph() -> bool;
+  void ValidateNodeGraph();
+  void RegisterNodeCallbacks();
 
  private:
   std::jthread thread_;

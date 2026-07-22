@@ -44,8 +44,8 @@ class NvjpegDecodeNode final : public control_loop::INode {
   ~NvjpegDecodeNode() override;
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
-  void RegisterCallback(
-      const std::function<void(const control_loop::Context&)>& callback) {
+  void RegisterCallback(const std::function<void(const control_loop::Context&)>&
+                            callback) override {
     callbacks_.emplace_back(callback);
   };
   [[nodiscard]] auto GetDependencies() const

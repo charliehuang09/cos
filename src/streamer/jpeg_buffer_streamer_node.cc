@@ -24,6 +24,9 @@ auto JpegBufferStreamerNode::CreateCallback()
       return;
     }
     Stream(*jpeg_buffer);
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
   };
 }
 
@@ -35,6 +38,11 @@ auto JpegBufferStreamerNode::GetDependencies() const
 auto JpegBufferStreamerNode::GetPublications() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return publications_;
+}
+
+void JpegBufferStreamerNode::RegisterCallback(
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.emplace_back(callback);
 }
 
 }  // namespace streamer

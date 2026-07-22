@@ -65,6 +65,9 @@ auto UVCCameraNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     Callback(context);
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
   };
 }
 
@@ -118,4 +121,8 @@ auto UVCCameraNode::GetPublications() const
   return publications_;
 }
 
+void UVCCameraNode::RegisterCallback(
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.emplace_back(callback);
+}
 }  // namespace camera
