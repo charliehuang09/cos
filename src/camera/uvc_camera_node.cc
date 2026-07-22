@@ -106,4 +106,8 @@ UVCCameraNode::~UVCCameraNode() {
   LOG(INFO) << name_ << " has been destructed";
 }
 
+auto UVCCameraNode::GetDependencies() -> const std::vector<std::string>& {
+  return dependencies_;
+}
+
 }  // namespace camera

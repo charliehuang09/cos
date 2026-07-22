@@ -4,7 +4,9 @@ namespace streamer {
 
 JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
                                                std::string path, int port)
-    : input_path_(input_path), path_(std::move(path)) {
+    : input_path_(input_path),
+      path_(std::move(path)),
+      dependencies_({input_path_}) {
   streamer_.start(port);
 }
 
@@ -23,6 +25,11 @@ auto JpegBufferStreamerNode::CreateCallback()
     }
     Stream(*jpeg_buffer);
   };
+}
+
+auto JpegBufferStreamerNode::GetDependencies()
+    -> const std::vector<std::string>& {
+  return dependencies_;
 }
 
 }  // namespace streamer

@@ -1,7 +1,6 @@
 #include "camera/nvjpeg_decode_node.h"
 
 #include <array>
-#include <iostream>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -112,10 +111,11 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
                                    std::string_view output_path,
                                    nvjpegOutputFormat_t output_format,
                                    control_loop::ThreadPool& thread_pool)
-    : input_path_(input_path),
+    : input_path_({std::string(input_path)}),
       output_path_(output_path),
       output_format_(output_format),
-      thread_pool_(thread_pool) {
+      thread_pool_(thread_pool),
+      dependencies_({input_path_}) {
   CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
         NVJPEG_STATUS_SUCCESS);
@@ -228,6 +228,10 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
   CheckCuda(cudaDeviceSynchronize());
 
   return decoded_buffer;
+}
+
+auto NvjpegDecodeNode::GetDependencies() -> const std::vector<std::string>& {
+  return dependencies_;
 }
 
 }  // namespace camera

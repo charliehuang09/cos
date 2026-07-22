@@ -38,7 +38,8 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
     std::string_view config_path, control_loop::ThreadPool& thread_pool)
     : input_channel_(input_channel),
       output_channel_(output_channel),
-      thread_pool_(thread_pool) {
+      thread_pool_(thread_pool),
+      dependencies_({input_channel_}) {
 
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
@@ -194,6 +195,11 @@ auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
   CHECK(!vpiArrayUnlock(detections_));
 
   return detections;
+}
+
+auto NvidiaApriltagDetectorNode::GetDependencies()
+    -> const std::vector<std::string>& {
+  return dependencies_;
 }
 
 }  // namespace apriltag

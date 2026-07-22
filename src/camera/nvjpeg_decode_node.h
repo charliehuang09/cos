@@ -48,6 +48,7 @@ class NvjpegDecodeNode final : public control_loop::INode {
       const std::function<void(const control_loop::Context&)>& callback) {
     callbacks_.emplace_back(callback);
   };
+  auto GetDependencies() -> const std::vector<std::string>& override;
 
  private:
   auto DecodeJpegBuffer(const JpegBuffer* jpeg_buffer) -> DecodedJpegBuffer;
@@ -66,6 +67,7 @@ class NvjpegDecodeNode final : public control_loop::INode {
   nvjpegOutputFormat_t output_format_ = NVJPEG_OUTPUT_BGRI;
   control_loop::ThreadPool& thread_pool_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
+  std::vector<std::string> dependencies_;
 };
 
 }  // namespace camera
