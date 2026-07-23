@@ -1,5 +1,5 @@
 add_executable(test_thread_pool
-  test_thread_pool.cc
+  thread_pool_test.cc
 )
 target_link_libraries(test_thread_pool PRIVATE
   thread_pool
