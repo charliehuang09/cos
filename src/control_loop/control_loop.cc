@@ -6,6 +6,7 @@
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "control_loop/timer.h"
 
 namespace control_loop {
 
@@ -46,13 +47,15 @@ void ControlLoop::Start() {
         callback(context);
       }
 
+      Timer timer;
       std::this_thread::sleep_for(period_);
       context.reset();
 
       if (!destructed) {
-        LOG(WARNING) << "Command loop overun";
         stop_source.request_stop();
         destructed.wait(false);
+        LOG(WARNING) << "Command loop overun! " << timer.Stop().count()
+                     << "s loop";
       }
     }
   });

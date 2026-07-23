@@ -1,4 +1,5 @@
 #include "apriltag/nvidia_apriltag_detector_node.h"
+#include "absl/log/check.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "camera/jpeg_disk_camera.h"
@@ -13,15 +14,14 @@ auto main() -> int {
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
-  // JPEG decode and PVA AprilTag detection take about 45 ms per frame on the
-  // development Orin. Leave enough headroom for the asynchronous pipeline to
-  // release its control-loop context before the next iteration.
-  control_loop::ControlLoop control_loop(60ms);
+  control_loop::ControlLoop control_loop(50ms);
   control_loop::ThreadPool thread_pool;
 
   std::atomic<int> total_tag_detections = 0;
-  {
+  std::atomic<double> total_decode_latency = 0;
+  std::atomic<size_t> total_decodes = 0;
 
+  {
     auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
         "/cos-logs/log60/left", "jpeg_buffer");
     control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
@@ -34,6 +34,17 @@ auto main() -> int {
     auto nvjpeg_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
         "jpeg_buffer", "decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
     control_loop.RegisterNode(nvjpeg_decode_node);
+    nvjpeg_decode_node->EnableTiming("decoded_image:latency");
+    nvjpeg_decode_node->RegisterCallback(
+        [&total_decode_latency,
+         &total_decodes](const control_loop::Context& context) -> void {
+          auto detections = context->GetMessage<control_loop::LatencyMessage>(
+              "decoded_image:latency");
+          if (detections != nullptr) {
+            total_decode_latency += detections->latency.count();
+            total_decodes++;
+          }
+        });
 
     auto nvidia_apriltag_detector_node =
         std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
@@ -46,7 +57,7 @@ auto main() -> int {
           auto detections = context->GetMessage<apriltag::NvidiaTagDetections>(
               "apriltag_detections");
           if (detections == nullptr) {
-            LOG(INFO) << nullptr;
+            LOG(INFO) << -1;
             return;
           }
           LOG(INFO) << detections->tag_detections.size();
@@ -62,6 +73,8 @@ auto main() -> int {
   thread_pool.Shutdown();
 
   LOG(INFO) << "Total tag detections: " << total_tag_detections;
+  LOG(INFO) << "Average decode latency: "
+            << total_decode_latency / total_decodes;
 
   std::fflush(nullptr);
   std::_Exit(EXIT_SUCCESS);

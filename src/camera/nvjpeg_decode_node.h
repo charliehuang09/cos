@@ -10,6 +10,7 @@
 #include "control_loop/message.h"
 #include "control_loop/node.h"
 #include "control_loop/thread_pool.h"
+#include "control_loop/timed_node.h"
 namespace camera {
 
 class DecodedJpegBuffer final : public control_loop::IMessage {
@@ -35,7 +36,8 @@ class DecodedJpegBuffer final : public control_loop::IMessage {
   nvjpegImage_t destination = {};
 };
 
-class NvjpegDecodeNode final : public control_loop::INode {
+class NvjpegDecodeNode final : public control_loop::INode,
+                               public control_loop::ITimedNode {
  public:
   explicit NvjpegDecodeNode(std::string_view input_path,
                             std::string_view output_path,
@@ -52,6 +54,7 @@ class NvjpegDecodeNode final : public control_loop::INode {
       -> const std::vector<control_loop::MessageDescriptor>& override;
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
+  void EnableTiming(std::string_view latency_channel) override;
 
  private:
   auto DecodeJpegBuffer(const JpegBuffer* jpeg_buffer) -> DecodedJpegBuffer;
@@ -72,6 +75,8 @@ class NvjpegDecodeNode final : public control_loop::INode {
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
+  cudaStream_t stream_ = nullptr;
+  std::optional<std::string> latency_channel_ = std::nullopt;
 };
 
 }  // namespace camera
