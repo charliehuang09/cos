@@ -26,6 +26,9 @@ ContextInternal::~ContextInternal() {
 ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
 
 void ControlLoop::Start() {
+  ValidateNodeGraph();
+  RegisterNodeCallbacks();
+
   thread_ = std::jthread([this](const std::stop_token& stop_token) -> void {
     while (!stop_token.stop_requested()) {
       std::stop_source stop_source;
@@ -75,9 +78,25 @@ void ControlLoop::RegisterDependancy(
 void ControlLoop::RegisterNode(const std::shared_ptr<INode>& node) {
   nodes_.emplace_back(node);
 }
+void ControlLoop::RegisterDependancyNode(const std::shared_ptr<INode>& node) {
+  dependancy_nodes_.emplace_back(node);
+  dependencies_.emplace_back(node->CreateCallback());
+}
 
 void ControlLoop::ValidateNodeGraph() {
   std::unordered_map<std::string, std::type_index> publishers;
+  for (const auto& node : dependancy_nodes_) {
+    for (const auto& message_descriptor : node->GetPublications()) {
+      PCHECK(!publishers.contains(message_descriptor.GetChannel()))
+          << "Multiple publishers to the same channel. Channel is: "
+          << message_descriptor.GetChannel();
+      PCHECK(message_descriptor.GetTypes().size() == 1)
+          << "Publisher message descriptor has multiple types. Channel is: "
+          << message_descriptor.GetChannel();
+      publishers.insert({message_descriptor.GetChannel(),
+                         *message_descriptor.GetTypes().begin()});
+    }
+  }
   for (const auto& node : nodes_) {
     for (const auto& message_descriptor : node->GetPublications()) {
       PCHECK(!publishers.contains(message_descriptor.GetChannel()))
@@ -107,6 +126,11 @@ void ControlLoop::ValidateNodeGraph() {
 
 void ControlLoop::RegisterNodeCallbacks() {
   std::unordered_map<std::string, INode*> publishers;
+  for (const auto& node : dependancy_nodes_) {
+    for (const auto& message_descriptor : node->GetPublications()) {
+      publishers.insert({message_descriptor.GetChannel(), node.get()});
+    }
+  }
   for (const auto& node : nodes_) {
     for (const auto& message_descriptor : node->GetPublications()) {
       publishers.insert({message_descriptor.GetChannel(), node.get()});

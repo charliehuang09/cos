@@ -19,36 +19,40 @@ auto main() -> int {
   control_loop::ControlLoop control_loop(60ms);
   control_loop::ThreadPool thread_pool;
 
-  auto jpeg_disk_camera_node = std::make_unique<camera::JpegDiskCamera>(
-      "/cos-logs/log60/left", "jpeg_buffer");
-  control_loop.RegisterDependancy(jpeg_disk_camera_node->CreateCallback());
-
-  auto jpeg_buffer_streamer_node =
-      std::make_unique<streamer::JpegBufferStreamerNode>("jpeg_buffer",
-                                                         "stream", 8080);
-  control_loop.RegisterCallback(jpeg_buffer_streamer_node->CreateCallback());
-
-  auto nvjpeg_decode_node = std::make_unique<camera::NvjpegDecodeNode>(
-      "jpeg_buffer", "decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
-  control_loop.RegisterCallback(nvjpeg_decode_node->CreateCallback());
-
-  auto nvidia_apriltag_detector_node =
-      std::make_unique<apriltag::NvidiaApriltagDetectorNode>(
-          "decoded_image", "apriltag_detections",
-          "/root/constants/dev-orin/camera.json", thread_pool);
-  nvjpeg_decode_node->RegisterCallback(
-      nvidia_apriltag_detector_node->CreateCallback());
-
   std::atomic<int> total_tag_detections = 0;
-  nvidia_apriltag_detector_node->RegisterCallback(
-      [&total_tag_detections](const control_loop::Context& context) -> void {
-        auto detections = context->GetMessage<apriltag::NvidiaTagDetections>(
-            "apriltag_detections");
-        if (detections == nullptr) {
-          return;
-        }
-        total_tag_detections++;
-      });
+  {
+
+    auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
+        "/cos-logs/log60/left", "jpeg_buffer");
+    control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
+
+    auto jpeg_buffer_streamer_node =
+        std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
+                                                           "stream", 8080);
+    control_loop.RegisterNode(jpeg_buffer_streamer_node);
+
+    auto nvjpeg_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
+        "jpeg_buffer", "decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
+    control_loop.RegisterNode(nvjpeg_decode_node);
+
+    auto nvidia_apriltag_detector_node =
+        std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
+            "decoded_image", "apriltag_detections",
+            "/root/constants/dev-orin/camera.json", thread_pool);
+    control_loop.RegisterNode(nvidia_apriltag_detector_node);
+
+    nvidia_apriltag_detector_node->RegisterCallback(
+        [&total_tag_detections](const control_loop::Context& context) -> void {
+          auto detections = context->GetMessage<apriltag::NvidiaTagDetections>(
+              "apriltag_detections");
+          if (detections == nullptr) {
+            LOG(INFO) << nullptr;
+            return;
+          }
+          LOG(INFO) << detections->tag_detections.size();
+          total_tag_detections++;
+        });
+  }
 
   control_loop.Start();
 

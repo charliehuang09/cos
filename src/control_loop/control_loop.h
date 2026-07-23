@@ -16,6 +16,7 @@ class ControlLoop {
   void RegisterCallback(std::function<void(const Context&)> callback);
   void RegisterDependancy(std::function<void(const Context&)>);
   void RegisterNode(const std::shared_ptr<INode>& node);
+  void RegisterDependancyNode(const std::shared_ptr<INode>& node);
   void Start();
   void Stop();
 
@@ -29,6 +30,7 @@ class ControlLoop {
   std::vector<std::function<void(Context)>> callbacks_;
   std::vector<std::function<void(Context)>> dependencies_;
   std::vector<std::shared_ptr<INode>> nodes_;
+  std::vector<std::shared_ptr<INode>> dependancy_nodes_;
 };
 
 }  // namespace control_loop
