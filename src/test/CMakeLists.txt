@@ -11,6 +11,7 @@ add_executable(nvidia_apriltag_detector_node_test
 target_link_libraries(nvidia_apriltag_detector_node_test PRIVATE
   jpeg_buffer_streamer_node
   nvidia_apriltag_detector_node
+  nvjpeg_fd_decode_node
   nvjpeg_decode_node
   control_loop
   thread_pool

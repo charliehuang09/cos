@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "camera/nvjpeg_fd_decode_node.h"
 #include "camera/nvjpeg_decode_node.h"
 
 #include <vpi/Types.h>
@@ -60,6 +61,11 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
 
  private:
   auto Detect(const camera::DecodedJpegBuffer& buffer)
+      -> std::vector<NvidiaTagDetections::tag_detection>;
+  auto Detect(const camera::DecodedJpegFdBuffer& buffer)
+      -> std::vector<NvidiaTagDetections::tag_detection>;
+  auto DetectGray(const unsigned char* data, int width, int height,
+                  size_t stride)
       -> std::vector<NvidiaTagDetections::tag_detection>;
   auto Detect(VPIImage image)
       -> std::vector<NvidiaTagDetections::tag_detection>;
