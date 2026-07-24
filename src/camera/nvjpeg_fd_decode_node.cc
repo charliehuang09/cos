@@ -36,6 +36,7 @@ NvjpegFdDecodeNode::NvjpegFdDecodeNode(std::string_view input_path,
       publications_({{output_path_, typeid(DecodedJpegFdBuffer)}}) {
   decoder_ = NvJPEGDecoder::createJPEGDecoder("cos-jpeg-fd-decoder");
   CHECK(decoder_ != nullptr);
+  decoder_->setMemType(NVBUF_MEM_SURFACE_ARRAY);
 }
 
 NvjpegFdDecodeNode::~NvjpegFdDecodeNode() {
@@ -119,7 +120,6 @@ auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
   transform_params.flip = NvBufSurfTransform_None;
   transform_params.filter = NvBufSurfTransformInter_Nearest;
   CHECK_EQ(NvBufSurf::NvTransform(&transform_params, decoded_fd, output.fd), 0);
-  CHECK_EQ(NvBufSurf::NvDestroy(decoded_fd), 0);
 
   NvBufSurface* output_surface = nullptr;
   CHECK_EQ(
