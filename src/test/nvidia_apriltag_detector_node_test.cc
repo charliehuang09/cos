@@ -139,5 +139,5 @@ auto main() -> int {
             << hardware_metrics.total_decode_latency / hardware_decodes;
 
   std::fflush(nullptr);
-  std::exit(EXIT_SUCCESS);
+  std::_Exit(EXIT_SUCCESS);
 }

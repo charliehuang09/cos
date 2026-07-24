@@ -118,6 +118,7 @@ auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
   transform_params.flip = NvBufSurfTransform_None;
   transform_params.filter = NvBufSurfTransformInter_Nearest;
   CHECK_EQ(NvBufSurf::NvTransform(&transform_params, decoded_fd, output.fd), 0);
+  CHECK_EQ(NvBufSurf::NvDestroy(decoded_fd), 0);
 
   NvBufSurface* output_surface = nullptr;
   CHECK_EQ(NvBufSurfaceFromFd(output.fd,
