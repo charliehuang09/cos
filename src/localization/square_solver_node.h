@@ -24,9 +24,14 @@ class SquareSolverNode final : public control_loop::INode {
                    std::vector<cv::Point3d> tag_corners = kApriltagCorners);
 
   void RegisterCallback(
-      std::function<void(const control_loop::Context&)> callback) override;
+      const std::function<void(const control_loop::Context&)>& callback)
+      override;
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
 
   auto AmbiguousSolve(
       const std::vector<tag_detection_t>& detections,
@@ -43,6 +48,8 @@ class SquareSolverNode final : public control_loop::INode {
   cv::Mat camera_matrix_;
   cv::Mat distortion_coefficients_;
   cv::Mat camera_to_robot_;
+  std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
 };
 

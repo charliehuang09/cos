@@ -74,6 +74,10 @@ struct PositionEstimate final : public control_loop::IMessage {
   auto GetType() -> const std::type_info& override {
     return typeid(PositionEstimate);
   }
+  auto GetSize() -> std::size_t override {
+    return sizeof(*this) + tag_ids.capacity() * sizeof(int) +
+           rejected_tag_ids.capacity() * sizeof(int);
+  }
 
   friend auto operator<<(std::ostream& os,
                          const PositionEstimate& estimate) -> std::ostream& {

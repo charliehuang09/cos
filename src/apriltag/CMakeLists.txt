@@ -16,6 +16,7 @@ target_link_libraries(nvidia_apriltag_detector_node
   PUBLIC
     ${OpenCV_LIBS}
     vpi
+    nvjpeg_fd_decode_node
     nvjpeg_decode_node
   PRIVATE
     cuda_utils

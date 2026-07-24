@@ -1,22 +1,25 @@
 #include "camera/nvjpeg_decode_node.h"
+#include "control_loop/timer.h"
 
 #include <array>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "utils/cuda.h"
 
 namespace camera {
 using std::function;
 
-static auto CheckNvjpeg(nvjpegStatus_t status) -> void {
-  CHECK(status == NVJPEG_STATUS_SUCCESS);
+namespace {
+
+auto CheckCuda(cudaError_t status) -> void {
+  CHECK(status == cudaSuccess) << cudaGetErrorString(status);
 }
 
-static auto ConfigureDestination(
-    DecodedJpegBuffer* buffer, nvjpegOutputFormat_t output_format,
-    int components, const std::array<int, NVJPEG_MAX_COMPONENT>& widths,
-    const std::array<int, NVJPEG_MAX_COMPONENT>& heights) -> void {
+auto ConfigureDestination(DecodedJpegBuffer* buffer,
+                          nvjpegOutputFormat_t output_format, int components,
+                          const std::array<int, NVJPEG_MAX_COMPONENT>& widths,
+                          const std::array<int, NVJPEG_MAX_COMPONENT>& heights)
+    -> void {
   buffer->output_format = output_format;
   buffer->width = widths[0];
   buffer->height = heights[0];
@@ -73,6 +76,8 @@ static auto ConfigureDestination(
   buffer->stride = buffer->destination.pitch[0];
 }
 
+}  // namespace
+
 DecodedJpegBuffer::~DecodedJpegBuffer() {
   for (int channel = 0; channel < NVJPEG_MAX_COMPONENT; ++channel) {
     if (channel_sizes[channel] != 0U &&
@@ -90,6 +95,7 @@ DecodedJpegBuffer::DecodedJpegBuffer(DecodedJpegBuffer&& other) noexcept
       height(other.height),
       stride(other.stride),
       output_size(other.output_size),
+      timestamp(other.timestamp),
       output_format(other.output_format),
       channel_sizes(other.channel_sizes),
       destination(other.destination) {
@@ -102,21 +108,60 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
                                    std::string_view output_path,
                                    nvjpegOutputFormat_t output_format,
                                    control_loop::ThreadPool& thread_pool)
-    : input_path_(input_path),
+    : input_path_({std::string(input_path)}),
       output_path_(output_path),
       output_format_(output_format),
-      thread_pool_(thread_pool) {
-  CheckNvjpeg(nvjpegCreateSimple(&handle_));
-  CheckNvjpeg(nvjpegJpegStateCreate(handle_, &state_));
+      thread_pool_(thread_pool),
+      dependencies_({{input_path_, typeid(JpegBuffer)}}),
+      publications_({{output_path_, typeid(DecodedJpegBuffer)}}) {
+  CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
+  CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecoderStateCreate(handle_, decoder_, &state_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegJpegStreamCreate(handle_, &jpeg_stream_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeParamsCreate(handle_, &decode_params_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeParamsSetOutputFormat(decode_params_, output_format_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegBufferPinnedCreate(handle_, nullptr, &pinned_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegBufferDeviceCreate(handle_, nullptr, &device_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegStateAttachPinnedBuffer(state_, pinned_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegStateAttachDeviceBuffer(state_, device_buffer_) ==
+        NVJPEG_STATUS_SUCCESS);
+  cudaStreamCreate(&stream_);
 }
 
 NvjpegDecodeNode::~NvjpegDecodeNode() {
   LOG(INFO) << "Destructing NvjpegDecodeNode";
+  if (stream_ != nullptr) {
+    CheckCuda(cudaStreamDestroy(stream_));
+  }
+  if (device_buffer_ != nullptr) {
+    CHECK(nvjpegBufferDeviceDestroy(device_buffer_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (pinned_buffer_ != nullptr) {
+    CHECK(nvjpegBufferPinnedDestroy(pinned_buffer_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (decode_params_ != nullptr) {
+    CHECK(nvjpegDecodeParamsDestroy(decode_params_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (jpeg_stream_ != nullptr) {
+    CHECK(nvjpegJpegStreamDestroy(jpeg_stream_) == NVJPEG_STATUS_SUCCESS);
+  }
   if (state_ != nullptr) {
-    CheckNvjpeg(nvjpegJpegStateDestroy(state_));
+    CHECK(nvjpegJpegStateDestroy(state_) == NVJPEG_STATUS_SUCCESS);
+  }
+  if (decoder_ != nullptr) {
+    CHECK(nvjpegDecoderDestroy(decoder_) == NVJPEG_STATUS_SUCCESS);
   }
   if (handle_ != nullptr) {
-    CheckNvjpeg(nvjpegDestroy(handle_));
+    CHECK(nvjpegDestroy(handle_) == NVJPEG_STATUS_SUCCESS);
   }
 }
 
@@ -124,18 +169,21 @@ auto NvjpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
-    if (jpeg_buffer == nullptr) {
-      for (const auto& callback : callbacks_) {
-        callback(context);
-      }
+    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr) {
       return;
     }
 
     std::function<void()> task = [this, context, jpeg_buffer]() -> void {
+      control_loop::Timer timer;
       std::unique_ptr<control_loop::IMessage> decoded_buffer =
           std::make_unique<DecodedJpegBuffer>(DecodeJpegBuffer(jpeg_buffer));
 
       context->SetMessage(output_path_, std::move(decoded_buffer));
+      if (latency_channel_.has_value()) {
+        context->SetMessage(
+            latency_channel_.value(),
+            std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
+      }
 
       for (const auto& callback : callbacks_) {
         callback(context);
@@ -156,11 +204,13 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
   std::array<int, NVJPEG_MAX_COMPONENT> heights = {};
   const auto* jpeg_data = static_cast<unsigned char*>(jpeg_buffer->ptr);
 
-  CheckNvjpeg(nvjpegGetImageInfo(handle_, jpeg_data, jpeg_buffer->size,
-                                 &components, &subsampling, widths.data(),
-                                 heights.data()));
+  CHECK_EQ(
+      nvjpegGetImageInfo(handle_, jpeg_data, jpeg_buffer->size, &components,
+                         &subsampling, widths.data(), heights.data()),
+      NVJPEG_STATUS_SUCCESS);
 
   DecodedJpegBuffer decoded_buffer{};
+  decoded_buffer.timestamp = jpeg_buffer->timestamp;
 
   ConfigureDestination(&decoded_buffer, output_format_, components, widths,
                        heights);
@@ -169,17 +219,40 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
     if (decoded_buffer.channel_sizes[channel] == 0U) {
       continue;
     }
-    utils::CheckCuda(cudaMalloc(
+    CheckCuda(cudaMalloc(
         reinterpret_cast<void**>(&decoded_buffer.destination.channel[channel]),
         decoded_buffer.channel_sizes[channel]));
   }
 
-  CheckNvjpeg(nvjpegDecode(handle_, state_, jpeg_data, jpeg_buffer->size,
-                           output_format_, &decoded_buffer.destination,
-                           nullptr));
-  utils::CheckCuda(cudaDeviceSynchronize());
+  CHECK(nvjpegJpegStreamParse(handle_, jpeg_data, jpeg_buffer->size, 0, 0,
+                              jpeg_stream_) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeJpegHost(handle_, decoder_, state_, decode_params_,
+                             jpeg_stream_) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeJpegTransferToDevice(handle_, decoder_, state_,
+                                         jpeg_stream_,
+                                         nullptr) == NVJPEG_STATUS_SUCCESS);
+  CHECK(nvjpegDecodeJpegDevice(handle_, decoder_, state_,
+                               &decoded_buffer.destination,
+                               stream_) == NVJPEG_STATUS_SUCCESS);
+  CheckCuda(cudaStreamSynchronize(stream_));
 
   return decoded_buffer;
+}
+
+auto NvjpegDecodeNode::GetDependencies() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return dependencies_;
+}
+
+auto NvjpegDecodeNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
+}
+
+void NvjpegDecodeNode::EnableTiming(std::string_view latency_channel) {
+  publications_.emplace_back(latency_channel,
+                             typeid(control_loop::LatencyMessage));
+  latency_channel_ = latency_channel;
 }
 
 }  // namespace camera

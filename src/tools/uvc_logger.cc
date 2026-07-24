@@ -14,6 +14,7 @@
 
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
+#include "control_loop/control_loop.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/cuda.h"
 #include "utils/stop.h"
@@ -31,8 +32,9 @@ ABSL_FLAG(                                                  // NOLINT
 ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT
           "Streaming port. No stream if left blank");  // NOLINT
 
-ABSL_FLAG(std::optional<std::string>, log_folder, std::nullopt,      // NOLINT
-          "Folder for numbered PNG frames. No logs if left blank");  // NOLINT
+ABSL_FLAG(                                                        // NOLINT
+    std::optional<std::string>, log_folder, std::nullopt,         // NOLINT
+    "Folder for timestamped PNG frames. No logs if left blank");  // NOLINT
 
 using namespace std::chrono_literals;
 
@@ -45,7 +47,7 @@ auto main(int argc, char* argv[]) -> int {
 
   camera::UVCCameraConfig config(absl::GetFlag(FLAGS_config_path));
 
-  control_loop::ControlLoop control_loop(20ms);
+  control_loop::ControlLoop control_loop;
   control_loop::ThreadPool thread_pool;
 
   auto uvc_camera_node =
@@ -63,11 +65,9 @@ auto main(int argc, char* argv[]) -> int {
     std::filesystem::create_directories(log_folder);
 
     nvjpeg_decode_node->RegisterCallback(
-        [log_folder, frame_index = size_t{0}](
-            const control_loop::Context& context) mutable -> void {
-          camera::DecodedJpegBuffer* buffer =
-              context->GetMessage<camera::DecodedJpegBuffer>(
-                  "decoded_buffer");
+        [log_folder](const control_loop::Context& context) -> void {
+          auto* buffer =
+              context->GetMessage<camera::DecodedJpegBuffer>("decoded_buffer");
           if (buffer == nullptr) {
             return;
           }
@@ -81,7 +81,7 @@ auto main(int argc, char* argv[]) -> int {
           const cv::Mat image(buffer->height, buffer->width, CV_8UC3,
                               bgr.data(), buffer->stride);
           const std::filesystem::path image_path =
-              log_folder / (std::to_string(frame_index++) + ".png");
+              log_folder / (std::to_string(buffer->timestamp) + ".png");
           CHECK(cv::imwrite(image_path.string(), image))
               << "Failed to write " << image_path;
         });
@@ -93,17 +93,13 @@ auto main(int argc, char* argv[]) -> int {
       absl::GetFlag(FLAGS_port).has_value()) {
     jpeg_buffer_streamer_node =
         std::make_unique<streamer::JpegBufferStreamerNode>(
+            "jpeg_stream",
             absl::GetFlag(FLAGS_stream_path).value(),
             absl::GetFlag(FLAGS_port).value());
     control_loop.RegisterCallback(
         [&jpeg_buffer_streamer_node](
             const control_loop::Context& context) -> void {
-          camera::JpegBuffer* jpeg_buffer =
-              context->GetMessage<camera::JpegBuffer>("jpeg_stream");
-          if (jpeg_buffer == nullptr) {
-            return;
-          }
-          jpeg_buffer_streamer_node->Stream(*jpeg_buffer);
+          jpeg_buffer_streamer_node->RegisterCallback(context);
         });
   }
 

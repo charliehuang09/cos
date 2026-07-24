@@ -11,7 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "control_loop/control_loop.h"
 #include "control_loop/node.h"
 
 #include "libuvc/libuvc.h"
@@ -45,13 +44,23 @@ struct UVCCameraConfig {
 
 class JpegBuffer final : public control_loop::IMessage {
  public:
-  JpegBuffer(size_t size) : size(size), ptr(std::malloc(size)) {}
+  JpegBuffer() : size(0), timestamp(0), ptr(nullptr) {}
+  JpegBuffer(size_t size, double timestamp)
+      : size(size), timestamp(timestamp), ptr(std::malloc(size)) {}
   ~JpegBuffer() override { std::free(ptr); }
+  JpegBuffer(const JpegBuffer&) = delete;
+  JpegBuffer(JpegBuffer&& other) noexcept
+      : size(other.size), timestamp(other.timestamp), ptr(other.ptr) {
+    other.ptr = nullptr;
+  }
+
   size_t size;
+  double timestamp;
   void* ptr;
   auto GetType() -> const std::type_info& override {
     return typeid(JpegBuffer);
   }
+  auto GetSize() -> size_t override { return sizeof(*this) + size; }
 };
 
 class UVCCameraNode final : public control_loop::INode {
@@ -61,12 +70,14 @@ class UVCCameraNode final : public control_loop::INode {
   void Start();
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
-  void RegisterCallback(
-      std::function<void(const control_loop::Context&)> callback) override {
-    callbacks_.emplace_back(std::move(callback));
-  }
   void Callback(const control_loop::Context& context);
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  void RegisterCallback(const std::function<void(const control_loop::Context&)>&
+                            callback) override;
 
  private:
   std::string output_path_;
@@ -78,6 +89,8 @@ class UVCCameraNode final : public control_loop::INode {
   std::unique_ptr<JpegBuffer> buffer_;
   std::atomic<bool> start_ = false;
   std::mutex mutex_;
+  std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
 };
 

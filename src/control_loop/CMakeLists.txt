@@ -8,6 +8,7 @@ target_compile_options(control_loop PRIVATE
 )
 target_link_libraries(control_loop PRIVATE
   absl::log
+  timer
 )
 
 find_package(Threads REQUIRED)
@@ -18,4 +19,8 @@ add_library(thread_pool
 target_link_libraries(thread_pool PUBLIC
   Threads::Threads
   absl::check
+)
+
+add_library(timer
+  timer.cc
 )

@@ -34,6 +34,9 @@ class AmbiguousEstimateMessage final : public control_loop::IMessage {
   auto GetType() -> const std::type_info& override {
     return typeid(AmbiguousEstimateMessage);
   }
+  auto GetSize() -> std::size_t override {
+    return sizeof(*this) + estimates.capacity() * sizeof(AmbiguousEstimate);
+  }
 
   std::vector<AmbiguousEstimate> estimates;
 };

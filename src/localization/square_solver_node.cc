@@ -27,11 +27,15 @@ SquareSolverNode::SquareSolverNode(
       camera_to_robot_(utils::EigenToCvMat(
           utils::ExtrinsicsJsonToCameraToRobot(
               utils::ReadJson(extrinsics_path))
-              .ToMatrix())) {}
+              .ToMatrix())),
+      dependencies_({control_loop::MessageDescriptor(
+          input_channel_, typeid(apriltag::NvidiaTagDetections))}),
+      publications_({control_loop::MessageDescriptor(
+          output_channel_, typeid(AmbiguousEstimateMessage))}) {}
 
 void SquareSolverNode::RegisterCallback(
-    std::function<void(const control_loop::Context&)> callback) {
-  callbacks_.push_back(std::move(callback));
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.push_back(callback);
 }
 
 auto SquareSolverNode::CreateCallback()
@@ -60,6 +64,16 @@ auto SquareSolverNode::CreateCallback()
     }
     notify_callbacks();
   };
+}
+
+auto SquareSolverNode::GetDependencies() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return dependencies_;
+}
+
+auto SquareSolverNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 
 auto SquareSolverNode::AmbiguousSolve(

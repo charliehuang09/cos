@@ -27,9 +27,14 @@ class MultiTagSolverNode final : public control_loop::INode {
                          kApriltagCorners);
 
   void RegisterCallback(
-      std::function<void(const control_loop::Context&)> callback) override;
+      const std::function<void(const control_loop::Context&)>& callback)
+      override;
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
 
   auto AmbiguousSolve(
       const std::vector<tag_detection_t>& detections,
@@ -46,6 +51,8 @@ class MultiTagSolverNode final : public control_loop::INode {
   cv::Mat camera_to_robot_;
   std::unordered_map<int, std::array<cv::Point3d, 4>> tag_corners_;
   SquareSolverNode single_tag_solver_;
+  std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
 };
 

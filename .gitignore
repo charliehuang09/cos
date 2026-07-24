@@ -2,3 +2,4 @@ build
 .cache
 .clangd
 cmake/
+compile_commands.json

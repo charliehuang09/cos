@@ -27,7 +27,11 @@ MultiTagSolverNode::MultiTagSolverNode(
           utils::ExtrinsicsJsonToCameraToRobot(
               utils::ReadJson(extrinsics_path)))),
       single_tag_solver_(input_channel, output_channel, intrinsics_path,
-                         extrinsics_path, layout, tag_corners) {
+                         extrinsics_path, layout, tag_corners),
+      dependencies_({control_loop::MessageDescriptor(
+          input_channel_, typeid(apriltag::NvidiaTagDetections))}),
+      publications_({control_loop::MessageDescriptor(
+          output_channel_, typeid(AmbiguousEstimateMessage))}) {
   cv::Mat rvec = (cv::Mat_<double>(3, 1) << 0, std::numbers::pi, 0);
   cv::Mat tvec = (cv::Mat_<double>(3, 1) << 0, 0, 0);
   cv::Mat rotate_z = utils::MakeTransform(rvec, tvec);
@@ -48,8 +52,8 @@ MultiTagSolverNode::MultiTagSolverNode(
 }
 
 void MultiTagSolverNode::RegisterCallback(
-    std::function<void(const control_loop::Context&)> callback) {
-  callbacks_.push_back(std::move(callback));
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.push_back(callback);
 }
 
 auto MultiTagSolverNode::CreateCallback()
@@ -80,6 +84,16 @@ auto MultiTagSolverNode::CreateCallback()
     }
     notify_callbacks();
   };
+}
+
+auto MultiTagSolverNode::GetDependencies() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return dependencies_;
+}
+
+auto MultiTagSolverNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 
 auto MultiTagSolverNode::AmbiguousSolve(

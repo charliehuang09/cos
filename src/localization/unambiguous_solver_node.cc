@@ -26,15 +26,18 @@ UnambiguousSolverNode::UnambiguousSolverNode(
     const std::string detection_batch_channel =
         DetectionBatchChannel(constants.name);
     detection_batch_channels_.push_back(detection_batch_channel);
+    dependencies_.emplace_back(detection_batch_channel,
+                               typeid(apriltag::NvidiaTagDetections));
     multitag_solvers_.emplace_back(detection_batch_channel,
                                    output_channel_, constants.intrinsics_path,
                                    constants.extrinsics_path, layout);
   }
+  publications_.emplace_back(output_channel_, typeid(PositionEstimate));
 }
 
 void UnambiguousSolverNode::RegisterCallback(
-    std::function<void(const control_loop::Context&)> callback) {
-  callbacks_.push_back(std::move(callback));
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.push_back(callback);
 }
 
 auto UnambiguousSolverNode::CreateCallback()
@@ -72,6 +75,16 @@ auto UnambiguousSolverNode::CreateCallback()
       callback(context);
     }
   };
+}
+
+auto UnambiguousSolverNode::GetDependencies() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return dependencies_;
+}
+
+auto UnambiguousSolverNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
 }
 
 auto UnambiguousSolverNode::Cost(const wpi::math::Pose3d& a,

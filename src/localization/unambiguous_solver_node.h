@@ -21,9 +21,14 @@ class UnambiguousSolverNode final : public control_loop::INode {
                             kApriltagLayout);
 
   void RegisterCallback(
-      std::function<void(const control_loop::Context&)> callback) override;
+      const std::function<void(const control_loop::Context&)>& callback)
+      override;
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
 
   auto Solve(
       const std::vector<std::vector<tag_detection_t>>& detection_batches,
@@ -48,6 +53,8 @@ class UnambiguousSolverNode final : public control_loop::INode {
   std::vector<std::string> detection_batch_channels_;
   size_t num_cameras_ = 0;
   std::vector<MultiTagSolverNode> multitag_solvers_;
+  std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   std::optional<position_estimate_t> prev_pose_estimate_;
 };

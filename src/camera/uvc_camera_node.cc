@@ -5,6 +5,7 @@
 
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <wpi/system/Timer.hpp>
 
 namespace camera {
 
@@ -29,7 +30,9 @@ UVCCameraConfig::UVCCameraConfig(const std::string& path) {
 
 UVCCameraNode::UVCCameraNode(std::string_view output_path,
                              const UVCCameraConfig& config)
-    : output_path_(output_path), name_(config.name) {
+    : output_path_(output_path),
+      name_(config.name),
+      publications_({{output_path_, typeid(JpegBuffer)}}) {
   {
     uvc_error_t code = uvc_init(&context_, nullptr);
     CHECK(!code) << "UVC failed to init will error code: " << code;
@@ -62,12 +65,16 @@ auto UVCCameraNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     Callback(context);
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
   };
 }
 
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
-  auto buffer = std::make_unique<JpegBuffer>(frame->data_bytes);
+  auto buffer = std::make_unique<JpegBuffer>(
+      frame->data_bytes, wpi::Timer::GetTimestamp().value());
   std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
 
   {
@@ -110,4 +117,18 @@ UVCCameraNode::~UVCCameraNode() {
   LOG(INFO) << name_ << " has been destructed";
 }
 
+auto UVCCameraNode::GetDependencies() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return dependencies_;
+}
+
+auto UVCCameraNode::GetPublications() const
+    -> const std::vector<control_loop::MessageDescriptor>& {
+  return publications_;
+}
+
+void UVCCameraNode::RegisterCallback(
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.emplace_back(callback);
+}
 }  // namespace camera
