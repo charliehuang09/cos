@@ -17,8 +17,7 @@ DecodedJpegFdBuffer::~DecodedJpegFdBuffer() {
   }
 }
 
-DecodedJpegFdBuffer::DecodedJpegFdBuffer(
-    DecodedJpegFdBuffer&& other) noexcept
+DecodedJpegFdBuffer::DecodedJpegFdBuffer(DecodedJpegFdBuffer&& other) noexcept
     : fd(std::exchange(other.fd, -1)),
       pixel_format(other.pixel_format),
       width(other.width),
@@ -27,9 +26,9 @@ DecodedJpegFdBuffer::DecodedJpegFdBuffer(
       output_size(other.output_size),
       timestamp(other.timestamp) {}
 
-NvjpegFdDecodeNode::NvjpegFdDecodeNode(
-    std::string_view input_path, std::string_view output_path,
-    control_loop::ThreadPool& thread_pool)
+NvjpegFdDecodeNode::NvjpegFdDecodeNode(std::string_view input_path,
+                                       std::string_view output_path,
+                                       control_loop::ThreadPool& thread_pool)
     : input_path_({std::string(input_path)}),
       output_path_(output_path),
       thread_pool_(thread_pool),
@@ -39,7 +38,9 @@ NvjpegFdDecodeNode::NvjpegFdDecodeNode(
   CHECK(decoder_ != nullptr);
 }
 
-NvjpegFdDecodeNode::~NvjpegFdDecodeNode() { delete decoder_; }
+NvjpegFdDecodeNode::~NvjpegFdDecodeNode() {
+  delete decoder_;
+}
 
 auto NvjpegFdDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
@@ -93,7 +94,7 @@ auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
 
   NvBufSurface* decoded_surface = nullptr;
   CHECK_EQ(NvBufSurfaceFromFd(decoded_fd,
-                             reinterpret_cast<void**>(&decoded_surface)),
+                              reinterpret_cast<void**>(&decoded_surface)),
            0);
   CHECK(decoded_surface != nullptr);
   const auto& source = decoded_surface->surfaceList[0];
@@ -121,9 +122,9 @@ auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
   CHECK_EQ(NvBufSurf::NvDestroy(decoded_fd), 0);
 
   NvBufSurface* output_surface = nullptr;
-  CHECK_EQ(NvBufSurfaceFromFd(output.fd,
-                             reinterpret_cast<void**>(&output_surface)),
-           0);
+  CHECK_EQ(
+      NvBufSurfaceFromFd(output.fd, reinterpret_cast<void**>(&output_surface)),
+      0);
   CHECK(output_surface != nullptr);
   const auto& destination = output_surface->surfaceList[0];
   output.pixel_format = pixel_format;
