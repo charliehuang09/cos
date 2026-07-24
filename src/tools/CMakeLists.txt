@@ -13,6 +13,7 @@ target_link_libraries(uvc_logger PRIVATE
   control_loop
   thread_pool
   wpilibc
+  jpeg_buffer_log_node
   ${OpenCV_LIBS}
 )
 
