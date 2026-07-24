@@ -123,15 +123,11 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
 auto NvjpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
-    auto notify_callbacks = [this, &context]() -> void {
+    auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
+    if (jpeg_buffer == nullptr) {
       for (const auto& callback : callbacks_) {
         callback(context);
       }
-    };
-
-    auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
-    if (jpeg_buffer == nullptr) {
-      notify_callbacks();
       return;
     }
 
