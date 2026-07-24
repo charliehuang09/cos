@@ -12,6 +12,7 @@ namespace control_loop {
 
 class ControlLoop {
  public:
+  ControlLoop() = default;
   ControlLoop(std::chrono::milliseconds frequency);
   void RegisterCallback(std::function<void(const Context&)> callback);
   void RegisterDependancy(std::function<void(const Context&)>);
@@ -26,7 +27,7 @@ class ControlLoop {
 
  private:
   std::jthread thread_;
-  std::chrono::milliseconds period_;
+  std::optional<std::chrono::milliseconds> period_;
   std::vector<std::function<void(Context)>> callbacks_;
   std::vector<std::function<void(Context)>> dependencies_;
   std::vector<std::shared_ptr<INode>> nodes_;

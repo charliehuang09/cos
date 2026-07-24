@@ -8,6 +8,8 @@
 #include "absl/log/log.h"
 #include "control_loop/timer.h"
 
+using namespace std::chrono_literals;
+
 namespace control_loop {
 
 ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
@@ -48,14 +50,16 @@ void ControlLoop::Start() {
       }
 
       Timer timer;
-      std::this_thread::sleep_for(period_);
+      std::this_thread::sleep_for(period_.value_or(0ms));
       context.reset();
 
       if (!destructed) {
         stop_source.request_stop();
         destructed.wait(false);
-        LOG(WARNING) << "Command loop overun! " << timer.Stop().count()
-                     << "s loop";
+        if (period_.has_value()) {
+          LOG(WARNING) << "Command loop overun! " << timer.Stop().count()
+                       << "s loop";
+        }
       }
     }
   });

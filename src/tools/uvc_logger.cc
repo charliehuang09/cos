@@ -46,7 +46,7 @@ auto main(int argc, char* argv[]) -> int {
 
   camera::UVCCameraConfig config(absl::GetFlag(FLAGS_config_path));
 
-  control_loop::ControlLoop control_loop(20ms);
+  control_loop::ControlLoop control_loop;
   control_loop::ThreadPool thread_pool;
 
   auto uvc_camera_node =
