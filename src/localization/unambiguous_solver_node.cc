@@ -17,7 +17,7 @@ UnambiguousSolverNode::UnambiguousSolverNode(
     const std::vector<camera_constant_t>& camera_constants,
     const wpi::apriltag::AprilTagFieldLayout& layout)
     : output_channel_(output_channel),
-      num_cameras_(camera_constants.size()) {
+      expected_cameras_(camera_constants.size()) {
   detection_batch_channels_.reserve(camera_constants.size());
   multitag_solvers_.reserve(camera_constants.size());
   for (size_t camera_id = 0; camera_id < camera_constants.size();
@@ -43,11 +43,10 @@ void UnambiguousSolverNode::RegisterCallback(
 auto UnambiguousSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) {
-    if (context->GetMessage<control_loop::IMessage>(output_channel_) !=
-        nullptr) {
+    ready_detection_batches_++;
+    if (ready_detection_batches_ < expected_cameras_) {
       return;
     }
-
     std::vector<std::vector<tag_detection_t>> detection_batches;
     detection_batches.reserve(num_cameras_);
     for (const std::string& detection_batch_channel :

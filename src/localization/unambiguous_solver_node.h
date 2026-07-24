@@ -51,7 +51,8 @@ class UnambiguousSolverNode final : public control_loop::INode {
 
   std::string output_channel_;
   std::vector<std::string> detection_batch_channels_;
-  size_t num_cameras_ = 0;
+  size_t ready_detection_batches_;
+  const size_t expected_cameras_;
   std::vector<MultiTagSolverNode> multitag_solvers_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
