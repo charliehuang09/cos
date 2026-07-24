@@ -19,3 +19,11 @@ target_link_libraries(nvidia_apriltag_detector_node_test PRIVATE
   jpeg_disk_camera
   absl::log_initialize
 )
+
+add_executable(timestamp_test
+  timestamp_test.cc
+)
+target_link_libraries(timestamp_test PRIVATE
+  wpilibc
+  ntcore
+)
