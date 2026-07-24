@@ -55,29 +55,22 @@ void MultiTagSolverNode::RegisterCallback(
 auto MultiTagSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) {
+    auto notify_callbacks = [this, &context]() -> void {
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
+    };
+
     auto* detections =
         context->GetMessage<apriltag::NvidiaTagDetections>(input_channel_);
     if (detections == nullptr) {
-      auto* failed = context->GetMessage<control_loop::FailedMessage>(
-          input_channel_);
-      if (failed != nullptr) {
-        context->SetMessage(
-            output_channel_,
-            std::make_unique<control_loop::FailedMessage>(
-                output_channel_, "Upstream failed: " + failed->reason));
-        for (const auto& callback : callbacks_) {
-          callback(context);
-        }
-      }
+      notify_callbacks();
       return;
     }
 
     auto estimate = AmbiguousSolve(detections->tag_detections);
     if (!estimate.has_value()) {
-      context->SetMessage(
-          output_channel_,
-          std::make_unique<control_loop::FailedMessage>(
-              output_channel_, "Multi-tag solver produced no pose estimate"));
+      VLOG(1) << "Multi-tag solver produced no pose estimate";
     } else {
       std::vector<AmbiguousEstimate> estimates;
       estimates.push_back(std::move(*estimate));
@@ -85,9 +78,7 @@ auto MultiTagSolverNode::CreateCallback()
                           std::make_unique<AmbiguousEstimateMessage>(
                               std::move(estimates)));
     }
-    for (const auto& callback : callbacks_) {
-      callback(context);
-    }
+    notify_callbacks();
   };
 }
 

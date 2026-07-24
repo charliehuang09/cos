@@ -8,6 +8,8 @@
 #include <wpi/math/geometry/Quaternion.hpp>
 #include <wpi/math/geometry/Rotation3d.hpp>
 
+#include "absl/log/log.h"
+
 namespace localization {
 
 UnambiguousSolverNode::UnambiguousSolverNode(
@@ -48,28 +50,19 @@ auto UnambiguousSolverNode::CreateCallback()
     for (const std::string& detection_batch_channel :
          detection_batch_channels_) {
       auto* maybe_detection_batch =
-          context->GetMessage<control_loop::IMessage>(detection_batch_channel);
+          context->GetMessage<apriltag::NvidiaTagDetections>(
+              detection_batch_channel);
       if (maybe_detection_batch == nullptr) {
-        return;
-      }
-      if (maybe_detection_batch->GetType() ==
-          typeid(control_loop::FailedMessage)) {
         detection_batches.emplace_back();
         continue;
       }
 
-      auto* detection_batch =
-          static_cast<apriltag::NvidiaTagDetections*>(maybe_detection_batch);
-      detection_batches.push_back(detection_batch->tag_detections);
+      detection_batches.push_back(maybe_detection_batch->tag_detections);
     }
 
     auto result = Solve(detection_batches);
     if (!result.has_value()) {
-      context->SetMessage(
-          output_channel_,
-          std::make_unique<control_loop::FailedMessage>(
-              output_channel_,
-              "Unambiguous solver produced no position estimate"));
+      VLOG(1) << "Unambiguous solver produced no position estimate";
     } else {
       context->SetMessage(
           output_channel_,

@@ -110,20 +110,16 @@ auto NvidiaApriltagDetectorNode::CreateCallback()
 }
 
 void NvidiaApriltagDetectorNode::Callback(const Context& context) {
+  auto notify_callbacks = [this, &context]() -> void {
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
+  };
+
   auto* decoded_buffer =
       context->GetMessage<camera::DecodedJpegBuffer>(input_channel_);
   if (decoded_buffer == nullptr) [[unlikely]] {
-    auto* failed =
-        context->GetMessage<control_loop::FailedMessage>(input_channel_);
-    if (failed != nullptr) {
-      context->SetMessage(
-          output_channel_,
-          std::make_unique<control_loop::FailedMessage>(
-              output_channel_, "Upstream failed: " + failed->reason));
-      for (const auto& callback : callbacks_) {
-        callback(context);
-      }
-    }
+    notify_callbacks();
     return;
   }
   std::function<void()> task = [this, context, decoded_buffer]() -> void {

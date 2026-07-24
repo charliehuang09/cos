@@ -4,6 +4,7 @@
 
 #include <opencv2/calib3d.hpp>
 
+#include "absl/log/log.h"
 #include "utils/camera_config.h"
 #include "utils/cv_geometry.h"
 #include "utils/json.h"
@@ -36,37 +37,28 @@ void SquareSolverNode::RegisterCallback(
 auto SquareSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) {
+    auto notify_callbacks = [this, &context]() -> void {
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
+    };
+
     auto* detections =
         context->GetMessage<apriltag::NvidiaTagDetections>(input_channel_);
     if (detections == nullptr) {
-      auto* failed = context->GetMessage<control_loop::FailedMessage>(
-          input_channel_);
-      if (failed != nullptr) {
-        context->SetMessage(
-            output_channel_,
-            std::make_unique<control_loop::FailedMessage>(
-                output_channel_, "Upstream failed: " + failed->reason));
-        for (const auto& callback : callbacks_) {
-          callback(context);
-        }
-      }
+      notify_callbacks();
       return;
     }
 
     auto estimates = AmbiguousSolve(detections->tag_detections);
     if (estimates.empty()) {
-      context->SetMessage(
-          output_channel_,
-          std::make_unique<control_loop::FailedMessage>(
-              output_channel_, "Square solver produced no pose estimates"));
+      VLOG(1) << "Square solver produced no pose estimates";
     } else {
       context->SetMessage(output_channel_,
                           std::make_unique<AmbiguousEstimateMessage>(
                               std::move(estimates)));
     }
-    for (const auto& callback : callbacks_) {
-      callback(context);
-    }
+    notify_callbacks();
   };
 }
 

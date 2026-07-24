@@ -131,15 +131,7 @@ auto NvjpegDecodeNode::CreateCallback()
 
     auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
     if (jpeg_buffer == nullptr) {
-      auto* failed = context->GetMessage<control_loop::FailedMessage>(
-          input_path_);
-      if (failed != nullptr) {
-        context->SetMessage(
-            output_path_,
-            std::make_unique<control_loop::FailedMessage>(
-                output_path_, "Upstream failed: " + failed->reason));
-        notify_callbacks();
-      }
+      notify_callbacks();
       return;
     }
 

@@ -69,6 +69,9 @@ auto main(int argc, char* argv[]) -> int {
         const auto& detections =
             context->GetMessage<apriltag::NvidiaTagDetections>(
                 "apriltag_detection");
+        if (detections == nullptr) {
+          return;
+        }
         const int frame_index = ++detection_frames;
         tags_seen += static_cast<int>(detections->tag_detections.size());
         if (frame_index >= max_frames) {
@@ -98,8 +101,9 @@ auto main(int argc, char* argv[]) -> int {
   nvjpeg_decode_node->RegisterCallback(
       [&decoded_frames,
        &submitted_frames](const control_loop::Context& context) -> void {
-        if (context->GetMessage<camera::DecodedJpegBuffer>("decoded_image") ==
-            nullptr) {
+        const auto* decoded_image =
+            context->GetMessage<camera::DecodedJpegBuffer>("decoded_image");
+        if (decoded_image == nullptr) {
           return;
         }
         if (submitted_frames.load() >= absl::GetFlag(FLAGS_max_frames)) {
