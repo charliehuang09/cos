@@ -23,18 +23,15 @@ auto main(int argc, char* argv[]) -> int {
 
   control_loop::ControlLoop control_loop(15ms);
 
-  {
+  auto jpeg_stream_node = std::make_unique<camera::JpegDiskCamera>(
+      absl::GetFlag(FLAGS_log_path), "jpeg_stream");
 
-    auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-        absl::GetFlag(FLAGS_log_path), "jpeg_stream");
+  auto jpeg_buffer_streamer_node =
+      std::make_unique<streamer::JpegBufferStreamerNode>(
+          "jpeg_stream", "/stream", absl::GetFlag(FLAGS_port));
 
-    auto jpeg_buffer_streamer_node =
-        std::make_shared<streamer::JpegBufferStreamerNode>(
-            "jpeg_stream", "/stream", absl::GetFlag(FLAGS_port));
-
-    control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
-    control_loop.RegisterNode(jpeg_buffer_streamer_node);
-  }
+  control_loop.RegisterDependancy(jpeg_stream_node->CreateCallback());
+  control_loop.RegisterCallback(jpeg_buffer_streamer_node->CreateCallback());
 
   control_loop.Start();
 

@@ -1,7 +1,7 @@
 #include "camera/nvjpeg_decode_node.h"
-#include "control_loop/timer.h"
 
 #include <array>
+#include <iostream>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -10,6 +10,10 @@ namespace camera {
 using std::function;
 
 namespace {
+
+// auto CheckNvjpeg(nvjpegStatus_t status) -> void {
+//   CHECK(status == NVJPEG_STATUS_SUCCESS);
+// }
 
 auto CheckCuda(cudaError_t status) -> void {
   CHECK(status == cudaSuccess) << cudaGetErrorString(status);
@@ -108,13 +112,10 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
                                    std::string_view output_path,
                                    nvjpegOutputFormat_t output_format,
                                    control_loop::ThreadPool& thread_pool)
-    : input_path_({std::string(input_path)}),
+    : input_path_(input_path),
       output_path_(output_path),
       output_format_(output_format),
-      thread_pool_(thread_pool),
-      dependencies_({{input_path_, typeid(JpegBuffer)}}),
-      publications_({{output_path_, typeid(DecodedJpegBuffer)}}) {
-  CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
+      thread_pool_(thread_pool) {
   CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
         NVJPEG_STATUS_SUCCESS);
@@ -134,14 +135,10 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
         NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegStateAttachDeviceBuffer(state_, device_buffer_) ==
         NVJPEG_STATUS_SUCCESS);
-  cudaStreamCreate(&stream_);
 }
 
 NvjpegDecodeNode::~NvjpegDecodeNode() {
   LOG(INFO) << "Destructing NvjpegDecodeNode";
-  if (stream_ != nullptr) {
-    CheckCuda(cudaStreamDestroy(stream_));
-  }
   if (device_buffer_ != nullptr) {
     CHECK(nvjpegBufferDeviceDestroy(device_buffer_) == NVJPEG_STATUS_SUCCESS);
   }
@@ -174,16 +171,10 @@ auto NvjpegDecodeNode::CreateCallback()
     }
 
     std::function<void()> task = [this, context, jpeg_buffer]() -> void {
-      control_loop::Timer timer;
       std::unique_ptr<control_loop::IMessage> decoded_buffer =
           std::make_unique<DecodedJpegBuffer>(DecodeJpegBuffer(jpeg_buffer));
 
       context->SetMessage(output_path_, std::move(decoded_buffer));
-      if (latency_channel_.has_value()) {
-        context->SetMessage(
-            latency_channel_.value(),
-            std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
-      }
 
       for (const auto& callback : callbacks_) {
         callback(context);
@@ -233,26 +224,10 @@ auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
                                          nullptr) == NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegDecodeJpegDevice(handle_, decoder_, state_,
                                &decoded_buffer.destination,
-                               stream_) == NVJPEG_STATUS_SUCCESS);
-  CheckCuda(cudaStreamSynchronize(stream_));
+                               nullptr) == NVJPEG_STATUS_SUCCESS);
+  CheckCuda(cudaDeviceSynchronize());
 
   return decoded_buffer;
-}
-
-auto NvjpegDecodeNode::GetDependencies() const
-    -> const std::vector<control_loop::MessageDescriptor>& {
-  return dependencies_;
-}
-
-auto NvjpegDecodeNode::GetPublications() const
-    -> const std::vector<control_loop::MessageDescriptor>& {
-  return publications_;
-}
-
-void NvjpegDecodeNode::EnableTiming(std::string_view latency_channel) {
-  publications_.emplace_back(latency_channel,
-                             typeid(control_loop::LatencyMessage));
-  latency_channel_ = latency_channel;
 }
 
 }  // namespace camera
