@@ -1,7 +1,6 @@
 #pragma once
 
 #include <functional>
-#include <vector>
 
 #include "control_loop/context.h"
 #include "control_loop/message.h"
