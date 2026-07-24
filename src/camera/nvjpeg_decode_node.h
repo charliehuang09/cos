@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <mutex>
 #include <string>
-#include <utility>
 
 #include <nvjpeg.h>
 
