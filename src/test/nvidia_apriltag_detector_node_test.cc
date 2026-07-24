@@ -10,6 +10,8 @@
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
 
+#include <cstdlib>
+
 using namespace std::chrono_literals;
 
 namespace {
@@ -137,5 +139,5 @@ auto main() -> int {
             << hardware_metrics.total_decode_latency / hardware_decodes;
 
   std::fflush(nullptr);
-  std::_Exit(EXIT_SUCCESS);
+  std::exit(EXIT_SUCCESS);
 }

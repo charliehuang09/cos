@@ -66,7 +66,7 @@ target_link_libraries(jetson_mmjpeg
 add_library(nvjpeg_decode_node)
 target_sources(nvjpeg_decode_node
   PRIVATE
-    nvjpeg_gpu_decode_node.cc
+    nvjpeg_decode_node.cc
 )
 target_compile_options(nvjpeg_decode_node PRIVATE
   $<$<CXX_COMPILER_ID:GNU>:-Wno-array-bounds>
@@ -83,7 +83,7 @@ target_link_libraries(nvjpeg_decode_node
 add_library(nvjpeg_fd_decode_node)
 target_sources(nvjpeg_fd_decode_node
   PRIVATE
-    nvjpeg_hardware_accelerated_decode_node.cc
+    nvjpeg_fd_decode_node.cc
 )
 target_include_directories(nvjpeg_fd_decode_node PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/nvjpeg-headers"
