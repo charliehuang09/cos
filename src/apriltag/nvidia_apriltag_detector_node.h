@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "camera/nvjpeg_fd_decode_node.h"
 #include "camera/nvjpeg_decode_node.h"
 
 #include <vpi/Types.h>
@@ -46,16 +47,25 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
                              control_loop::ThreadPool& thread_pool);
   ~NvidiaApriltagDetectorNode() override;
   void WarmUp();
-  void RegisterCallback(
-      const std::function<void(const control_loop::Context&)>& callback) {
+  void RegisterCallback(const std::function<void(const control_loop::Context&)>&
+                            callback) override {
     callbacks_.emplace_back(callback);
   };
-  void Callback(const control_loop::Context& context);
+  void Callback(const control_loop::Context& context);  // TODO Private?
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
 
  private:
   auto Detect(const camera::DecodedJpegBuffer& buffer)
+      -> std::vector<NvidiaTagDetections::tag_detection>;
+  auto Detect(const camera::DecodedJpegFdBuffer& buffer)
+      -> std::vector<NvidiaTagDetections::tag_detection>;
+  auto DetectGray(const unsigned char* data, int width, int height,
+                  size_t stride)
       -> std::vector<NvidiaTagDetections::tag_detection>;
   auto Detect(VPIImage image)
       -> std::vector<NvidiaTagDetections::tag_detection>;
@@ -73,6 +83,8 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   std::mutex detect_mutex_;
   int width_;
   int height_;
+  std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
 };
 
 }  // namespace apriltag

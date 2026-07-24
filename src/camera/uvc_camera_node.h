@@ -7,7 +7,6 @@
 #include <mutex>
 #include <optional>
 
-#include "control_loop/control_loop.h"
 #include "control_loop/node.h"
 
 #include "libuvc/libuvc.h"
@@ -69,6 +68,12 @@ class UVCCameraNode final : public control_loop::INode {
       -> std::function<void(const control_loop::Context&)> override;
   void Callback(const control_loop::Context& context);
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
+  [[nodiscard]] auto GetDependencies() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  [[nodiscard]] auto GetPublications() const
+      -> const std::vector<control_loop::MessageDescriptor>& override;
+  void RegisterCallback(const std::function<void(const control_loop::Context&)>&
+                            callback) override;
 
  private:
   std::string output_path_;
@@ -80,6 +85,9 @@ class UVCCameraNode final : public control_loop::INode {
   std::unique_ptr<JpegBuffer> buffer_;
   std::atomic<bool> start_ = false;
   std::mutex mutex_;
+  std::vector<control_loop::MessageDescriptor> dependencies_;
+  std::vector<control_loop::MessageDescriptor> publications_;
+  std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
 };
 
 }  // namespace camera

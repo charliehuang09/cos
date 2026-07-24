@@ -14,6 +14,7 @@
 
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
+#include "control_loop/control_loop.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
 
@@ -30,8 +31,9 @@ ABSL_FLAG(                                                  // NOLINT
 ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT
           "Streaming port. No stream if left blank");  // NOLINT
 
-ABSL_FLAG(std::optional<std::string>, log_folder, std::nullopt,      // NOLINT
-          "Folder for timestamped PNG frames. No logs if left blank");  // NOLINT
+ABSL_FLAG(                                                        // NOLINT
+    std::optional<std::string>, log_folder, std::nullopt,         // NOLINT
+    "Folder for timestamped PNG frames. No logs if left blank");  // NOLINT
 
 using namespace std::chrono_literals;
 
