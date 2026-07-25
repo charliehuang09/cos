@@ -2,8 +2,10 @@
 
 #include <cstddef>
 #include <functional>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "control_loop/node.h"
@@ -51,7 +53,14 @@ class UnambiguousSolverNode final : public control_loop::INode {
 
   std::string output_channel_;
   std::vector<std::string> detection_batch_channels_;
-  size_t ready_detection_batches_;
+  struct PendingDetectionBatch {
+    std::weak_ptr<control_loop::ContextInternal> context;
+    size_t count = 0;
+  };
+  std::mutex solve_mutex_;
+  std::unordered_map<const control_loop::ContextInternal*,
+                     PendingDetectionBatch>
+      ready_detection_batches_;
   const size_t expected_cameras_;
   std::vector<MultiTagSolverNode> multitag_solvers_;
   std::vector<control_loop::MessageDescriptor> dependencies_;

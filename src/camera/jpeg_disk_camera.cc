@@ -14,8 +14,11 @@
 namespace camera {
 
 JpegDiskCamera::JpegDiskCamera(std::string_view folder_path,
-                               std::string_view output_channel)
+                               std::string_view output_channel,
+                               bool stop_when_empty, bool replay_all_frames)
     : output_channel_(output_channel),
+      stop_when_empty_(stop_when_empty),
+      replay_all_frames_(replay_all_frames),
       publications_({{output_channel_, typeid(JpegBuffer)}}) {
   std::vector<std::pair<std::filesystem::path, double>> file_paths_vector;
   for (const auto& entry : std::filesystem::directory_iterator(folder_path)) {
@@ -70,14 +73,21 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
   }
   const double replay_time = now - replay_start_time_.value();
   std::optional<std::pair<std::filesystem::path, double>> image;
-  while (!file_paths_.empty() && file_paths_.front().second <= replay_time) {
-    image = std::move(file_paths_.front());
-    file_paths_.pop();
+  if (replay_all_frames_) {
+    if (!file_paths_.empty() && file_paths_.front().second <= replay_time) {
+      image = std::move(file_paths_.front());
+      file_paths_.pop();
+    }
+  } else {
+    while (!file_paths_.empty() && file_paths_.front().second <= replay_time) {
+      image = std::move(file_paths_.front());
+      file_paths_.pop();
+    }
   }
 
   if (!image.has_value()) {
     context->SetMessage(output_channel_, std::make_unique<JpegBuffer>());
-    if (file_paths_.empty()) {
+    if (stop_when_empty_ && file_paths_.empty()) {
       stop::stop = true;
     }
     return;

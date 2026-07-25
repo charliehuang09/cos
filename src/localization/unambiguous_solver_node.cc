@@ -43,32 +43,49 @@ void UnambiguousSolverNode::RegisterCallback(
 auto UnambiguousSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) {
-    ready_detection_batches_++;
-    if (ready_detection_batches_ < expected_cameras_) {
-      return;
-    }
-    std::vector<std::vector<tag_detection_t>> detection_batches;
-    detection_batches.reserve(num_cameras_);
-    for (const std::string& detection_batch_channel :
-         detection_batch_channels_) {
-      auto* maybe_detection_batch =
-          context->GetMessage<apriltag::NvidiaTagDetections>(
-              detection_batch_channel);
-      if (maybe_detection_batch == nullptr) {
-        detection_batches.emplace_back();
-        continue;
+    {
+      std::lock_guard lock(solve_mutex_);
+      for (auto it = ready_detection_batches_.begin();
+           it != ready_detection_batches_.end();) {
+        if (it->second.context.expired()) {
+          it = ready_detection_batches_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+      auto [it, inserted] = ready_detection_batches_.try_emplace(
+          context.get(), PendingDetectionBatch{context, 0});
+      (void)inserted;
+      PendingDetectionBatch& pending = it->second;
+      ++pending.count;
+      if (pending.count < expected_cameras_) {
+        return;
+      }
+      ready_detection_batches_.erase(context.get());
+
+      std::vector<std::vector<tag_detection_t>> detection_batches;
+      detection_batches.reserve(expected_cameras_);
+      for (const std::string& detection_batch_channel :
+           detection_batch_channels_) {
+        auto* maybe_detection_batch =
+            context->GetMessage<apriltag::NvidiaTagDetections>(
+                detection_batch_channel);
+        if (maybe_detection_batch == nullptr) {
+          detection_batches.emplace_back();
+          continue;
+        }
+
+        detection_batches.push_back(maybe_detection_batch->tag_detections);
       }
 
-      detection_batches.push_back(maybe_detection_batch->tag_detections);
-    }
-
-    auto result = Solve(detection_batches);
-    if (!result.has_value()) {
-      VLOG(1) << "Unambiguous solver produced no position estimate";
-    } else {
-      context->SetMessage(
-          output_channel_,
-          std::make_unique<PositionEstimate>(std::move(*result)));
+      auto result = Solve(detection_batches);
+      if (!result.has_value()) {
+        VLOG(1) << "Unambiguous solver produced no position estimate";
+      } else {
+        context->SetMessage(
+            output_channel_,
+            std::make_unique<PositionEstimate>(std::move(*result)));
+      }
     }
     for (const auto& callback : callbacks_) {
       callback(context);

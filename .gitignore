@@ -3,3 +3,6 @@ build
 .clangd
 cmake/
 compile_commands.json
+bos-logs/
+constants/
+**/*.wpilog
