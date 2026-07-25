@@ -27,7 +27,7 @@ UnambiguousSolverNode::UnambiguousSolverNode(
         DetectionBatchChannel(constants.name);
     detection_batch_channels_.push_back(detection_batch_channel);
     dependencies_.emplace_back(detection_batch_channel,
-                               typeid(apriltag::NvidiaTagDetections));
+                               typeid(apriltag::TagDetections));
     multitag_solvers_.emplace_back(detection_batch_channel,
                                    output_channel_, constants.intrinsics_path,
                                    constants.extrinsics_path, layout);
@@ -68,7 +68,7 @@ auto UnambiguousSolverNode::CreateCallback()
       for (const std::string& detection_batch_channel :
            detection_batch_channels_) {
         auto* maybe_detection_batch =
-            context->GetMessage<apriltag::NvidiaTagDetections>(
+            context->GetMessage<apriltag::TagDetections>(
                 detection_batch_channel);
         if (maybe_detection_batch == nullptr) {
           detection_batches.emplace_back();

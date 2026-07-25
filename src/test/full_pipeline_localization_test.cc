@@ -25,24 +25,32 @@
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
+#include "apriltag/cpu_apriltag_detector_node.h"
 #include "apriltag/nvidia_apriltag_detector_node.h"
+#include "camera/cpu_decode_node.h"
 #include "camera/jpeg_disk_camera.h"
 #include "camera/nvjpeg_decode_node.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
 #include "localization/unambiguous_solver_node.h"
+#include "wpi/datalog/DataLogWriter.hpp"
 #include "utils/json.h"
 
 namespace fs = std::filesystem;
 
-ABSL_FLAG(std::string, log_path, "../bos/bos-logs/log181",  // NOLINT
+ABSL_FLAG(std::string, log_path, "bos-logs/log60",  // NOLINT
           "Root directory containing one encoded-JPEG directory per camera");
-ABSL_FLAG(std::string, camera_manifest, "../bos/constants/camera_constants.json",  // NOLINT
+ABSL_FLAG(std::string, camera_manifest, "src/test/test_constants/camear_constants.json",  // NOLINT
           "JSON camera manifest containing real intrinsics and extrinsics");
-ABSL_FLAG(std::string, detector_config_path, "constants/dev-orin/camera.json",  // NOLINT
+ABSL_FLAG(std::string, detector_config_path,
+          "src/test/test_constants/dev-orin/camera.json",  // NOLINT
           "Camera JSON providing detector frame width and height");
-ABSL_FLAG(std::string, output_wpilog, "full_pipeline_localization.wpilog",  // NOLINT
+ABSL_FLAG(std::string, output_wpilog, "logs/full_pipeline_localization.wpilog",  // NOLINT
           "Output WPILOG path");
+ABSL_FLAG(std::string, decode_backend, "cpu",  // NOLINT
+          "JPEG decode backend: cpu or nvjpeg");
+ABSL_FLAG(std::string, detector_backend, "cpu",  // NOLINT
+          "AprilTag detector backend: cpu or nvidia");
 ABSL_FLAG(int, control_loop_period_ms, 1,  // NOLINT
           "Control-loop period used while replaying frames");
 ABSL_FLAG(double, max_acceleration, 100.0,  // NOLINT
@@ -52,45 +60,7 @@ ABSL_FLAG(double, max_pose_jump, 1.0,  // NOLINT
 ABSL_FLAG(int, timeout_seconds, 120,  // NOLINT
           "Maximum time to wait for all detector callbacks");
 
-// The installed SDK exposes the datalog C ABI through libdatalog but does not
-// install the corresponding C header. Keep the ABI declarations local to this
-// executable rather than depending on SDK source-debug include paths.
-extern "C" {
-struct WPI_String {
-  const char* str;
-  size_t len;
-};
-struct WPI_DataLog;
-
-WPI_DataLog* WPI_DataLog_CreateWriter(const WPI_String* filename,
-                                      int* error_code,
-                                      const WPI_String* extra_header);
-void WPI_DataLog_Release(WPI_DataLog* datalog);
-void WPI_DataLog_Flush(WPI_DataLog* datalog);
-void WPI_DataLog_Stop(WPI_DataLog* datalog);
-int WPI_DataLog_Start(WPI_DataLog* datalog, const WPI_String* name,
-                      const WPI_String* type, const WPI_String* metadata,
-                      int64_t timestamp);
-void WPI_DataLog_AppendDouble(WPI_DataLog* datalog, int entry, double value,
-                              int64_t timestamp);
-void WPI_DataLog_AppendInteger(WPI_DataLog* datalog, int entry, int64_t value,
-                               int64_t timestamp);
-void WPI_DataLog_AppendString(WPI_DataLog* datalog, int entry,
-                              const WPI_String* value, int64_t timestamp);
-void WPI_DataLog_AppendRaw(WPI_DataLog* datalog, int entry,
-                           const uint8_t* data, size_t len, int64_t timestamp);
-void WPI_DataLog_AddSchemaString(WPI_DataLog* datalog,
-                                 const WPI_String* name,
-                                 const WPI_String* type,
-                                 const WPI_String* schema,
-                                 int64_t timestamp);
-}
-
 namespace {
-
-auto String(std::string_view value) -> WPI_String {
-  return WPI_String{value.data(), value.size()};
-}
 
 class WpiLog final {
  public:
@@ -102,79 +72,60 @@ class WpiLog final {
                     << path.parent_path() << ": " << error.message();
     }
 
-    const std::string filename = path.string();
-    const WPI_String filename_string = String(filename);
-    const WPI_String header = String("cos full pipeline replay");
-    int error_code = 0;
-    datalog_ = WPI_DataLog_CreateWriter(&filename_string, &error_code, &header);
-    CHECK(datalog_ != nullptr) << "Failed to create WPILOG: " << filename;
-    CHECK_EQ(error_code, 0) << "Failed to open WPILOG " << filename
-                            << ", error=" << error_code;
+    std::error_code error;
+    writer_ = std::make_unique<wpi::log::DataLogWriter>(
+        path.string(), error, "cos full pipeline replay");
+    CHECK(!error) << "Failed to open WPILOG " << path << ": "
+                  << error.message();
   }
 
-  ~WpiLog() {
-    if (datalog_ != nullptr) {
-      WPI_DataLog_Stop(datalog_);
-      WPI_DataLog_Release(datalog_);
-    }
-  }
+  ~WpiLog() = default;
 
   WpiLog(const WpiLog&) = delete;
   auto operator=(const WpiLog&) -> WpiLog& = delete;
 
   auto Start(std::string_view name, std::string_view type) -> int {
     std::lock_guard lock(mutex_);
-    const WPI_String name_string = String(name);
-    const WPI_String type_string = String(type);
-    const WPI_String metadata = String("");
-    const int entry = WPI_DataLog_Start(datalog_, &name_string, &type_string,
-                                        &metadata, 0);
+    const int entry = writer_->Start(name, type);
     CHECK_GT(entry, 0) << "Failed to start WPILOG entry " << name;
     return entry;
   }
 
   void Double(int entry, double value, int64_t timestamp = 0) {
     std::lock_guard lock(mutex_);
-    WPI_DataLog_AppendDouble(datalog_, entry, value, timestamp);
+    writer_->AppendDouble(entry, value, timestamp);
   }
 
   void Integer(int entry, int64_t value, int64_t timestamp = 0) {
     std::lock_guard lock(mutex_);
-    WPI_DataLog_AppendInteger(datalog_, entry, value, timestamp);
+    writer_->AppendInteger(entry, value, timestamp);
   }
 
   void StringValue(int entry, std::string_view value, int64_t timestamp = 0) {
     std::lock_guard lock(mutex_);
-    const WPI_String string = String(value);
-    WPI_DataLog_AppendString(datalog_, entry, &string, timestamp);
+    writer_->AppendString(entry, value, timestamp);
   }
 
-  void AddSchema(std::string_view name, std::string_view type,
-                 std::string_view schema) {
+  void StartPose3d(std::string_view name) {
     std::lock_guard lock(mutex_);
-    const WPI_String name_string = String(name);
-    const WPI_String type_string = String(type);
-    const WPI_String schema_string = String(schema);
-    WPI_DataLog_AddSchemaString(datalog_, &name_string, &type_string,
-                                &schema_string, 0);
+    pose_entry_ = std::make_unique<wpi::log::StructLogEntry<wpi::math::Pose3d>>(
+        *writer_, name);
   }
 
-  void Pose3d(int entry, const wpi::math::Pose3d& pose,
-              int64_t timestamp = 0) {
+  void Pose3d(const wpi::math::Pose3d& pose, int64_t timestamp = 0) {
     std::lock_guard lock(mutex_);
-    std::array<uint8_t, 56> packed_pose{};
-    wpi::util::Struct<wpi::math::Pose3d>::Pack(packed_pose, pose);
-    WPI_DataLog_AppendRaw(datalog_, entry, packed_pose.data(), packed_pose.size(),
-                          timestamp);
+    CHECK(pose_entry_ != nullptr);
+    pose_entry_->Append(pose, timestamp);
   }
 
   void Flush() {
     std::lock_guard lock(mutex_);
-    WPI_DataLog_Flush(datalog_);
+    writer_->Flush();
   }
 
  private:
-  WPI_DataLog* datalog_ = nullptr;
+  std::unique_ptr<wpi::log::DataLogWriter> writer_;
+  std::unique_ptr<wpi::log::StructLogEntry<wpi::math::Pose3d>> pose_entry_;
   std::mutex mutex_;
 };
 
@@ -206,6 +157,29 @@ struct PoseMetrics {
   std::array<double, 3> previous_translation = {};
   std::array<double, 3> previous_velocity = {};
 };
+
+enum class DecodeBackend { kCpu, kNvjpeg };
+enum class DetectorBackend { kCpu, kNvidia };
+
+auto ParseDecodeBackend(std::string_view value) -> DecodeBackend {
+  if (value == "cpu") {
+    return DecodeBackend::kCpu;
+  }
+  if (value == "nvjpeg") {
+    return DecodeBackend::kNvjpeg;
+  }
+  LOG(FATAL) << "Unknown --decode_backend: " << value;
+}
+
+auto ParseDetectorBackend(std::string_view value) -> DetectorBackend {
+  if (value == "cpu") {
+    return DetectorBackend::kCpu;
+  }
+  if (value == "nvidia") {
+    return DetectorBackend::kNvidia;
+  }
+  LOG(FATAL) << "Unknown --detector_backend: " << value;
+}
 
 auto ResolvePath(std::string_view raw, const fs::path& manifest_directory)
     -> fs::path {
@@ -333,6 +307,12 @@ auto PoseTimestamp(const control_loop::Context& context,
                    const std::vector<std::string>& decoded_channels) -> double {
   double timestamp = 0.0;
   for (const std::string& channel : decoded_channels) {
+    const auto* cpu_image =
+        context->GetMessage<camera::DecodedImageBuffer>(channel);
+    if (cpu_image != nullptr) {
+      timestamp = std::max(timestamp, cpu_image->timestamp);
+      continue;
+    }
     const auto* image =
         context->GetMessage<camera::DecodedJpegBuffer>(channel);
     if (image != nullptr) {
@@ -358,26 +338,22 @@ auto main(int argc, char* argv[]) -> int {
   const fs::path log_path = absl::GetFlag(FLAGS_log_path);
   const fs::path output_path =
       fs::absolute(absl::GetFlag(FLAGS_output_wpilog));
+  const DecodeBackend decode_backend =
+      ParseDecodeBackend(absl::GetFlag(FLAGS_decode_backend));
+  const DetectorBackend detector_backend =
+      ParseDetectorBackend(absl::GetFlag(FLAGS_detector_backend));
   const std::vector<CameraSpec> cameras =
       LoadCameraSpecs(manifest_path, log_path);
 
   WpiLog wpilog(output_path);
-  // This is the standard WPILib struct serialization for frc::Pose3d. The
-  // SDK used by this project exposes the same type as wpi::math::Pose3d.
-  wpilog.AddSchema("struct:Quaternion", "structschema",
-                  "double w;double x;double y;double z");
-  wpilog.AddSchema("struct:Translation3d", "structschema",
-                  "double x;double y;double z");
-  wpilog.AddSchema("struct:Rotation3d", "structschema", "Quaternion q");
-  wpilog.AddSchema("struct:Pose3d", "structschema",
-                  "Translation3d translation;Rotation3d rotation");
+  // StructLogEntry registers the canonical WPILib Pose3d schema and packs the
+  // value using the SDK's own struct serialization implementation.
+  wpilog.StartPose3d("localization/pose");
   const int log_encoded_total = wpilog.Start("replay/encoded_frames", "int64");
   const int log_decoded_total = wpilog.Start("replay/decoded_frames", "int64");
   const int log_detection_total =
       wpilog.Start("replay/detection_batches", "int64");
   const int log_pose_count = wpilog.Start("localization/pose_count", "int64");
-  const int log_pose_struct =
-      wpilog.Start("localization/pose", "struct:Pose3d");
   const int log_pose_x = wpilog.Start("localization/pose/x", "double");
   const int log_pose_y = wpilog.Start("localization/pose/y", "double");
   const int log_pose_z = wpilog.Start("localization/pose/z", "double");
@@ -448,40 +424,62 @@ auto main(int argc, char* argv[]) -> int {
           wpilog.Integer(log_encoded_total, static_cast<int64_t>(encoded));
         });
 
-    auto decoder = std::make_shared<camera::NvjpegDecodeNode>(
-        jpeg_channel, decoded_channel, NVJPEG_OUTPUT_Y, thread_pool);
+    std::shared_ptr<control_loop::INode> decoder;
+    if (decode_backend == DecodeBackend::kCpu) {
+      decoder = std::make_shared<camera::CpuJpegDecodeNode>(
+          jpeg_channel, decoded_channel, thread_pool);
+    } else {
+      decoder = std::make_shared<camera::NvjpegDecodeNode>(
+          jpeg_channel, decoded_channel, NVJPEG_OUTPUT_Y, thread_pool);
+    }
     control_loop.RegisterNode(decoder);
     decoder->RegisterCallback(
         [&, camera_id, decoded_channel](const control_loop::Context& context) {
+          const auto* cpu_image =
+              context->GetMessage<camera::DecodedImageBuffer>(decoded_channel);
           const auto* image =
               context->GetMessage<camera::DecodedJpegBuffer>(decoded_channel);
-          if (image == nullptr) {
+          if (cpu_image == nullptr && image == nullptr) {
             return;
           }
           ++camera_metrics[camera_id].decoded_frames;
           const size_t decoded = ++decoded_frames_total;
+          const double timestamp =
+              cpu_image != nullptr ? cpu_image->timestamp : image->timestamp;
           wpilog.Integer(log_decoded_total, static_cast<int64_t>(decoded),
-                         TimestampMicros(image->timestamp));
+                         TimestampMicros(timestamp));
         });
 
-    auto detector = std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
-        decoded_channel, detection_channel, camera.detector_config_path.string(),
-        thread_pool);
-    detector->WarmUp();
+    std::shared_ptr<control_loop::INode> detector;
+    if (detector_backend == DetectorBackend::kCpu) {
+      detector = std::make_shared<apriltag::CpuApriltagDetectorNode>(
+          decoded_channel, detection_channel,
+          camera.detector_config_path.string(), thread_pool);
+    } else {
+      auto nvidia_detector =
+          std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
+              decoded_channel, detection_channel,
+              camera.detector_config_path.string(), thread_pool);
+      nvidia_detector->WarmUp();
+      detector = std::move(nvidia_detector);
+    }
     control_loop.RegisterNode(detector);
     detector->RegisterCallback(
         [&, camera_id, detection_channel, decoded_channel](
             const control_loop::Context& context) {
-          const auto* detections =
-              context->GetMessage<apriltag::NvidiaTagDetections>(
-                  detection_channel);
+          const auto* detections = context->GetMessage<apriltag::TagDetections>(
+              detection_channel);
           if (detections == nullptr) {
             return;
           }
+          const auto* cpu_image =
+              context->GetMessage<camera::DecodedImageBuffer>(decoded_channel);
           const auto* image =
               context->GetMessage<camera::DecodedJpegBuffer>(decoded_channel);
-          const int64_t timestamp =
-              image == nullptr ? 0 : TimestampMicros(image->timestamp);
+          const double image_timestamp =
+              cpu_image != nullptr ? cpu_image->timestamp
+                                   : image == nullptr ? 0.0 : image->timestamp;
+          const int64_t timestamp = TimestampMicros(image_timestamp);
           ++camera_metrics[camera_id].detection_batches;
           camera_metrics[camera_id].tag_detections +=
               detections->tag_detections.size();
@@ -524,7 +522,7 @@ auto main(int argc, char* argv[]) -> int {
         const size_t pose_count = ++pose_metrics.published_poses;
         wpilog.Integer(log_pose_count, static_cast<int64_t>(pose_count),
                        timestamp);
-        wpilog.Pose3d(log_pose_struct, estimate->pose, timestamp);
+        wpilog.Pose3d(estimate->pose, timestamp);
         wpilog.Double(log_pose_x, x, timestamp);
         wpilog.Double(log_pose_y, y, timestamp);
         wpilog.Double(log_pose_z, z, timestamp);

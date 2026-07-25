@@ -4,7 +4,6 @@ build
 cmake/
 compile_commands.json
 bos-logs/
-constants/
 **/*.wpilog
 **/*.jpg
 **/*.png

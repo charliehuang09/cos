@@ -25,7 +25,9 @@ add_executable(full_pipeline_localization_test
 )
 target_link_libraries(full_pipeline_localization_test PRIVATE
   jpeg_disk_camera
+  cpu_decode_node
   nvjpeg_decode_node
+  cpu_apriltag_detector_node
   nvidia_apriltag_detector_node
   unambiguous_solver_node
   control_loop

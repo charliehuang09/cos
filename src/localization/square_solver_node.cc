@@ -29,7 +29,7 @@ SquareSolverNode::SquareSolverNode(
               utils::ReadJson(extrinsics_path))
               .ToMatrix())),
       dependencies_({control_loop::MessageDescriptor(
-          input_channel_, typeid(apriltag::NvidiaTagDetections))}),
+          input_channel_, typeid(apriltag::TagDetections))}),
       publications_({control_loop::MessageDescriptor(
           output_channel_, typeid(AmbiguousEstimateMessage))}) {}
 
@@ -48,7 +48,7 @@ auto SquareSolverNode::CreateCallback()
     };
 
     auto* detections =
-        context->GetMessage<apriltag::NvidiaTagDetections>(input_channel_);
+        context->GetMessage<apriltag::TagDetections>(input_channel_);
     if (detections == nullptr) {
       notify_callbacks();
       return;

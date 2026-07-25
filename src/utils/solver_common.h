@@ -17,7 +17,7 @@
 
 namespace localization {
 
-using tag_detection_t = apriltag::NvidiaTagDetections::tag_detection;
+using tag_detection_t = apriltag::TagDetections::tag_detection;
 
 struct AmbiguousEstimate {
   position_estimate_t pos1;

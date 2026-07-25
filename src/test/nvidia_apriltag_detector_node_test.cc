@@ -87,7 +87,7 @@ auto main() -> int {
 
     gpu_apriltag_detector_node->RegisterCallback(
         [&gpu_metrics](const control_loop::Context& context) -> void {
-          auto detections = context->GetMessage<apriltag::NvidiaTagDetections>(
+          auto detections = context->GetMessage<apriltag::TagDetections>(
               "gpu_apriltag_detections");
           if (detections == nullptr) {
             return;
@@ -105,7 +105,7 @@ auto main() -> int {
 
     hardware_apriltag_detector_node->RegisterCallback(
         [&hardware_metrics](const control_loop::Context& context) -> void {
-          auto detections = context->GetMessage<apriltag::NvidiaTagDetections>(
+          auto detections = context->GetMessage<apriltag::TagDetections>(
               "hardware_apriltag_detections");
           if (detections == nullptr) {
             return;

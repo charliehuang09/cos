@@ -67,7 +67,7 @@ auto main(int argc, char* argv[]) -> int {
       [&detection_frames, &tags_seen, &completion_cv,
        max_frames](const control_loop::Context& context) -> void {
         const auto& detections =
-            context->GetMessage<apriltag::NvidiaTagDetections>(
+            context->GetMessage<apriltag::TagDetections>(
                 "apriltag_detection");
         if (detections == nullptr) {
           return;

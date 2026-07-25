@@ -29,7 +29,7 @@ MultiTagSolverNode::MultiTagSolverNode(
       single_tag_solver_(input_channel, output_channel, intrinsics_path,
                          extrinsics_path, layout, tag_corners),
       dependencies_({control_loop::MessageDescriptor(
-          input_channel_, typeid(apriltag::NvidiaTagDetections))}),
+          input_channel_, typeid(apriltag::TagDetections))}),
       publications_({control_loop::MessageDescriptor(
           output_channel_, typeid(AmbiguousEstimateMessage))}) {
   cv::Mat rvec = (cv::Mat_<double>(3, 1) << 0, std::numbers::pi, 0);
@@ -66,7 +66,7 @@ auto MultiTagSolverNode::CreateCallback()
     };
 
     auto* detections =
-        context->GetMessage<apriltag::NvidiaTagDetections>(input_channel_);
+        context->GetMessage<apriltag::TagDetections>(input_channel_);
     if (detections == nullptr) {
       notify_callbacks();
       return;
