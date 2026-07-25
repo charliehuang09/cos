@@ -1,7 +1,6 @@
 build
 .cache
 .clangd
-cmake/
 compile_commands.json
 bos-logs/
 **/*.wpilog

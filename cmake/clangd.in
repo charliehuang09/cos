@@ -1,0 +1,14 @@
+Diagnostics:
+  ClangTidy:
+    Add: [modernize-*, performance-*]
+
+CompileFlags:
+  CompilationDatabase: build
+  Add:
+    - "--sysroot=@CLANGD_TARGET_SYSROOT@"
+    - -isystem
+    - "@CLANGD_CXX_INCLUDE_DIR@"
+    - -isystem
+    - "@CLANGD_CXX_TARGET_INCLUDE_DIR@"
+    - -isystem
+    - "@CLANGD_CXX_INCLUDE_DIR@/backward"
