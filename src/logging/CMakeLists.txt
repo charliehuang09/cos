@@ -1,9 +1,9 @@
-add_library(png_image_log_node)
-target_sources(png_image_log_node
+add_library(jpeg_buffer_log_node)
+target_sources(jpeg_buffer_log_node
   PRIVATE
-    png_image_log_node.cc
+    jpeg_buffer_log_node.cc
 )
-target_link_libraries(png_image_log_node PRIVATE
+target_link_libraries(jpeg_buffer_log_node PRIVATE
   absl::log
 )
 

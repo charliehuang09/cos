@@ -1,7 +1,6 @@
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -11,10 +10,13 @@
 #include <cuda_runtime.h>
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
+#include <frc/Timer.h>
 
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
 #include "control_loop/control_loop.h"
+#include "control_loop/rio_clock.h"
+#include "logging/jpeg_buffer_log_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/cuda.h"
 #include "utils/stop.h"
@@ -42,6 +44,7 @@ auto main(int argc, char* argv[]) -> int {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  control_loop::RioClock::EnableSimulation();
 
   stop::RegisterHandler();
 
@@ -51,66 +54,41 @@ auto main(int argc, char* argv[]) -> int {
   control_loop::ThreadPool thread_pool;
 
   auto uvc_camera_node =
-      std::make_unique<camera::UVCCameraNode>("jpeg_stream", config);
-  control_loop.RegisterDependancy(uvc_camera_node->CreateCallback());
+      std::make_shared<camera::UVCCameraNode>("jpeg_stream", config);
+  control_loop.RegisterDependancyNode(uvc_camera_node);
 
-  auto nvjpeg_decode_node = std::make_unique<camera::NvjpegDecodeNode>(
+  auto nvjpeg_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
       "jpeg_stream", "decoded_buffer", NVJPEG_OUTPUT_BGRI, thread_pool);
-  control_loop.RegisterCallback(nvjpeg_decode_node->CreateCallback());
+  control_loop.RegisterNode(nvjpeg_decode_node);
 
   if (absl::GetFlag(FLAGS_log_folder).has_value()) {
     const std::filesystem::path log_folder =
         absl::GetFlag(FLAGS_log_folder).value();
-    CHECK(!log_folder.empty()) << "--log_folder must not be empty";
+    CHECK(!log_folder.empty()) << "--log_folder must be empty";
     std::filesystem::create_directories(log_folder);
 
-    nvjpeg_decode_node->RegisterCallback(
-        [log_folder](const control_loop::Context& context) -> void {
-          auto* buffer =
-              context->GetMessage<camera::DecodedJpegBuffer>("decoded_buffer");
-          if (buffer == nullptr) {
-            return;
-          }
-          CHECK(buffer->output_format == NVJPEG_OUTPUT_BGRI);
-
-          std::vector<unsigned char> bgr(buffer->channel_sizes[0]);
-          utils::CheckCuda(cudaMemcpy(
-              bgr.data(), buffer->destination.channel[0],
-              buffer->channel_sizes[0], cudaMemcpyDeviceToHost));
-
-          const cv::Mat image(buffer->height, buffer->width, CV_8UC3,
-                              bgr.data(), buffer->stride);
-          const std::filesystem::path image_path =
-              log_folder / (std::to_string(buffer->timestamp) + ".png");
-          CHECK(cv::imwrite(image_path.string(), image))
-              << "Failed to write " << image_path;
-        });
+    auto jpeg_buffer_logger_node = std::make_shared<logging::JpegBufferLogNode>(
+        "jpeg_stream", log_folder.string(), thread_pool);
+    control_loop.RegisterNode(jpeg_buffer_logger_node);
   }
 
-  std::unique_ptr<streamer::JpegBufferStreamerNode> jpeg_buffer_streamer_node =
-      nullptr;
   if (absl::GetFlag(FLAGS_stream_path).has_value() &&
       absl::GetFlag(FLAGS_port).has_value()) {
-    jpeg_buffer_streamer_node =
-        std::make_unique<streamer::JpegBufferStreamerNode>(
-            "jpeg_stream",
-            absl::GetFlag(FLAGS_stream_path).value(),
+    auto jpeg_buffer_streamer_node =
+        std::make_shared<streamer::JpegBufferStreamerNode>(
+            "jpeg_stream", absl::GetFlag(FLAGS_stream_path).value(),
             absl::GetFlag(FLAGS_port).value());
-    control_loop.RegisterCallback(
-        [&jpeg_buffer_streamer_node](
-            const control_loop::Context& context) -> void {
-          jpeg_buffer_streamer_node->RegisterCallback(context);
-        });
+    control_loop.RegisterNode(jpeg_buffer_streamer_node);
   }
 
   uvc_camera_node->Start();
   control_loop.Start();
-
   LOG(INFO) << "Started logging";
 
   stop::WaitUntilStop();
 
+  thread_pool.Shutdown();
   control_loop.Stop();
-  uvc_camera_node.reset();
+
   return 0;
 }

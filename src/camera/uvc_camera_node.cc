@@ -2,10 +2,11 @@
 #include "absl/log/log.h"
 
 #include "camera/uvc_camera_node.h"
+#include "control_loop/rio_clock.h"
 
+#include <wpi/timestamp.h>
 #include <fstream>
 #include <nlohmann/json.hpp>
-#include <wpi/system/Timer.hpp>
 
 namespace camera {
 
@@ -73,8 +74,8 @@ auto UVCCameraNode::CreateCallback()
 
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
-  auto buffer = std::make_unique<JpegBuffer>(
-      frame->data_bytes, wpi::Timer::GetTimestamp().value());
+  auto buffer = std::make_unique<JpegBuffer>(frame->data_bytes,
+                                             control_loop::RioClock::GetTime());
   std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
 
   {

@@ -8,6 +8,7 @@ target_link_libraries(uvc_camera_node PRIVATE
   absl::log
   nlohmann_json::nlohmann_json
   wpilibc
+  rio_clock
 )
 
 set(TEGRA_MMAPI_ROOT

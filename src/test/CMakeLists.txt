@@ -37,3 +37,10 @@ target_link_libraries(full_pipeline_localization_test PRIVATE
   absl::log
   absl::log_initialize
 )
+add_executable(timestamp_test
+  timestamp_test.cc
+)
+target_link_libraries(timestamp_test PRIVATE
+  wpilibc
+  ntcore
+)

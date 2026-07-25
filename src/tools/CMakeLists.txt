@@ -14,6 +14,7 @@ target_link_libraries(uvc_logger PRIVATE
   thread_pool
   cuda_utils
   wpilibc
+  jpeg_buffer_log_node
   ${OpenCV_LIBS}
 )
 
