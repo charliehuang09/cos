@@ -9,8 +9,8 @@
 #include <vector>
 
 #include <opencv2/core/types.hpp>
-#include <wpi/apriltag/AprilTagFieldLayout.hpp>
-#include <wpi/math/geometry/Pose3d.hpp>
+#include <frc/apriltag/AprilTagFieldLayout.h>
+#include <frc/geometry/Pose3d.h>
 
 #include "apriltag/nvidia_apriltag_detector_node.h"
 #include "localization/position.h"
@@ -64,12 +64,11 @@ inline const std::vector<cv::Point3d> kApriltagCorners = {
     {kTagSize / 2.0, -kTagSize / 2.0, 0.0},
     {-kTagSize / 2.0, -kTagSize / 2.0, 0.0}};
 
-inline const wpi::apriltag::AprilTagFieldLayout kApriltagLayout =
-    wpi::apriltag::AprilTagFieldLayout::LoadField(
-        wpi::apriltag::AprilTagField::k2026RebuiltAndyMark);
+inline const frc::AprilTagFieldLayout kApriltagLayout =
+    frc::AprilTagFieldLayout::LoadField(frc::AprilTagField::k2026RebuiltAndyMark);
 
 auto Variance(int num_tags, double distance, double min_variance,
               double scalar) -> double;
-auto PoseOffField(wpi::math::Pose3d pose) -> bool;
+auto PoseOffField(frc::Pose3d pose) -> bool;
 
 }  // namespace localization

@@ -33,11 +33,7 @@ auto main(int argc, char* argv[]) -> int {
             "jpeg_stream", "/stream", absl::GetFlag(FLAGS_port));
 
     control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
-    jpeg_disk_camera_node->RegisterCallback(
-        [jpeg_buffer_streamer_node](
-            const control_loop::Context& context) -> void {
-          jpeg_buffer_streamer_node->RegisterCallback(context);
-        });
+    control_loop.RegisterNode(jpeg_buffer_streamer_node);
   }
 
   control_loop.Start();

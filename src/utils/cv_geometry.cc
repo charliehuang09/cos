@@ -5,9 +5,9 @@
 #include <numbers>
 
 #include <opencv2/calib3d.hpp>
-#include <wpi/apriltag/AprilTagFieldLayout.hpp>
-#include <wpi/math/geometry/Rotation3d.hpp>
-#include <wpi/math/geometry/Translation3d.hpp>
+#include <frc/apriltag/AprilTagFieldLayout.h>
+#include <frc/geometry/Rotation3d.h>
+#include <frc/geometry/Translation3d.h>
 
 namespace utils {
 
@@ -80,19 +80,19 @@ auto ChangeBasis(cv::Mat& mat, Basis basis) -> void {
 }
 
 auto ConvertOpencvTransformationMatrixToWpilibPose(const cv::Mat& matrix)
-    -> wpi::math::Pose3d {
+    -> frc::Pose3d {
   cv::Mat rotation = matrix(cv::Range(0, 3), cv::Range(0, 3)).clone();
   cv::Mat tvec = matrix(cv::Range(0, 3), cv::Range(3, 4)).clone();
   cv::Mat rvec;
   cv::Rodrigues(rotation, rvec);
   ConvertOpencvCoordinateToWpilib(tvec);
   ConvertOpencvCoordinateToWpilib(rvec);
-  return wpi::math::Pose3d(CvMatToEigen(MakeTransform(rvec, tvec)));
+  return frc::Pose3d(CvMatToEigen(MakeTransform(rvec, tvec)));
 }
 
 auto ComputeRobotPose(const cv::Mat& tvec, const cv::Mat& rvec, int tag_id,
-                      const wpi::apriltag::AprilTagFieldLayout& layout,
-                      const cv::Mat& camera_to_robot) -> wpi::math::Pose3d {
+                      const frc::AprilTagFieldLayout& layout,
+                      const cv::Mat& camera_to_robot) -> frc::Pose3d {
   const cv::Mat camera_to_tag = MakeTransform(rvec, tvec);
   cv::Mat tag_to_camera = camera_to_tag.inv();
   ChangeBasis(tag_to_camera, Basis::kCvToWpi);
@@ -105,23 +105,22 @@ auto ComputeRobotPose(const cv::Mat& tvec, const cv::Mat& rvec, int tag_id,
       EigenToCvMat(layout.GetTagPose(tag_id).value().ToMatrix());
   const cv::Mat field_to_robot =
       field_to_tag * rotate_yaw_wpilib * tag_to_camera * camera_to_robot;
-  return wpi::math::Pose3d{CvMatToEigen(field_to_robot)};
+  return frc::Pose3d{CvMatToEigen(field_to_robot)};
 }
 
-auto Pose3dToCvMat(wpi::math::Pose3d pose) -> cv::Mat {
-  wpi::math::Pose3d opencv_pose(
-      wpi::math::Translation3d(-pose.Y(), -pose.Z(), pose.X()),
-      wpi::math::Rotation3d(-pose.Rotation().Y(), -pose.Rotation().Z(),
-                            pose.Rotation().X()));
+auto Pose3dToCvMat(frc::Pose3d pose) -> cv::Mat {
+  frc::Pose3d opencv_pose(
+      frc::Translation3d(-pose.Y(), -pose.Z(), pose.X()),
+      frc::Rotation3d(-pose.Rotation().Y(), -pose.Rotation().Z(),
+                      pose.Rotation().X()));
   return EigenToCvMat(opencv_pose.ToMatrix());
 }
 
-auto Transform3dToCvMat(wpi::math::Transform3d transform) -> cv::Mat {
-  wpi::math::Pose3d opencv_pose(
-      wpi::math::Translation3d(-transform.Y(), -transform.Z(), transform.X()),
-      wpi::math::Rotation3d(-transform.Rotation().Y(),
-                            -transform.Rotation().Z(),
-                            transform.Rotation().X()));
+auto Transform3dToCvMat(frc::Transform3d transform) -> cv::Mat {
+  frc::Pose3d opencv_pose(
+      frc::Translation3d(-transform.Y(), -transform.Z(), transform.X()),
+      frc::Rotation3d(-transform.Rotation().Y(),
+                      -transform.Rotation().Z(), transform.Rotation().X()));
   return EigenToCvMat(opencv_pose.ToMatrix());
 }
 

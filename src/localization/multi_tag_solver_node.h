@@ -7,7 +7,7 @@
 #include <vector>
 
 #include <opencv2/core/mat.hpp>
-#include <wpi/apriltag/AprilTagFieldLayout.hpp>
+#include <frc/apriltag/AprilTagFieldLayout.h>
 
 #include "control_loop/node.h"
 #include "utils/solver_common.h"
@@ -21,7 +21,7 @@ class MultiTagSolverNode final : public control_loop::INode {
                      std::string_view output_channel,
                      const std::string& intrinsics_path,
                      const std::string& extrinsics_path,
-                     const wpi::apriltag::AprilTagFieldLayout& layout =
+                     const frc::AprilTagFieldLayout& layout =
                          kApriltagLayout,
                      const std::vector<cv::Point3d>& tag_corners =
                          kApriltagCorners);

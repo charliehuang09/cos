@@ -5,8 +5,8 @@
 #include <limits>
 #include <utility>
 
-#include <wpi/math/geometry/Quaternion.hpp>
-#include <wpi/math/geometry/Rotation3d.hpp>
+#include <frc/geometry/Quaternion.h>
+#include <frc/geometry/Rotation3d.h>
 
 #include "absl/log/log.h"
 
@@ -15,7 +15,7 @@ namespace localization {
 UnambiguousSolverNode::UnambiguousSolverNode(
     std::string_view output_channel,
     const std::vector<camera_constant_t>& camera_constants,
-    const wpi::apriltag::AprilTagFieldLayout& layout)
+    const frc::AprilTagFieldLayout& layout)
     : output_channel_(output_channel),
       expected_cameras_(camera_constants.size()) {
   detection_batch_channels_.reserve(camera_constants.size());
@@ -103,10 +103,10 @@ auto UnambiguousSolverNode::GetPublications() const
   return publications_;
 }
 
-auto UnambiguousSolverNode::Cost(const wpi::math::Pose3d& a,
-                                 const wpi::math::Pose3d& b) -> double {
+auto UnambiguousSolverNode::Cost(const frc::Pose3d& a,
+                                 const frc::Pose3d& b) -> double {
   const double translation = a.Translation().Distance(b.Translation()).value();
-  const wpi::math::Rotation3d delta = a.Rotation().RelativeTo(b.Rotation());
+  const frc::Rotation3d delta = a.Rotation().RelativeTo(b.Rotation());
   constexpr double kRotationWeight = 0.1;
   return translation + kRotationWeight * delta.Angle().value();
 }
@@ -129,9 +129,9 @@ auto UnambiguousSolverNode::ComputeCost(
 }
 
 auto UnambiguousSolverNode::WeightedAveragePose(
-    const std::vector<position_estimate_t>& solutions) -> wpi::math::Pose3d {
+    const std::vector<position_estimate_t>& solutions) -> frc::Pose3d {
   if (solutions.empty()) {
-    return wpi::math::Pose3d{};
+    return frc::Pose3d{};
   }
   if (solutions.size() == 1) {
     return solutions.front().pose;
@@ -172,9 +172,9 @@ auto UnambiguousSolverNode::WeightedAveragePose(
   qy /= norm;
   qz /= norm;
 
-  return wpi::math::Pose3d{
-      wpi::units::meter_t{x}, wpi::units::meter_t{y}, wpi::units::meter_t{z},
-      wpi::math::Rotation3d{wpi::math::Quaternion{qw, qx, qy, qz}}};
+  return frc::Pose3d{
+      units::meter_t{x}, units::meter_t{y}, units::meter_t{z},
+      frc::Rotation3d{frc::Quaternion{qw, qx, qy, qz}}};
 }
 
 auto UnambiguousSolverNode::SearchSolutions(

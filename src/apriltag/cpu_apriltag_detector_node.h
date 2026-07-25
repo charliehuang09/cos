@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include <wpi/apriltag/AprilTagDetector.hpp>
+#include <frc/apriltag/AprilTagDetector.h>
 
 #include "apriltag/tag_detections.h"
 #include "camera/cpu_decode_node.h"
@@ -37,7 +37,7 @@ class CpuApriltagDetectorNode final : public control_loop::INode {
   auto Detect(const camera::DecodedImageBuffer& image)
       -> std::vector<TagDetections::tag_detection>;
 
-  wpi::apriltag::AprilTagDetector detector_;
+  frc::AprilTagDetector detector_;
   std::string input_channel_;
   std::string output_channel_;
   control_loop::ThreadPool& thread_pool_;

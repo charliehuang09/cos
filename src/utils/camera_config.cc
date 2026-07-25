@@ -1,7 +1,7 @@
 #include "utils/camera_config.h"
 
-#include <wpi/math/geometry/Pose3d.hpp>
-#include <wpi/math/geometry/Rotation3d.hpp>
+#include <frc/geometry/Pose3d.h>
+#include <frc/geometry/Rotation3d.h>
 
 namespace utils {
 
@@ -20,16 +20,16 @@ auto DistortionCoefficientsFromJson(const nlohmann::json& intrinsics)
 }
 
 auto ExtrinsicsJsonToCameraToRobot(const nlohmann::json& extrinsics)
-    -> wpi::math::Transform3d {
-  wpi::math::Pose3d camera_pose(
-      wpi::units::meter_t{extrinsics.at("translation_x").get<double>()},
-      wpi::units::meter_t{extrinsics.at("translation_y").get<double>()},
-      wpi::units::meter_t{extrinsics.at("translation_z").get<double>()},
-      wpi::math::Rotation3d(
-          wpi::units::radian_t{extrinsics.at("rotation_x").get<double>()},
-          wpi::units::radian_t{extrinsics.at("rotation_y").get<double>()},
-          wpi::units::radian_t{extrinsics.at("rotation_z").get<double>()}));
-  wpi::math::Transform3d robot_to_camera(wpi::math::Pose3d{}, camera_pose);
+    -> frc::Transform3d {
+  frc::Pose3d camera_pose(
+      units::meter_t{extrinsics.at("translation_x").get<double>()},
+      units::meter_t{extrinsics.at("translation_y").get<double>()},
+      units::meter_t{extrinsics.at("translation_z").get<double>()},
+      frc::Rotation3d(
+          units::radian_t{extrinsics.at("rotation_x").get<double>()},
+          units::radian_t{extrinsics.at("rotation_y").get<double>()},
+          units::radian_t{extrinsics.at("rotation_z").get<double>()}));
+  frc::Transform3d robot_to_camera(frc::Pose3d{}, camera_pose);
   return robot_to_camera.Inverse();
 }
 

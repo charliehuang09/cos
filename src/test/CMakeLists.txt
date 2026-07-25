@@ -32,7 +32,7 @@ target_link_libraries(full_pipeline_localization_test PRIVATE
   unambiguous_solver_node
   control_loop
   thread_pool
-  datalog
+  wpiutil
   absl::flags_parse
   absl::log
   absl::log_initialize

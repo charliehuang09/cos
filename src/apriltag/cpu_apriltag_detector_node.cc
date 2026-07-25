@@ -23,7 +23,7 @@ CpuApriltagDetectorNode::CpuApriltagDetectorNode(
   CHECK_GT(config.at("width").get<int>(), 0);
   CHECK_GT(config.at("height").get<int>(), 0);
 
-  wpi::apriltag::AprilTagDetector::Config detector_config;
+  frc::AprilTagDetector::Config detector_config;
   detector_config.numThreads = 1;
   detector_config.quadDecimate = 2.0F;
   detector_.SetConfig(detector_config);

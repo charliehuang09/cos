@@ -44,11 +44,7 @@ auto main() -> int {
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
                                                            "stream", 8080);
-    jpeg_disk_camera_node->RegisterCallback(
-        [jpeg_buffer_streamer_node](
-            const control_loop::Context& context) -> void {
-          jpeg_buffer_streamer_node->RegisterCallback(context);
-        });
+    control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
     auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
         "jpeg_buffer", "gpu_decoded_image", NVJPEG_OUTPUT_Y, thread_pool);

@@ -14,7 +14,7 @@ namespace localization {
 SquareSolverNode::SquareSolverNode(
     std::string_view input_channel, std::string_view output_channel,
     const std::string& intrinsics_path, const std::string& extrinsics_path,
-    wpi::apriltag::AprilTagFieldLayout layout,
+    frc::AprilTagFieldLayout layout,
     std::vector<cv::Point3d> tag_corners)
     : input_channel_(input_channel),
       output_channel_(output_channel),

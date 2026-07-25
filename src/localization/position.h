@@ -5,7 +5,7 @@
 #include <utility>
 #include <vector>
 
-#include <wpi/math/geometry/Pose3d.hpp>
+#include <frc/geometry/Pose3d.h>
 
 #include "control_loop/message.h"
 
@@ -14,7 +14,7 @@ namespace localization {
 struct PositionEstimate final : public control_loop::IMessage {
   std::vector<int> tag_ids;
   std::vector<int> rejected_tag_ids;
-  wpi::math::Pose3d pose;
+  frc::Pose3d pose;
   double variance = 0.0;
   int num_tags = 0;
   double avg_tag_dist = 0.0;

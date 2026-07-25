@@ -34,7 +34,7 @@
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
 #include "localization/unambiguous_solver_node.h"
-#include "wpi/datalog/DataLogWriter.hpp"
+#include "wpi/DataLogWriter.h"
 #include "utils/json.h"
 
 namespace fs = std::filesystem;
@@ -302,7 +302,7 @@ auto main(int argc, char* argv[]) -> int {
                        << wpilog_error.message();
   // StructLogEntry registers the canonical WPILib Pose3d schema and packs the
   // value using the SDK's own struct serialization implementation.
-  wpi::log::StructLogEntry<wpi::math::Pose3d> pose_entry(
+  wpi::log::StructLogEntry<frc::Pose3d> pose_entry(
       wpilog, "localization/pose");
   const int log_encoded_total = wpilog.Start("replay/encoded_frames", "int64");
   const int log_decoded_total = wpilog.Start("replay/decoded_frames", "int64");

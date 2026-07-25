@@ -19,7 +19,7 @@ class UnambiguousSolverNode final : public control_loop::INode {
  public:
   UnambiguousSolverNode(std::string_view output_channel,
                         const std::vector<camera_constant_t>& camera_constants,
-                        const wpi::apriltag::AprilTagFieldLayout& layout =
+                        const frc::AprilTagFieldLayout& layout =
                             kApriltagLayout);
 
   void RegisterCallback(
@@ -37,11 +37,10 @@ class UnambiguousSolverNode final : public control_loop::INode {
       bool reject_far_tags = true) -> std::optional<position_estimate_t>;
 
  private:
-  static auto Cost(const wpi::math::Pose3d& a,
-                   const wpi::math::Pose3d& b) -> double;
+  static auto Cost(const frc::Pose3d& a, const frc::Pose3d& b) -> double;
   auto ComputeCost(const std::vector<position_estimate_t>& poses) -> double;
   static auto WeightedAveragePose(
-      const std::vector<position_estimate_t>& solutions) -> wpi::math::Pose3d;
+      const std::vector<position_estimate_t>& solutions) -> frc::Pose3d;
   auto SearchSolutions(
       const std::vector<ambiguous_estimate_t>& all_pose_estimates,
       size_t index, std::vector<position_estimate_t>& current_solution,

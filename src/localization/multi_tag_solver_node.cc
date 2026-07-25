@@ -15,7 +15,7 @@ namespace localization {
 MultiTagSolverNode::MultiTagSolverNode(
     std::string_view input_channel, std::string_view output_channel,
     const std::string& intrinsics_path, const std::string& extrinsics_path,
-    const wpi::apriltag::AprilTagFieldLayout& layout,
+    const frc::AprilTagFieldLayout& layout,
     const std::vector<cv::Point3d>& tag_corners)
     : input_channel_(input_channel),
       output_channel_(output_channel),
@@ -36,7 +36,7 @@ MultiTagSolverNode::MultiTagSolverNode(
   cv::Mat tvec = (cv::Mat_<double>(3, 1) << 0, 0, 0);
   cv::Mat rotate_z = utils::MakeTransform(rvec, tvec);
 
-  for (const wpi::apriltag::AprilTag& tag : layout.GetTags()) {
+  for (const frc::AprilTag& tag : layout.GetTags()) {
     cv::Mat field_to_tag = utils::Pose3dToCvMat(tag.pose);
     tag_corners_[tag.ID] = {
         utils::CvMatToPoint3d(field_to_tag * rotate_z *

@@ -5,8 +5,8 @@
 #include <vector>
 
 #include <opencv2/core/mat.hpp>
-#include <wpi/apriltag/AprilTagFieldLayout.hpp>
-#include <wpi/math/geometry/Pose3d.hpp>
+#include <frc/apriltag/AprilTagFieldLayout.h>
+#include <frc/geometry/Pose3d.h>
 
 #include "control_loop/node.h"
 #include "utils/solver_common.h"
@@ -19,7 +19,7 @@ class SquareSolverNode final : public control_loop::INode {
                    std::string_view output_channel,
                    const std::string& intrinsics_path,
                    const std::string& extrinsics_path,
-                   wpi::apriltag::AprilTagFieldLayout layout =
+                   frc::AprilTagFieldLayout layout =
                        kApriltagLayout,
                    std::vector<cv::Point3d> tag_corners = kApriltagCorners);
 
@@ -43,7 +43,7 @@ class SquareSolverNode final : public control_loop::INode {
 
   std::string input_channel_;
   std::string output_channel_;
-  wpi::apriltag::AprilTagFieldLayout layout_;
+  frc::AprilTagFieldLayout layout_;
   std::vector<cv::Point3d> tag_corners_;
   cv::Mat camera_matrix_;
   cv::Mat distortion_coefficients_;
