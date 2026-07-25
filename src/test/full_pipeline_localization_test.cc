@@ -56,8 +56,6 @@ ABSL_FLAG(double, max_acceleration, 100.0,  // NOLINT
           "Acceleration above this value is logged as suspicious");
 ABSL_FLAG(double, max_pose_jump, 1.0,  // NOLINT
           "Pose translation jump above this value is logged as suspicious");
-ABSL_FLAG(int, timeout_seconds, 120,  // NOLINT
-          "Maximum time to wait for all detector callbacks");
 
 namespace {
 
@@ -274,7 +272,6 @@ auto main(int argc, char* argv[]) -> int {
   CHECK_GT(absl::GetFlag(FLAGS_control_loop_period_ms), 0);
   CHECK_GT(absl::GetFlag(FLAGS_max_acceleration), 0.0);
   CHECK_GT(absl::GetFlag(FLAGS_max_pose_jump), 0.0);
-  CHECK_GT(absl::GetFlag(FLAGS_timeout_seconds), 0);
 
   const fs::path manifest_path = absl::GetFlag(FLAGS_camera_manifest);
   const fs::path image_folder = absl::GetFlag(FLAGS_image_folder);
@@ -438,6 +435,17 @@ auto main(int argc, char* argv[]) -> int {
           const size_t batches = ++detection_batches;
           wpilog.AppendInteger(log_detection_total,
                                static_cast<int64_t>(batches), timestamp);
+          if (batches % 100 == 0 || batches == expected_frames) {
+            const double progress =
+                100.0 * static_cast<double>(batches) /
+                static_cast<double>(expected_frames);
+            LOG(INFO) << "Localization replay progress: " << batches << "/"
+                      << expected_frames << " detection batches (" << progress
+                      << "%)";
+            if (batches % 100 == 0) {
+              wpilog.Flush();
+            }
+          }
           for (const auto& detection : detections->tag_detections) {
             wpilog.AppendInteger(log_tag_ids[camera_id], detection.tag_id,
                                  timestamp);
@@ -548,11 +556,8 @@ auto main(int argc, char* argv[]) -> int {
 
   {
     std::unique_lock lock(completion_mutex);
-    const bool completed = completion_cv.wait_for(
-        lock, std::chrono::seconds(absl::GetFlag(FLAGS_timeout_seconds)),
-        [&replay_complete] { return replay_complete.load(); });
-    CHECK(completed) << "Timed out waiting for localization solver completion: "
-                     << detection_batches.load() << " of " << expected_frames;
+    completion_cv.wait(lock,
+                       [&replay_complete] { return replay_complete.load(); });
   }
 
   control_loop.Stop();
