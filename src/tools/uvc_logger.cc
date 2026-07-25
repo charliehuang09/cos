@@ -8,9 +8,9 @@
 #include "absl/log/initialize.h"
 
 #include <cuda_runtime.h>
+#include <frc/Timer.h>
 #include <opencv2/core.hpp>
 #include <opencv2/opencv.hpp>
-#include <frc/Timer.h>
 
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
