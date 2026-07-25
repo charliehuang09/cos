@@ -76,6 +76,7 @@ target_link_libraries(nvjpeg_decode_node
   PUBLIC
     CUDA::cudart
     CUDA::nvjpeg
+    cuda_utils
     absl::log
   PRIVATE
     timer
@@ -95,6 +96,15 @@ target_link_libraries(nvjpeg_fd_decode_node
     absl::log
   PRIVATE
     timer
+)
+
+add_library(cpu_decode_node)
+target_sources(cpu_decode_node PRIVATE
+  cpu_decode_node.cc
+)
+target_link_libraries(cpu_decode_node PUBLIC
+  JPEG::JPEG
+  absl::log
 )
 
 add_library(jpeg_disk_camera)

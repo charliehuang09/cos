@@ -20,6 +20,23 @@ target_link_libraries(nvidia_apriltag_detector_node_test PRIVATE
   absl::log_initialize
 )
 
+add_executable(full_pipeline_localization_test
+  full_pipeline_localization_test.cc
+)
+target_link_libraries(full_pipeline_localization_test PRIVATE
+  jpeg_disk_camera
+  cpu_decode_node
+  nvjpeg_decode_node
+  cpu_apriltag_detector_node
+  nvidia_apriltag_detector_node
+  unambiguous_solver_node
+  control_loop
+  thread_pool
+  wpiutil
+  absl::flags_parse
+  absl::log
+  absl::log_initialize
+)
 add_executable(timestamp_test
   timestamp_test.cc
 )

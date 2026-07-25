@@ -44,7 +44,7 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
       dependencies_({{input_channel_,
                       {typeid(camera::DecodedJpegBuffer),
                        typeid(camera::DecodedJpegFdBuffer)}}}),
-      publications_({{output_channel_, typeid(NvidiaTagDetections)}}) {
+      publications_({{output_channel_, typeid(TagDetections)}}) {
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
   const nlohmann::json config = nlohmann::json::parse(config_file);
@@ -131,7 +131,7 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
   std::function<void()> task = [this, context, cuda_buffer,
                                 fd_buffer]() -> void {
     std::unique_ptr<control_loop::IMessage> detections =
-        std::make_unique<NvidiaTagDetections>(
+        std::make_unique<TagDetections>(
             cuda_buffer != nullptr ? Detect(*cuda_buffer) : Detect(*fd_buffer));
     context->SetMessage(output_channel_, std::move(detections));
     for (const auto& callback : callbacks_) {
@@ -143,7 +143,7 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
 }
 
 auto NvidiaApriltagDetectorNode::Detect(const camera::DecodedJpegBuffer& buffer)
-    -> std::vector<NvidiaTagDetections::tag_detection> {
+    -> std::vector<TagDetections::tag_detection> {
   CHECK(buffer.output_format == NVJPEG_OUTPUT_Y);
   std::vector<unsigned char> gray(buffer.channel_sizes[0]);
   CheckCuda(cudaMemcpy(gray.data(), buffer.destination.channel[0],
@@ -153,7 +153,7 @@ auto NvidiaApriltagDetectorNode::Detect(const camera::DecodedJpegBuffer& buffer)
 
 auto NvidiaApriltagDetectorNode::Detect(
     const camera::DecodedJpegFdBuffer& buffer)
-    -> std::vector<NvidiaTagDetections::tag_detection> {
+    -> std::vector<TagDetections::tag_detection> {
   NvBufSurface* surface = nullptr;
   CHECK_EQ(NvBufSurfaceFromFd(buffer.fd, reinterpret_cast<void**>(&surface)),
            0);
@@ -173,7 +173,7 @@ auto NvidiaApriltagDetectorNode::Detect(
 auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
                                             int width, int height,
                                             size_t stride)
-    -> std::vector<NvidiaTagDetections::tag_detection> {
+    -> std::vector<TagDetections::tag_detection> {
   std::lock_guard lock(detect_mutex_);
   CHECK_EQ(width, width_);
   CHECK_EQ(height, height_);
@@ -201,7 +201,7 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
 }
 
 auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
-    -> std::vector<NvidiaTagDetections::tag_detection> {
+    -> std::vector<TagDetections::tag_detection> {
   CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
                                    image, detections_));
 
@@ -215,10 +215,10 @@ auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
       static_cast<VPIAprilTagDetection*>(detections_data.buffer.aos.data);
   int num_detections = *detections_data.buffer.aos.sizePointer;
 
-  std::vector<NvidiaTagDetections::tag_detection> detections;
+  std::vector<TagDetections::tag_detection> detections;
 
   for (int i = 0; i < num_detections; ++i) {
-    NvidiaTagDetections::tag_detection detection;
+    TagDetections::tag_detection detection;
     detection.tag_id = detections_vpi[i].id;
 
     for (int j = 0; j < 4; ++j) {

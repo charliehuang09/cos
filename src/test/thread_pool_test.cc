@@ -6,7 +6,6 @@
 #include "gtest/gtest.h"
 
 namespace control_loop {
-namespace {
 
 TEST(ThreadPoolTest, ExecutesSubmittedTasks) {
   ThreadPool pool(2);
@@ -45,5 +44,4 @@ TEST(ThreadPoolTest, UsesOneWorkerWhenCountIsZero) {
   completed.get_future().wait();
 }
 
-}  // namespace
 }  // namespace control_loop
