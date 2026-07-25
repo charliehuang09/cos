@@ -23,7 +23,7 @@ auto JpegBufferLogNode::CreateCallback()
       if (jpeg_buffer != nullptr) {
         std::string output_file_path = folder_path_ + "/" +
                                        std::to_string(jpeg_buffer->timestamp) +
-                                       ".jpeg_buffer";
+                                       ".jpg";
         std::ofstream out(output_file_path, std::ios::binary);
         out.write(reinterpret_cast<const char*>(jpeg_buffer->ptr),
                   jpeg_buffer->size);

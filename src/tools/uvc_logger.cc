@@ -15,6 +15,7 @@
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_camera_node.h"
 #include "control_loop/control_loop.h"
+#include "control_loop/rio_clock.h"
 #include "logging/jpeg_buffer_log_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
@@ -42,6 +43,7 @@ auto main(int argc, char* argv[]) -> int {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+  control_loop::RioClock::EnableSimulation();
 
   stop::RegisterHandler();
 

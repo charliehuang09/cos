@@ -24,3 +24,11 @@ target_link_libraries(thread_pool PUBLIC
 add_library(timer
   timer.cc
 )
+
+add_library(rio_clock
+  rio_clock.cc
+)
+target_link_libraries(rio_clock PRIVATE
+  wpilibc
+  ntcore
+)
