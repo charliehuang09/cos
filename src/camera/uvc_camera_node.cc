@@ -66,9 +66,6 @@ auto UVCCameraNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     Callback(context);
-    for (const auto& callback : callbacks_) {
-      callback(context);
-    }
   };
 }
 

@@ -122,9 +122,14 @@ auto MultiTagSolverNode::AmbiguousSolve(
     cv::Mat tvec_tag = cv::Mat::zeros(3, 1, CV_64FC1);
     std::vector<cv::Point2d> corners(detection.corners.begin(),
                                      detection.corners.end());
-    cv::solvePnP(kApriltagCorners, corners, camera_matrix_,
-                 distortion_coefficients_, rvec_tag, tvec_tag, false,
-                 cv::SOLVEPNP_IPPE_SQUARE);
+    try {
+      cv::solvePnP(kApriltagCorners, corners, camera_matrix_,
+                   distortion_coefficients_, rvec_tag, tvec_tag, false,
+                   cv::SOLVEPNP_IPPE_SQUARE);
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Caught solvePnP exception: " << e.what();
+      return std::nullopt;
+    }
 
     if (reject_far_tags && cv::norm(tvec_tag) > kMaxTagDistance) {
       rejected_tag_ids.push_back(detection.tag_id);
