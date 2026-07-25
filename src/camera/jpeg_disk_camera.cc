@@ -1,7 +1,7 @@
 #include "camera/jpeg_disk_camera.h"
 #include "camera/uvc_camera_node.h"
 
-#include <wpi/system/Timer.hpp>
+#include <wpi/timestamp.h>
 
 #include <algorithm>
 #include <cctype>
@@ -64,7 +64,7 @@ auto JpegDiskCamera::GetTimestamp(const std::filesystem::path& path)
 }
 
 void JpegDiskCamera::Callback(const control_loop::Context& context) {
-  const double now = wpi::Timer::GetTimestamp().value();
+  const double now = static_cast<double>(wpi::Now()) / 1'000'000.0;
   if (!replay_start_time_.has_value()) {
     replay_start_time_ = now;
   }
