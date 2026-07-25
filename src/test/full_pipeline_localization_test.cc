@@ -62,73 +62,6 @@ ABSL_FLAG(int, timeout_seconds, 120,  // NOLINT
 
 namespace {
 
-class WpiLog final {
- public:
-  explicit WpiLog(const fs::path& path) {
-    if (path.has_parent_path()) {
-      std::error_code error;
-      fs::create_directories(path.parent_path(), error);
-      CHECK(!error) << "Failed to create WPILOG directory: "
-                    << path.parent_path() << ": " << error.message();
-    }
-
-    std::error_code error;
-    writer_ = std::make_unique<wpi::log::DataLogWriter>(
-        path.string(), error, "cos full pipeline replay");
-    CHECK(!error) << "Failed to open WPILOG " << path << ": "
-                  << error.message();
-  }
-
-  ~WpiLog() = default;
-
-  WpiLog(const WpiLog&) = delete;
-  auto operator=(const WpiLog&) -> WpiLog& = delete;
-
-  auto Start(std::string_view name, std::string_view type) -> int {
-    std::lock_guard lock(mutex_);
-    const int entry = writer_->Start(name, type);
-    CHECK_GT(entry, 0) << "Failed to start WPILOG entry " << name;
-    return entry;
-  }
-
-  void Double(int entry, double value, int64_t timestamp = 0) {
-    std::lock_guard lock(mutex_);
-    writer_->AppendDouble(entry, value, timestamp);
-  }
-
-  void Integer(int entry, int64_t value, int64_t timestamp = 0) {
-    std::lock_guard lock(mutex_);
-    writer_->AppendInteger(entry, value, timestamp);
-  }
-
-  void StringValue(int entry, std::string_view value, int64_t timestamp = 0) {
-    std::lock_guard lock(mutex_);
-    writer_->AppendString(entry, value, timestamp);
-  }
-
-  void StartPose3d(std::string_view name) {
-    std::lock_guard lock(mutex_);
-    pose_entry_ = std::make_unique<wpi::log::StructLogEntry<wpi::math::Pose3d>>(
-        *writer_, name);
-  }
-
-  void Pose3d(const wpi::math::Pose3d& pose, int64_t timestamp = 0) {
-    std::lock_guard lock(mutex_);
-    CHECK(pose_entry_ != nullptr);
-    pose_entry_->Append(pose, timestamp);
-  }
-
-  void Flush() {
-    std::lock_guard lock(mutex_);
-    writer_->Flush();
-  }
-
- private:
-  std::unique_ptr<wpi::log::DataLogWriter> writer_;
-  std::unique_ptr<wpi::log::StructLogEntry<wpi::math::Pose3d>> pose_entry_;
-  std::mutex mutex_;
-};
-
 struct CameraSpec {
   std::string name;
   fs::path image_path;
@@ -345,10 +278,22 @@ auto main(int argc, char* argv[]) -> int {
   const std::vector<CameraSpec> cameras =
       LoadCameraSpecs(manifest_path, log_path);
 
-  WpiLog wpilog(output_path);
+  if (output_path.has_parent_path()) {
+    std::error_code error;
+    fs::create_directories(output_path.parent_path(), error);
+    CHECK(!error) << "Failed to create WPILOG directory: "
+                  << output_path.parent_path() << ": " << error.message();
+  }
+
+  std::error_code wpilog_error;
+  wpi::log::DataLogWriter wpilog(output_path.string(), wpilog_error,
+                                 "cos full pipeline replay");
+  CHECK(!wpilog_error) << "Failed to open WPILOG " << output_path << ": "
+                       << wpilog_error.message();
   // StructLogEntry registers the canonical WPILib Pose3d schema and packs the
   // value using the SDK's own struct serialization implementation.
-  wpilog.StartPose3d("localization/pose");
+  wpi::log::StructLogEntry<wpi::math::Pose3d> pose_entry(
+      wpilog, "localization/pose");
   const int log_encoded_total = wpilog.Start("replay/encoded_frames", "int64");
   const int log_decoded_total = wpilog.Start("replay/decoded_frames", "int64");
   const int log_detection_total =
@@ -421,7 +366,8 @@ auto main(int argc, char* argv[]) -> int {
           }
           ++camera_metrics[camera_id].encoded_frames;
           const size_t encoded = ++encoded_frames_total;
-          wpilog.Integer(log_encoded_total, static_cast<int64_t>(encoded));
+          wpilog.AppendInteger(log_encoded_total, static_cast<int64_t>(encoded),
+                               0);
         });
 
     std::shared_ptr<control_loop::INode> decoder;
@@ -446,8 +392,8 @@ auto main(int argc, char* argv[]) -> int {
           const size_t decoded = ++decoded_frames_total;
           const double timestamp =
               cpu_image != nullptr ? cpu_image->timestamp : image->timestamp;
-          wpilog.Integer(log_decoded_total, static_cast<int64_t>(decoded),
-                         TimestampMicros(timestamp));
+          wpilog.AppendInteger(log_decoded_total, static_cast<int64_t>(decoded),
+                               TimestampMicros(timestamp));
         });
 
     std::shared_ptr<control_loop::INode> detector;
@@ -484,10 +430,11 @@ auto main(int argc, char* argv[]) -> int {
           camera_metrics[camera_id].tag_detections +=
               detections->tag_detections.size();
           const size_t batches = ++detection_batches;
-          wpilog.Integer(log_detection_total, static_cast<int64_t>(batches),
-                         timestamp);
+          wpilog.AppendInteger(log_detection_total,
+                               static_cast<int64_t>(batches), timestamp);
           for (const auto& detection : detections->tag_detections) {
-            wpilog.Integer(log_tag_ids[camera_id], detection.tag_id, timestamp);
+            wpilog.AppendInteger(log_tag_ids[camera_id], detection.tag_id,
+                                 timestamp);
           }
 
           if (batches >= expected_frames) {
@@ -520,18 +467,18 @@ auto main(int argc, char* argv[]) -> int {
         const int64_t timestamp =
             TimestampMicros(PoseTimestamp(context, decoded_channels));
         const size_t pose_count = ++pose_metrics.published_poses;
-        wpilog.Integer(log_pose_count, static_cast<int64_t>(pose_count),
-                       timestamp);
-        wpilog.Pose3d(estimate->pose, timestamp);
-        wpilog.Double(log_pose_x, x, timestamp);
-        wpilog.Double(log_pose_y, y, timestamp);
-        wpilog.Double(log_pose_z, z, timestamp);
-        wpilog.Double(log_pose_roll, roll, timestamp);
-        wpilog.Double(log_pose_pitch, pitch, timestamp);
-        wpilog.Double(log_pose_yaw, yaw, timestamp);
-        wpilog.Double(log_pose_variance, estimate->variance, timestamp);
-        wpilog.Double(log_pose_loss, estimate->loss, timestamp);
-        wpilog.Integer(log_pose_tags, estimate->num_tags, timestamp);
+        wpilog.AppendInteger(log_pose_count, static_cast<int64_t>(pose_count),
+                             timestamp);
+        pose_entry.Append(estimate->pose, timestamp);
+        wpilog.AppendDouble(log_pose_x, x, timestamp);
+        wpilog.AppendDouble(log_pose_y, y, timestamp);
+        wpilog.AppendDouble(log_pose_z, z, timestamp);
+        wpilog.AppendDouble(log_pose_roll, roll, timestamp);
+        wpilog.AppendDouble(log_pose_pitch, pitch, timestamp);
+        wpilog.AppendDouble(log_pose_yaw, yaw, timestamp);
+        wpilog.AppendDouble(log_pose_variance, estimate->variance, timestamp);
+        wpilog.AppendDouble(log_pose_loss, estimate->loss, timestamp);
+        wpilog.AppendInteger(log_pose_tags, estimate->num_tags, timestamp);
 
         if (estimate->invalid) {
           ++pose_metrics.invalid_poses;
@@ -566,16 +513,16 @@ auto main(int argc, char* argv[]) -> int {
               std::pow(x - pose_metrics.previous_translation[0], 2) +
               std::pow(y - pose_metrics.previous_translation[1], 2) +
               std::pow(z - pose_metrics.previous_translation[2], 2));
-          wpilog.Double(log_velocity, speed, timestamp);
-          wpilog.Double(log_acceleration, acceleration, timestamp);
-          wpilog.Double(log_pose_jump, jump, timestamp);
+          wpilog.AppendDouble(log_velocity, speed, timestamp);
+          wpilog.AppendDouble(log_acceleration, acceleration, timestamp);
+          wpilog.AppendDouble(log_pose_jump, jump, timestamp);
           if (acceleration > absl::GetFlag(FLAGS_max_acceleration)) {
             ++pose_metrics.suspicious_accelerations;
-            wpilog.StringValue(log_warning, "acceleration", timestamp);
+            wpilog.AppendString(log_warning, "acceleration", timestamp);
           }
           if (jump > absl::GetFlag(FLAGS_max_pose_jump)) {
             ++pose_metrics.suspicious_jumps;
-            wpilog.StringValue(log_warning, "pose_jump", timestamp);
+            wpilog.AppendString(log_warning, "pose_jump", timestamp);
           }
           pose_metrics.previous_velocity = velocity;
         }
