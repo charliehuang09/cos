@@ -45,6 +45,7 @@ struct CameraSolverConfig {
   std::string name;
   std::string intrinsics_path;
   std::string extrinsics_path;
+  std::string detector_config_path;
 };
 
 using camera_constant_t = CameraSolverConfig;

@@ -6,22 +6,25 @@
   "cameras": [
     {
       "pipeline": "nvarguscamerasrc sensor-id=0 aelock=true exposuretimerange=\"100000 200000\" gainrange=\"1 15\" ispdigitalgainrange=\"1 1\" ! video/x-raw(memory:NVMM), width=1456, height=1088, framerate=30/1, format=NV12 ! nvvidconv ! video/x-raw, format=BGRx ! queue ! appsink",
-      "intrinsics_path": "/bos/constants/imx296_camera0_intrinsics.json",
-      "extrinsics_path": "/bos/constants/imx296_camera0_extrinsics.json",
+      "intrinsics_path": "imx296_camera0_intrinsics.json",
+      "extrinsics_path": "imx296_camera0_extrinsics.json",
+      "detector_config_path": "dev-orin/camera.json",
       "name": "mipi0",
       "camera_type": "mipi"
     },
     {
       "pipeline": "nvarguscamerasrc sensor-id=1 aelock=true exposuretimerange=\"100000 200000\" gainrange=\"1 15\" ispdigitalgainrange=\"1 1\" ! video/x-raw(memory:NVMM), width=1456, height=1088, framerate=30/1, format=NV12 ! nvvidconv ! video/x-raw, format=BGRx ! queue ! appsink",
-      "intrinsics_path": "/bos/constants/imx296_camera1_intrinsics.json",
-      "extrinsics_path": "/bos/constants/imx296_camera1_extrinsics.json",
+      "intrinsics_path": "imx296_camera1_intrinsics.json",
+      "extrinsics_path": "imx296_camera1_extrinsics.json",
+      "detector_config_path": "dev-orin/camera.json",
       "name": "mipi1",
       "camera_type": "mipi"
     },
     {
       "name": "dev_orin",
-      "intrinsics_path": "/bos/constants/misc/dev_orin_intrinsics.json",
-      "extrinsics_path": "/bos/constants/misc/dev_orin_extrinsics.json",
+      "intrinsics_path": "misc/dev_orin_intrinsics.json",
+      "extrinsics_path": "misc/dev_orin_extrinsics.json",
+      "detector_config_path": "dev-orin/camera.json",
       "frame_width": 1280,
       "frame_height": 800,
       "fps": 100.0,
@@ -33,8 +36,9 @@
     },
     {
       "name": "second_bot_front",
-      "intrinsics_path": "/bos/constants/second_bot/front_intrinsics.json",
-      "extrinsics_path": "/bos/constants/second_bot/front_extrinsics.json",
+      "intrinsics_path": "second_bot/front_intrinsics.json",
+      "extrinsics_path": "second_bot/front_extrinsics.json",
+      "detector_config_path": "dev-orin/camera.json",
       "frame_width": 1280,
       "frame_height": 800,
       "fps": 100.0,
@@ -47,8 +51,9 @@
     },
     {
       "name": "second_bot_right",
-      "intrinsics_path": "/bos/constants/second_bot/right_intrinsics.json",
-      "extrinsics_path": "/bos/constants/second_bot/right_extrinsics.json",
+      "intrinsics_path": "second_bot/right_intrinsics.json",
+      "extrinsics_path": "second_bot/right_extrinsics.json",
+      "detector_config_path": "dev-orin/camera.json",
       "frame_width": 1280,
       "frame_height": 800,
       "fps": 100.0,
@@ -61,8 +66,9 @@
     },
     {
       "name": "second_bot_left",
-      "intrinsics_path": "/bos/constants/second_bot/left_intrinsics.json",
-      "extrinsics_path": "/bos/constants/second_bot/left_extrinsics.json",
+      "intrinsics_path": "second_bot/left_intrinsics.json",
+      "extrinsics_path": "second_bot/left_extrinsics.json",
+      "detector_config_path": "dev-orin/camera.json",
       "frame_width": 1280,
       "frame_height": 800,
       "fps": 100.0,

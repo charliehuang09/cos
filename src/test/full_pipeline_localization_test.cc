@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <numbers>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -38,13 +39,11 @@
 
 namespace fs = std::filesystem;
 
-ABSL_FLAG(std::string, log_path, "bos-logs/log60",  // NOLINT
+ABSL_FLAG(std::string, image_folder, "bos-logs/log60",  // NOLINT
           "Root directory containing one encoded-JPEG directory per camera");
-ABSL_FLAG(std::string, camera_manifest, "src/test/test_constants/camear_constants.json",  // NOLINT
-          "JSON camera manifest containing real intrinsics and extrinsics");
-ABSL_FLAG(std::string, detector_config_path,
-          "src/test/test_constants/dev-orin/camera.json",  // NOLINT
-          "Camera JSON providing detector frame width and height");
+ABSL_FLAG(std::string, camera_manifest,
+          "src/test/test_constants/camera_constants.json",  // NOLINT
+          "JSON camera constants containing real intrinsics and extrinsics");
 ABSL_FLAG(std::string, output_wpilog, "logs/full_pipeline_localization.wpilog",  // NOLINT
           "Output WPILOG path");
 ABSL_FLAG(std::string, decode_backend, "cpu",  // NOLINT
@@ -61,15 +60,6 @@ ABSL_FLAG(int, timeout_seconds, 120,  // NOLINT
           "Maximum time to wait for all detector callbacks");
 
 namespace {
-
-struct CameraSpec {
-  std::string name;
-  fs::path image_path;
-  fs::path intrinsics_path;
-  fs::path extrinsics_path;
-  fs::path detector_config_path;
-  size_t expected_frames = 0;
-};
 
 struct CameraMetrics {
   std::atomic<size_t> encoded_frames = 0;
@@ -117,21 +107,10 @@ auto ParseDetectorBackend(std::string_view value) -> DetectorBackend {
 auto ResolvePath(std::string_view raw, const fs::path& manifest_directory)
     -> fs::path {
   const fs::path supplied(raw);
-  if (fs::exists(supplied)) {
-    return supplied;
-  }
   if (supplied.is_absolute()) {
-    constexpr std::string_view kCosConstants = "/cos/constants/";
-    if (raw.starts_with(kCosConstants)) {
-      const fs::path relative(raw.substr(kCosConstants.size()));
-      const fs::path fallback = manifest_directory / relative;
-      if (fs::exists(fallback)) {
-        return fallback;
-      }
-    }
-    return supplied;
+    return fs::absolute(supplied);
   }
-  return manifest_directory / supplied;
+  return fs::absolute(manifest_directory / supplied);
 }
 
 auto IsJpeg(const fs::path& path) -> bool {
@@ -172,61 +151,91 @@ auto CountReplayFrames(const fs::path& directory) -> size_t {
 
 auto CameraDirectoryName(std::string_view camera_name) -> std::string {
   const size_t separator = camera_name.rfind('_');
-  if (separator == std::string_view::npos || separator + 1 == camera_name.size()) {
+  if (separator == std::string_view::npos ||
+      separator + 1 == camera_name.size()) {
     return std::string(camera_name);
   }
   return std::string(camera_name.substr(separator + 1));
 }
 
-auto LoadCameraSpecs(const fs::path& manifest_path, const fs::path& log_path)
-    -> std::vector<CameraSpec> {
+auto CameraMatchesDirectory(const nlohmann::json& camera,
+                            std::string_view directory_name) -> bool {
+  const std::string name = camera.at("name").get<std::string>();
+  if (name == directory_name ||
+      CameraDirectoryName(name) == directory_name) {
+    return true;
+  }
+  return camera.contains("log_directory") &&
+         camera.at("log_directory").get<std::string>() == directory_name;
+}
+
+auto LoadCameraConstants(const fs::path& manifest_path,
+                         const fs::path& image_folder,
+                         std::vector<fs::path>& image_directories)
+    -> std::vector<localization::camera_constant_t> {
   const nlohmann::json manifest = utils::ReadJson(manifest_path.string());
   CHECK(manifest.contains("cameras"))
       << "Camera manifest has no cameras array: " << manifest_path;
   CHECK(manifest.at("cameras").is_array());
+  CHECK(fs::is_directory(image_folder))
+      << "Image folder does not exist: " << image_folder;
+
+  for (const auto& entry : fs::directory_iterator(image_folder)) {
+    if (entry.is_directory()) {
+      image_directories.push_back(entry.path());
+    }
+  }
+  std::ranges::sort(image_directories, {},
+                    [](const fs::path& path) { return path.filename(); });
+  CHECK(!image_directories.empty())
+      << "Image folder contains no camera directories: " << image_folder;
 
   const fs::path manifest_directory = manifest_path.parent_path();
-  std::vector<CameraSpec> cameras;
-  for (const auto& camera : manifest.at("cameras")) {
-    CameraSpec spec;
-    spec.name = camera.at("name").get<std::string>();
-
-    if (camera.contains("image_path")) {
-      spec.image_path = ResolvePath(camera.at("image_path").get<std::string>(),
-                                    manifest_directory);
-    } else if (camera.contains("log_directory")) {
-      spec.image_path = log_path / camera.at("log_directory").get<std::string>();
-    } else {
-      spec.image_path = log_path / CameraDirectoryName(spec.name);
+  std::vector<localization::camera_constant_t> camera_constants;
+  camera_constants.reserve(image_directories.size());
+  for (const fs::path& image_directory : image_directories) {
+    const std::string directory_name = image_directory.filename().string();
+    const nlohmann::json* camera = nullptr;
+    for (const auto& candidate : manifest.at("cameras")) {
+      if (CameraMatchesDirectory(candidate, directory_name)) {
+        CHECK(camera == nullptr)
+            << "Multiple cameras in " << manifest_path
+            << " match image directory " << directory_name;
+        camera = &candidate;
+      }
     }
+    CHECK(camera != nullptr)
+        << "No camera named " << directory_name << " found in "
+        << manifest_path;
 
-    spec.intrinsics_path = ResolvePath(
-        camera.at("intrinsics_path").get<std::string>(), manifest_directory);
-    spec.extrinsics_path = ResolvePath(
-        camera.at("extrinsics_path").get<std::string>(), manifest_directory);
-    if (camera.contains("detector_config_path")) {
-      spec.detector_config_path = ResolvePath(
-          camera.at("detector_config_path").get<std::string>(),
-          manifest_directory);
-    } else {
-      spec.detector_config_path = ResolvePath(
-          absl::GetFlag(FLAGS_detector_config_path), manifest_directory);
-    }
+    localization::camera_constant_t camera_constant;
+    camera_constant.name = camera->at("name").get<std::string>();
+    camera_constant.intrinsics_path =
+        ResolvePath(camera->at("intrinsics_path").get<std::string>(),
+                    manifest_directory)
+            .string();
+    camera_constant.extrinsics_path =
+        ResolvePath(camera->at("extrinsics_path").get<std::string>(),
+                    manifest_directory)
+            .string();
+    camera_constant.detector_config_path =
+        ResolvePath(camera->at("detector_config_path").get<std::string>(),
+                    manifest_directory)
+            .string();
 
-    CHECK(fs::exists(spec.intrinsics_path))
-        << "Missing intrinsics for " << spec.name << ": "
-        << spec.intrinsics_path;
-    CHECK(fs::exists(spec.extrinsics_path))
-        << "Missing extrinsics for " << spec.name << ": "
-        << spec.extrinsics_path;
-    CHECK(fs::exists(spec.detector_config_path))
-        << "Missing detector config for " << spec.name << ": "
-        << spec.detector_config_path;
-    spec.expected_frames = CountReplayFrames(spec.image_path);
-    cameras.push_back(std::move(spec));
+    CHECK(fs::exists(camera_constant.intrinsics_path))
+        << "Missing intrinsics for " << camera_constant.name << ": "
+        << camera_constant.intrinsics_path;
+    CHECK(fs::exists(camera_constant.extrinsics_path))
+        << "Missing extrinsics for " << camera_constant.name << ": "
+        << camera_constant.extrinsics_path;
+    CHECK(fs::exists(camera_constant.detector_config_path))
+        << "Missing detector config for " << camera_constant.name << ": "
+        << camera_constant.detector_config_path;
+    CountReplayFrames(image_directory);
+    camera_constants.push_back(std::move(camera_constant));
   }
-  CHECK(!cameras.empty()) << "Camera manifest contains no cameras";
-  return cameras;
+  return camera_constants;
 }
 
 auto TimestampMicros(double timestamp) -> int64_t {
@@ -268,15 +277,16 @@ auto main(int argc, char* argv[]) -> int {
   CHECK_GT(absl::GetFlag(FLAGS_timeout_seconds), 0);
 
   const fs::path manifest_path = absl::GetFlag(FLAGS_camera_manifest);
-  const fs::path log_path = absl::GetFlag(FLAGS_log_path);
+  const fs::path image_folder = absl::GetFlag(FLAGS_image_folder);
   const fs::path output_path =
       fs::absolute(absl::GetFlag(FLAGS_output_wpilog));
   const DecodeBackend decode_backend =
       ParseDecodeBackend(absl::GetFlag(FLAGS_decode_backend));
   const DetectorBackend detector_backend =
       ParseDetectorBackend(absl::GetFlag(FLAGS_detector_backend));
-  const std::vector<CameraSpec> cameras =
-      LoadCameraSpecs(manifest_path, log_path);
+  std::vector<fs::path> image_directories;
+  const std::vector<localization::camera_constant_t> camera_constants =
+      LoadCameraConstants(manifest_path, image_folder, image_directories);
 
   if (output_path.has_parent_path()) {
     std::error_code error;
@@ -318,20 +328,21 @@ auto main(int argc, char* argv[]) -> int {
   const int log_pose_jump = wpilog.Start("localization/pose_jump", "double");
   const int log_warning = wpilog.Start("localization/suspicious", "string");
   std::vector<int> log_tag_ids;
-  log_tag_ids.reserve(cameras.size());
-  for (const CameraSpec& camera : cameras) {
+  log_tag_ids.reserve(camera_constants.size());
+  for (const auto& camera_constant : camera_constants) {
     log_tag_ids.push_back(
-        wpilog.Start("replay/" + camera.name + "/tag_id", "int64"));
+        wpilog.Start("replay/" + camera_constant.name + "/tag_id", "int64"));
   }
 
   const size_t expected_frames = std::accumulate(
-      cameras.begin(), cameras.end(), size_t{0},
-      [](size_t total, const CameraSpec& camera) {
-        return total + camera.expected_frames;
+      image_directories.begin(), image_directories.end(), size_t{0},
+      [](size_t total, const fs::path& image_directory) {
+        return total + CountReplayFrames(image_directory);
       });
   std::atomic<size_t> detection_batches = 0;
   std::atomic<size_t> encoded_frames_total = 0;
   std::atomic<size_t> decoded_frames_total = 0;
+  std::atomic<bool> replay_complete = false;
   std::mutex completion_mutex;
   std::condition_variable completion_cv;
 
@@ -339,28 +350,23 @@ auto main(int argc, char* argv[]) -> int {
       absl::GetFlag(FLAGS_control_loop_period_ms)));
   control_loop::ThreadPool thread_pool;
 
-  std::vector<CameraMetrics> camera_metrics(cameras.size());
+  std::vector<CameraMetrics> camera_metrics(camera_constants.size());
   std::vector<std::string> decoded_channels;
-  decoded_channels.reserve(cameras.size());
-  std::vector<localization::camera_constant_t> solver_constants;
-  solver_constants.reserve(cameras.size());
-
-  for (size_t camera_id = 0; camera_id < cameras.size(); ++camera_id) {
-    const CameraSpec& camera = cameras[camera_id];
-    const std::string jpeg_channel = "jpeg/" + camera.name;
-    const std::string decoded_channel = "decoded/" + camera.name;
+  decoded_channels.reserve(camera_constants.size());
+  for (size_t camera_id = 0; camera_id < camera_constants.size(); ++camera_id) {
+    const auto& camera_constant = camera_constants[camera_id];
+    const std::string jpeg_channel = "jpeg/" + camera_constant.name;
+    const std::string decoded_channel = "decoded/" + camera_constant.name;
     const std::string detection_channel =
-        localization::DetectionBatchChannel(camera.name);
+        localization::DetectionBatchChannel(camera_constant.name);
     decoded_channels.push_back(decoded_channel);
-    solver_constants.push_back({camera.name, camera.intrinsics_path.string(),
-                                camera.extrinsics_path.string()});
-
     auto jpeg_camera = std::make_shared<camera::JpegDiskCamera>(
-        camera.image_path.string(), jpeg_channel, false, true);
+        image_directories[camera_id].string(), jpeg_channel, false, true);
     control_loop.RegisterDependancyNode(jpeg_camera);
     jpeg_camera->RegisterCallback(
         [&, camera_id, jpeg_channel](const control_loop::Context& context) {
-          const auto* jpeg = context->GetMessage<camera::JpegBuffer>(jpeg_channel);
+          const auto* jpeg =
+              context->GetMessage<camera::JpegBuffer>(jpeg_channel);
           if (jpeg == nullptr || jpeg->ptr == nullptr) {
             return;
           }
@@ -400,12 +406,12 @@ auto main(int argc, char* argv[]) -> int {
     if (detector_backend == DetectorBackend::kCpu) {
       detector = std::make_shared<apriltag::CpuApriltagDetectorNode>(
           decoded_channel, detection_channel,
-          camera.detector_config_path.string(), thread_pool);
+          camera_constant.detector_config_path, thread_pool);
     } else {
       auto nvidia_detector =
           std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
               decoded_channel, detection_channel,
-              camera.detector_config_path.string(), thread_pool);
+              camera_constant.detector_config_path, thread_pool);
       nvidia_detector->WarmUp();
       detector = std::move(nvidia_detector);
     }
@@ -436,22 +442,27 @@ auto main(int argc, char* argv[]) -> int {
             wpilog.AppendInteger(log_tag_ids[camera_id], detection.tag_id,
                                  timestamp);
           }
-
-          if (batches >= expected_frames) {
-            completion_cv.notify_one();
-          }
         });
   }
 
   // The solver is owned by the control loop after registration. Registering an
   // observer through the node is the only way this test consumes a pose.
   auto solver_node = std::make_shared<localization::UnambiguousSolverNode>(
-      "localization/position", solver_constants);
+      "localization/position", camera_constants);
   control_loop.RegisterNode(solver_node);
 
   PoseMetrics pose_metrics;
   solver_node->RegisterCallback(
       [&](const control_loop::Context& context) {
+        // The solver callback is invoked only after UnambiguousSolverNode has
+        // received the detection batch from every camera for this context.
+        // Use it as the completion edge so the test cannot stop while the
+        // final detector callback is still in the solver's rendezvous.
+        if (detection_batches.load() >= expected_frames) {
+          replay_complete.store(true);
+          completion_cv.notify_one();
+        }
+
         const auto* estimate =
             context->GetMessage<localization::PositionEstimate>(
                 "localization/position");
@@ -533,16 +544,14 @@ auto main(int argc, char* argv[]) -> int {
 
   control_loop.Start();
   LOG(INFO) << "Running full localization replay for " << expected_frames
-            << " JPEG frames across " << cameras.size() << " cameras";
+            << " JPEG frames across " << camera_constants.size() << " cameras";
 
   {
     std::unique_lock lock(completion_mutex);
     const bool completed = completion_cv.wait_for(
         lock, std::chrono::seconds(absl::GetFlag(FLAGS_timeout_seconds)),
-        [&detection_batches, expected_frames] {
-          return detection_batches.load() >= expected_frames;
-        });
-    CHECK(completed) << "Timed out waiting for detector callbacks: received "
+        [&replay_complete] { return replay_complete.load(); });
+    CHECK(completed) << "Timed out waiting for localization solver completion: "
                      << detection_batches.load() << " of " << expected_frames;
   }
 
