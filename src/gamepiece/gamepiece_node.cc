@@ -65,6 +65,25 @@ auto GamepieceNode::CreateCallback()
     thread_pool_.Submit([this, context, frame] {
       auto detections =
           std::make_unique<GamepieceDetections>(RunDetection(*frame));
+      LOG(INFO) << "Gamepiece detections channel=" << output_path_
+                << " timestamp=" << frame->timestamp
+                << " count=" << detections->detections.size();
+      for (size_t i = 0; i < detections->detections.size(); ++i) {
+        const gamepiece_detection_t& detection = detections->detections[i];
+        const frc::Translation3d& translation = detection.pose.Translation();
+        const frc::Rotation3d& rotation = detection.pose.Rotation();
+        LOG(INFO) << "Gamepiece detection channel=" << output_path_
+                  << " timestamp=" << frame->timestamp << " index=" << i
+                  << " class_id=" << detection.class_id
+                  << " confidence=" << detection.confidence
+                  << " tracker_id=" << detection.tracker_id
+                  << " pose(x=" << translation.X().value()
+                  << " y=" << translation.Y().value()
+                  << " z=" << translation.Z().value()
+                  << " roll=" << rotation.X().value()
+                  << " pitch=" << rotation.Y().value()
+                  << " yaw=" << rotation.Z().value() << ")";
+      }
       context->SetMessage(output_path_, std::move(detections));
       for (const auto& callback : callbacks_) {
         callback(context);
