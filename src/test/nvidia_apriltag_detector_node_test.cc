@@ -41,7 +41,7 @@ auto main() -> int {
 
   {
     auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-        "/cos-logs/log60/left", "jpeg_buffer");
+        "/cos-logs/dev_orin", "jpeg_buffer");
     control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
 
     auto jpeg_buffer_streamer_node =
