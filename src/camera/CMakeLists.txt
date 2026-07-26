@@ -117,4 +117,5 @@ target_link_libraries(jpeg_disk_camera PRIVATE
   absl::log
   nlohmann_json::nlohmann_json
   wpiutil
+  rio_clock
 )
