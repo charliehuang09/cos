@@ -32,7 +32,7 @@ CpuApriltagDetectorNode::CpuApriltagDetectorNode(
 
 auto CpuApriltagDetectorNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
+  return [this](const control_loop::Context& context) -> void {
     const auto* image =
         context->GetMessage<camera::DecodedImageBuffer>(input_channel_);
     if (image == nullptr) {
@@ -42,7 +42,7 @@ auto CpuApriltagDetectorNode::CreateCallback()
       return;
     }
 
-    thread_pool_.Submit([this, context, image] {
+    thread_pool_.Submit([this, context, image] -> void {
       auto detections = std::make_unique<TagDetections>(Detect(*image));
       context->SetMessage(output_channel_, std::move(detections));
       for (const auto& callback : callbacks_) {
@@ -59,8 +59,7 @@ auto CpuApriltagDetectorNode::Detect(const camera::DecodedImageBuffer& image)
   std::lock_guard lock(detect_mutex_);
   auto* pixels = const_cast<uint8_t*>(image.data.data());
   auto results = detector_.Detect(image.width, image.height,
-                                  static_cast<int>(image.stride),
-                                  pixels);
+                                  static_cast<int>(image.stride), pixels);
 
   std::vector<TagDetections::tag_detection> detections;
   detections.reserve(results.size());

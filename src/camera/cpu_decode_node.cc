@@ -2,7 +2,6 @@
 
 #include <jpeglib.h>
 
-#include <algorithm>
 #include <cstddef>
 #include <memory>
 
@@ -21,8 +20,8 @@ CpuJpegDecodeNode::CpuJpegDecodeNode(std::string_view input_path,
 
 auto CpuJpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
-    auto notify_callbacks = [this, &context] {
+  return [this](const control_loop::Context& context) -> void {
+    auto notify_callbacks = [this, &context] -> void {
       for (const auto& callback : callbacks_) {
         callback(context);
       }
@@ -34,7 +33,7 @@ auto CpuJpegDecodeNode::CreateCallback()
       return;
     }
 
-    thread_pool_.Submit([this, context, jpeg] {
+    thread_pool_.Submit([this, context, jpeg] -> void {
       auto decoded = std::make_unique<DecodedImageBuffer>(Decode(jpeg));
       context->SetMessage(output_path_, std::move(decoded));
       for (const auto& callback : callbacks_) {

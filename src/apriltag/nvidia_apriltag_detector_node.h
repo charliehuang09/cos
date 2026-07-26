@@ -13,7 +13,6 @@
 #include <vpi/algo/AprilTags.h>
 #include <opencv2/core/mat.hpp>
 
-#include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
 #include "control_loop/timed_node.h"
 

@@ -58,8 +58,7 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   CHECK(height_ > 0);
   const auto& intrinsics = config.at("intrinsics");
   camera_matrix_ = utils::CameraMatrixFromJson(intrinsics);
-  distortion_coefficients_ =
-      utils::DistortionCoefficientsFromJson(intrinsics);
+  distortion_coefficients_ = utils::DistortionCoefficientsFromJson(intrinsics);
 
   CHECK(!vpiContextCreate(backend | VPI_BACKEND_CPU, &context_));
   CHECK(!vpiContextSetCurrent(context_));
@@ -243,12 +242,12 @@ auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
     distorted_corners.reserve(4);
     for (int j = 0; j < 4; ++j) {
       distorted_corners.emplace_back(detections_vpi[i].corners[j].x,
-                                      detections_vpi[i].corners[j].y);
+                                     detections_vpi[i].corners[j].y);
     }
     std::vector<cv::Point2d> undistorted_corners;
-    cv::undistortPoints(distorted_corners, undistorted_corners,
-                        camera_matrix_, distortion_coefficients_,
-                        cv::noArray(), camera_matrix_);
+    cv::undistortPoints(distorted_corners, undistorted_corners, camera_matrix_,
+                        distortion_coefficients_, cv::noArray(),
+                        camera_matrix_);
     CHECK_EQ(undistorted_corners.size(), detection.corners.size());
     for (size_t corner = 0; corner < detection.corners.size(); ++corner) {
       detection.corners[corner] = undistorted_corners[corner];
@@ -271,7 +270,8 @@ auto NvidiaApriltagDetectorNode::GetPublications() const
   return publications_;
 }
 
-void NvidiaApriltagDetectorNode::EnableTiming(std::string_view latency_channel) {
+void NvidiaApriltagDetectorNode::EnableTiming(
+    std::string_view latency_channel) {
   publications_.emplace_back(latency_channel,
                              typeid(control_loop::LatencyMessage));
   latency_channel_ = latency_channel;

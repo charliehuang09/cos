@@ -12,8 +12,7 @@ namespace camera {
 class JpegDiskCamera final : public control_loop::INode {
  public:
   JpegDiskCamera(std::string_view folder_path, std::string_view output_channel,
-                 bool stop_when_empty = true,
-                 bool replay_all_frames = false);
+                 bool stop_when_empty = true, bool replay_all_frames = false);
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
   [[nodiscard]] auto GetDependencies() const

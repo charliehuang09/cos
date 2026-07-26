@@ -14,8 +14,8 @@ class ControlLoop {
  public:
   ControlLoop() = default;
   ControlLoop(std::chrono::milliseconds frequency);
-  void RegisterCallback(std::function<void(const Context&)> callback);
-  void RegisterDependancy(std::function<void(const Context&)>);
+  void RegisterCallback(const std::function<void(const Context&)>& callback);
+  void RegisterDependancy(const std::function<void(const Context&)>&);
   void RegisterNode(const std::shared_ptr<INode>& node);
   void RegisterDependancyNode(const std::shared_ptr<INode>& node);
   void EnableLatencyLog();

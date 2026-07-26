@@ -55,10 +55,10 @@ void ControlLoop::Start() {
       context.reset();
 
       if (!destructed) {
-        stop_source.request_stop();
+        std::ignore = stop_source.request_stop();
         destructed.wait(false);
         if (period_.has_value()) {
-          LOG(WARNING) << "Command loop overun! " << timer.Stop().count()
+          LOG(WARNING) << "Command loop overrun! " << timer.Stop().count()
                        << "s loop";
         }
       }
@@ -81,12 +81,12 @@ void ControlLoop::Stop() {
 }
 
 void ControlLoop::RegisterCallback(
-    std::function<void(const Context&)> callback) {
+    const std::function<void(const Context&)>& callback) {
   callbacks_.emplace_back(callback);
 }
 
 void ControlLoop::RegisterDependancy(
-    std::function<void(const Context&)> dependancy) {
+    const std::function<void(const Context&)>& dependancy) {
   dependencies_.emplace_back(dependancy);
 }
 
