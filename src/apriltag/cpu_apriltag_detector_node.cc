@@ -36,6 +36,9 @@ auto CpuApriltagDetectorNode::CreateCallback()
     const auto* image =
         context->GetMessage<camera::DecodedImageBuffer>(input_channel_);
     if (image == nullptr) {
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
       return;
     }
 

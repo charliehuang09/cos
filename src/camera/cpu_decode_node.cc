@@ -22,8 +22,15 @@ CpuJpegDecodeNode::CpuJpegDecodeNode(std::string_view input_path,
 auto CpuJpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) {
+    auto notify_callbacks = [this, &context] {
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
+    };
+
     const auto* jpeg = context->GetMessage<JpegBuffer>(input_path_);
     if (jpeg == nullptr || jpeg->ptr == nullptr || jpeg->size == 0U) {
+      notify_callbacks();
       return;
     }
 
