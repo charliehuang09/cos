@@ -179,7 +179,7 @@ void GamepieceControlLoop::Run(std::stop_token stop_token) {
 
     std::stop_source iteration_stop_source;
     std::atomic destructed = false;
-    control_loop::Context context(new control_loop::ContextInternal(
+    context_ = control_loop::Context(new control_loop::ContextInternal(
         std::chrono::steady_clock::now(), nullptr,
         iteration_stop_source.get_token(), &destructed));
 
@@ -188,13 +188,13 @@ void GamepieceControlLoop::Run(std::stop_token stop_token) {
         continue;
       }
       CHECK_EQ(decoded_buffers[i]->timestamp, timestamps[i]);
-      context->SetMessage(decoded_channels_in_order_[i], decoded_buffers[i]);
+      context_->SetMessage(decoded_channels_in_order_[i], decoded_buffers[i]);
       for (const auto& callback : decoded_frame_callbacks_[i]) {
-        callback(context);
+        callback(context_);
       }
     }
 
-    context.reset();
+    context_.reset();
     if (!destructed) {
       iteration_stop_source.request_stop();
       destructed.wait(false);
