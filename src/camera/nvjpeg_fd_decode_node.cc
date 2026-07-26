@@ -47,7 +47,11 @@ auto NvjpegFdDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
-    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr) {
+    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr ||
+        jpeg_buffer->size == 0U) {
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
       return;
     }
 

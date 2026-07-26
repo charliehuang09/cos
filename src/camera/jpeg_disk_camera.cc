@@ -86,7 +86,6 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
   }
 
   if (!image.has_value()) {
-    context->SetMessage(output_channel_, std::make_unique<JpegBuffer>());
     if (stop_when_empty_ && file_paths_.empty()) {
       stop::stop = true;
     }

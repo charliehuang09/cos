@@ -127,6 +127,9 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
   auto* fd_buffer =
       context->GetMessage<camera::DecodedJpegFdBuffer>(input_channel_);
   if (cuda_buffer == nullptr && fd_buffer == nullptr) [[unlikely]] {
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
     return;
   }
   std::function<void()> task = [this, context, cuda_buffer,
