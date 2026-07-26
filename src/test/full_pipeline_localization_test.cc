@@ -33,7 +33,7 @@
 #include "camera/nvjpeg_decode_node.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
-#include "localization/unambiguous_solver_node.h"
+#include "localization/joint_solver_node.h"
 #include "wpi/DataLogWriter.h"
 #include "utils/json.h"
 
@@ -44,11 +44,14 @@ ABSL_FLAG(std::string, image_folder, "bos-logs/log60",  // NOLINT
 ABSL_FLAG(std::string, camera_manifest,
           "src/test/test_constants/camera_constants.json",  // NOLINT
           "JSON camera constants containing real intrinsics and extrinsics");
+ABSL_FLAG(std::string, detector_config_path,
+          "constants/dev-orin/camera.json",  // NOLINT
+          "Fallback detector config for manifests that omit one");
 ABSL_FLAG(std::string, output_wpilog, "logs/full_pipeline_localization.wpilog",  // NOLINT
           "Output WPILOG path");
-ABSL_FLAG(std::string, decode_backend, "cpu",  // NOLINT
+ABSL_FLAG(std::string, decode_backend, "nvjpeg",  // NOLINT
           "JPEG decode backend: cpu or nvjpeg");
-ABSL_FLAG(std::string, detector_backend, "cpu",  // NOLINT
+ABSL_FLAG(std::string, detector_backend, "nvidia",  // NOLINT
           "AprilTag detector backend: cpu or nvidia");
 ABSL_FLAG(int, control_loop_period_ms, 1,  // NOLINT
           "Control-loop period used while replaying frames");
@@ -217,9 +220,12 @@ auto LoadCameraConstants(const fs::path& manifest_path,
                     manifest_directory)
             .string();
     camera_constant.detector_config_path =
-        ResolvePath(camera->at("detector_config_path").get<std::string>(),
-                    manifest_directory)
-            .string();
+        camera->contains("detector_config_path")
+            ? ResolvePath(
+                  camera->at("detector_config_path").get<std::string>(),
+                  manifest_directory)
+                  .string()
+            : fs::absolute(absl::GetFlag(FLAGS_detector_config_path)).string();
 
     CHECK(fs::exists(camera_constant.intrinsics_path))
         << "Missing intrinsics for " << camera_constant.name << ": "
@@ -435,6 +441,13 @@ auto main(int argc, char* argv[]) -> int {
           const size_t batches = ++detection_batches;
           wpilog.AppendInteger(log_detection_total,
                                static_cast<int64_t>(batches), timestamp);
+          if (batches >= expected_frames) {
+            // Camera logs may contain unequal frame counts. Signal from the
+            // final detector batch instead of waiting for a final all-camera
+            // solver rendezvous that cannot occur in that case.
+            replay_complete.store(true);
+            completion_cv.notify_one();
+          }
           if (batches % 100 == 0 || batches == expected_frames) {
             const double progress =
                 100.0 * static_cast<double>(batches) /
@@ -455,22 +468,13 @@ auto main(int argc, char* argv[]) -> int {
 
   // The solver is owned by the control loop after registration. Registering an
   // observer through the node is the only way this test consumes a pose.
-  auto solver_node = std::make_shared<localization::UnambiguousSolverNode>(
+  auto solver_node = std::make_shared<localization::JointSolverNode>(
       "localization/position", camera_constants);
   control_loop.RegisterNode(solver_node);
 
   PoseMetrics pose_metrics;
   solver_node->RegisterCallback(
       [&](const control_loop::Context& context) {
-        // The solver callback is invoked only after UnambiguousSolverNode has
-        // received the detection batch from every camera for this context.
-        // Use it as the completion edge so the test cannot stop while the
-        // final detector callback is still in the solver's rendezvous.
-        if (detection_batches.load() >= expected_frames) {
-          replay_complete.store(true);
-          completion_cv.notify_one();
-        }
-
         const auto* estimate =
             context->GetMessage<localization::PositionEstimate>(
                 "localization/position");

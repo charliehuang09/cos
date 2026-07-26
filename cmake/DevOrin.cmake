@@ -10,6 +10,7 @@ add_custom_target(dev-orin
     COMMAND rsync -avz --delete ${CMAKE_BINARY_DIR}/bin/ root@dev-orin:/root/bin/
     COMMAND rsync -avz --delete ${CMAKE_BINARY_DIR}/lib/ root@dev-orin:/root/lib/
     COMMAND rsync -avz --delete ${CMAKE_SOURCE_DIR}/constants/ root@dev-orin:/root/constants/
+    COMMAND rsync -avz --delete ${CMAKE_SOURCE_DIR}/src/test/test_constants/ root@dev-orin:/root/test_constants/
     
     COMMENT "Uploading folders to dev-orin..."
     VERBATIM
