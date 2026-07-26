@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <functional>
+#include <queue>
 #include <thread>
 #include <vector>
 
@@ -21,6 +22,7 @@ class ControlLoop {
   void EnableLatencyLog();
   void Start();
   void Stop();
+  [[nodiscard]] auto GetLoopsPerSecond() const -> double;
 
  private:
   void ValidateNodeGraph();
@@ -33,7 +35,13 @@ class ControlLoop {
   std::vector<std::function<void(Context)>> dependencies_;
   std::vector<std::shared_ptr<INode>> nodes_;
   std::vector<std::shared_ptr<INode>> dependancy_nodes_;
-  bool latency_log_ = false;
+  bool log_latency_ = false;
+  std::queue<std::chrono::steady_clock::time_point> timestamp_queue_;
+  std::atomic<double> loops_per_second_ = -1;
+
+ private:
+  static const size_t kTimestampQueueMaxSize = 100;
+  constexpr static const double kMinLoopSeconds = 0.001;
 };
 
 }  // namespace control_loop

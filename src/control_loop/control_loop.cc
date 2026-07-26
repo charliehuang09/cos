@@ -63,11 +63,18 @@ void ControlLoop::Start() {
         }
       }
 
-      if (latency_log_) {
-        auto time = loop_timer.Stop().count();
-        if (time > 0.001) {
-          LOG(INFO) << "Control loop took " << time << "s";
+      auto time = loop_timer.Stop();
+      if (log_latency_ && time.count() > kMinLoopSeconds) {
+        timestamp_queue_.push(loop_timer.GetStart());
+        if (timestamp_queue_.size() > kTimestampQueueMaxSize) {
+          timestamp_queue_.pop();
+          const std::chrono::duration<double> elapsed =
+              loop_timer.GetStart() - timestamp_queue_.front();
+          loops_per_second_ = static_cast<double>(timestamp_queue_.size() - 1) /
+                              elapsed.count();
+          LOG(INFO) << "Average loops per second: " << loops_per_second_;
         }
+        LOG(INFO) << "Control loop took " << time.count() << "s";
       }
     }
   });
@@ -99,7 +106,7 @@ void ControlLoop::RegisterDependancyNode(const std::shared_ptr<INode>& node) {
 }
 
 void ControlLoop::EnableLatencyLog() {
-  latency_log_ = true;
+  log_latency_ = true;
 }
 
 void ControlLoop::ValidateNodeGraph() {
@@ -162,6 +169,10 @@ void ControlLoop::RegisterNodeCallbacks() {
           ->RegisterCallback(node->CreateCallback());
     }
   }
+}
+
+auto ControlLoop::GetLoopsPerSecond() const -> double {
+  return loops_per_second_;
 }
 
 }  // namespace control_loop
