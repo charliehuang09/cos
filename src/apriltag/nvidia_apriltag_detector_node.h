@@ -11,6 +11,7 @@
 
 #include <vpi/Types.h>
 #include <vpi/algo/AprilTags.h>
+#include <opencv2/core/mat.hpp>
 
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
@@ -62,6 +63,8 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode,
   std::mutex detect_mutex_;
   int width_;
   int height_;
+  cv::Mat camera_matrix_;
+  cv::Mat distortion_coefficients_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::optional<std::string> latency_channel_ = std::nullopt;

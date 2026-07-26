@@ -16,6 +16,8 @@ class TagDetections final : public control_loop::IMessage {
  public:
   struct tag_detection {
     int tag_id;
+    // Detector outputs are undistorted, in the original camera pixel
+    // coordinate system.
     std::array<cv::Point2d, 4> corners;
   };
 

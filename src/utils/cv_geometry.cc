@@ -53,30 +53,16 @@ auto MakeTransform(const cv::Mat& rvec, const cv::Mat& tvec) -> cv::Mat {
   return transform;
 }
 
-auto EigenToCvMat(const Eigen::Matrix4d& mat) -> cv::Mat {
-  cv::Mat cv_mat(mat.rows(), mat.cols(), CV_64F);
-  Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-                           Eigen::RowMajor>>(cv_mat.ptr<double>(),
-                                             mat.rows(), mat.cols()) = mat;
-  return cv_mat;
-}
-
-auto CvMatToEigen(const cv::Mat& mat) -> Eigen::Matrix4d {
-  Eigen::Matrix4d out;
-  for (int row = 0; row < 4; ++row) {
-    for (int col = 0; col < 4; ++col) {
-      out(row, col) = mat.at<double>(row, col);
-    }
-  }
-  return out;
-}
-
 auto ChangeBasis(cv::Mat& mat, Basis basis) -> void {
   const cv::Mat& basis_mat = kCvBases.at(basis);
   mat = basis_mat * mat;
   if (mat.cols == mat.rows) {
     mat = mat * basis_mat.t();
   }
+}
+
+auto BasisMatrix(Basis basis) -> Eigen::Matrix4d {
+  return CvMatToEigen(kCvBases.at(basis));
 }
 
 auto ConvertOpencvTransformationMatrixToWpilibPose(const cv::Mat& matrix)
