@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <concepts>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -32,7 +33,23 @@ struct ContextInternal {
     return dynamic_cast<T*>(message_it->second.get());
   }
 
-  void SetMessage(std::string_view path, std::unique_ptr<IMessage> message) {
+  template <typename T>
+  auto GetSharedMessage(std::string_view path) const -> std::shared_ptr<T> {
+    std::lock_guard lock(messages_mutex_);
+    const auto message_it = messages_.find(std::string(path));
+    if (message_it == messages_.end()) {
+      return nullptr;
+    }
+    return std::dynamic_pointer_cast<T>(message_it->second);
+  }
+
+  template <typename T>
+    requires std::derived_from<T, IMessage>
+  void SetMessage(std::string_view path, std::unique_ptr<T> message) {
+    SetMessage(path, std::shared_ptr<IMessage>(std::move(message)));
+  }
+
+  void SetMessage(std::string_view path, std::shared_ptr<IMessage> message) {
     std::lock_guard lock(messages_mutex_);
     messages_.emplace(path, std::move(message));
   }
@@ -53,7 +70,7 @@ struct ContextInternal {
 
  private:
   mutable std::mutex messages_mutex_;
-  std::unordered_map<std::string, std::unique_ptr<IMessage>> messages_;
+  std::unordered_map<std::string, std::shared_ptr<IMessage>> messages_;
 };
 
 using Context = std::shared_ptr<ContextInternal>;

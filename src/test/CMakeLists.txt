@@ -102,3 +102,27 @@ target_link_libraries(timestamp_test PRIVATE
   wpilibc
   ntcore
 )
+
+add_executable(gamepiece_control_loop_test
+  gamepiece_control_loop_test.cc
+)
+target_link_libraries(gamepiece_control_loop_test PRIVATE
+  gamepiece_control_loop
+  GTest::gtest_main
+)
+
+add_executable(full_gamepiece_pipeline_test
+  full_gamepiece_pipeline_test.cc
+)
+target_link_libraries(full_gamepiece_pipeline_test PRIVATE
+  jpeg_disk_camera
+  nvjpeg_decode_node
+  gamepiece_node
+  yolo_inference
+  control_loop
+  thread_pool
+  json_utils
+  absl::flags_parse
+  absl::log
+  absl::log_initialize
+)
