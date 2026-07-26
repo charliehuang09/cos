@@ -3,6 +3,8 @@ set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 
 project(COS CXX C CUDA)
 
+enable_testing()
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -38,6 +40,12 @@ find_package(wpilib REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(vpi REQUIRED)
 find_package(libuvc REQUIRED)
+
+# OpenCV's test module exports its own GoogleTest implementation. It is not
+# needed by COS and conflicts with the GoogleTest version used by our tests.
+# Keep this after the other package lookups because wpilib/vpi may refresh the
+# OpenCV package variables.
+list(FILTER OpenCV_LIBS EXCLUDE REGEX "opencv_ts")
 
 add_subdirectory(third_party)
 

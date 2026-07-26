@@ -116,5 +116,5 @@ target_link_libraries(jpeg_disk_camera PRIVATE
   uvc
   absl::log
   nlohmann_json::nlohmann_json
-  wpilibc
+  wpiutil
 )

@@ -28,6 +28,9 @@ auto JpegBufferLogNode::CreateCallback()
         out.write(reinterpret_cast<const char*>(jpeg_buffer->ptr),
                   jpeg_buffer->size);
       }
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
     });
   };
 }
