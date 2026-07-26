@@ -18,6 +18,7 @@ class ControlLoop {
   void RegisterDependancy(std::function<void(const Context&)>);
   void RegisterNode(const std::shared_ptr<INode>& node);
   void RegisterDependancyNode(const std::shared_ptr<INode>& node);
+  void EnableLatencyLog();
   void Start();
   void Stop();
 
@@ -32,6 +33,7 @@ class ControlLoop {
   std::vector<std::function<void(Context)>> dependencies_;
   std::vector<std::shared_ptr<INode>> nodes_;
   std::vector<std::shared_ptr<INode>> dependancy_nodes_;
+  bool latency_log_ = false;
 };
 
 }  // namespace control_loop

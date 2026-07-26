@@ -34,6 +34,7 @@ void ControlLoop::Start() {
 
   thread_ = std::jthread([this](const std::stop_token& stop_token) -> void {
     while (!stop_token.stop_requested()) {
+      Timer loop_timer;
       std::stop_source stop_source;
       std::atomic destructed = false;
 
@@ -59,6 +60,13 @@ void ControlLoop::Start() {
         if (period_.has_value()) {
           LOG(WARNING) << "Command loop overun! " << timer.Stop().count()
                        << "s loop";
+        }
+      }
+
+      if (latency_log_) {
+        auto time = loop_timer.Stop().count();
+        if (time > 0.001) {
+          LOG(INFO) << "Control loop took " << time << "s";
         }
       }
     }
@@ -88,6 +96,10 @@ void ControlLoop::RegisterNode(const std::shared_ptr<INode>& node) {
 void ControlLoop::RegisterDependancyNode(const std::shared_ptr<INode>& node) {
   dependancy_nodes_.emplace_back(node);
   dependencies_.emplace_back(node->CreateCallback());
+}
+
+void ControlLoop::EnableLatencyLog() {
+  latency_log_ = true;
 }
 
 void ControlLoop::ValidateNodeGraph() {

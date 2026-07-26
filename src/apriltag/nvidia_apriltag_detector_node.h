@@ -2,21 +2,24 @@
 
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include "apriltag/tag_detections.h"
-#include "camera/nvjpeg_fd_decode_node.h"
 #include "camera/nvjpeg_decode_node.h"
+#include "camera/nvjpeg_fd_decode_node.h"
 
 #include <vpi/Types.h>
 #include <vpi/algo/AprilTags.h>
 
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
+#include "control_loop/timed_node.h"
 
 namespace apriltag {
 
-class NvidiaApriltagDetectorNode final : public control_loop::INode {
+class NvidiaApriltagDetectorNode final : public control_loop::INode,
+                                         public control_loop::ITimedNode {
  public:
   NvidiaApriltagDetectorNode(std::string_view input_channel,
                              std::string_view output_channel,
@@ -35,6 +38,7 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
       -> const std::vector<control_loop::MessageDescriptor>& override;
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
+  void EnableTiming(std::string_view latency_channel) override;
 
  private:
   auto Detect(const camera::DecodedJpegBuffer& buffer)
@@ -42,10 +46,8 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   auto Detect(const camera::DecodedJpegFdBuffer& buffer)
       -> std::vector<TagDetections::tag_detection>;
   auto DetectGray(const unsigned char* data, int width, int height,
-                  size_t stride)
-      -> std::vector<TagDetections::tag_detection>;
-  auto Detect(VPIImage image)
-      -> std::vector<TagDetections::tag_detection>;
+                  size_t stride) -> std::vector<TagDetections::tag_detection>;
+  auto Detect(VPIImage image) -> std::vector<TagDetections::tag_detection>;
 
  private:
   VPIImage input_ = nullptr;
@@ -62,6 +64,7 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode {
   int height_;
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
+  std::optional<std::string> latency_channel_ = std::nullopt;
 };
 
 }  // namespace apriltag

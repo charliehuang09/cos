@@ -2,6 +2,7 @@
 
 #include "NvBufSurface.h"
 #include "absl/log/check.h"
+#include "control_loop/timer.h"
 #include "nvbufsurface.h"
 
 #include <vpi/Array.h>
@@ -130,10 +131,16 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
   }
   std::function<void()> task = [this, context, cuda_buffer,
                                 fd_buffer]() -> void {
+    control_loop::Timer timer;
     std::unique_ptr<control_loop::IMessage> detections =
         std::make_unique<TagDetections>(
             cuda_buffer != nullptr ? Detect(*cuda_buffer) : Detect(*fd_buffer));
     context->SetMessage(output_channel_, std::move(detections));
+    if (latency_channel_.has_value()) {
+      context->SetMessage(
+          latency_channel_.value(),
+          std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
+    }
     for (const auto& callback : callbacks_) {
       callback(context);
     }
@@ -241,6 +248,12 @@ auto NvidiaApriltagDetectorNode::GetDependencies() const
 auto NvidiaApriltagDetectorNode::GetPublications() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return publications_;
+}
+
+void NvidiaApriltagDetectorNode::EnableTiming(std::string_view latency_channel) {
+  publications_.emplace_back(latency_channel,
+                             typeid(control_loop::LatencyMessage));
+  latency_channel_ = latency_channel;
 }
 
 }  // namespace apriltag

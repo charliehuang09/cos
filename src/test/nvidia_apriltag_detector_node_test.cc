@@ -19,6 +19,8 @@ namespace {
 struct DecoderMetrics {
   std::atomic<double> total_decode_latency = 0;
   std::atomic<size_t> total_decodes = 0;
+  std::atomic<double> total_detection_latency = 0;
+  std::atomic<size_t> total_detection_timings = 0;
   std::atomic<size_t> detection_frames = 0;
   std::atomic<size_t> total_tag_detections = 0;
 };
@@ -30,8 +32,9 @@ auto main() -> int {
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   stop::RegisterHandler();
 
-  control_loop::ControlLoop control_loop(50ms);
+  control_loop::ControlLoop control_loop;
   control_loop::ThreadPool thread_pool;
+  control_loop.EnableLatencyLog();
 
   DecoderMetrics gpu_metrics;
   DecoderMetrics hardware_metrics;
@@ -60,9 +63,8 @@ auto main() -> int {
           }
         });
 
-    auto hardware_decode_node =
-        std::make_shared<camera::NvjpegFdDecodeNode>(
-            "jpeg_buffer", "hardware_decoded_image", thread_pool);
+    auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
+        "jpeg_buffer", "hardware_decoded_image", thread_pool);
     control_loop.RegisterNode(hardware_decode_node);
     hardware_decode_node->EnableTiming("hardware_decoded_image:latency");
     hardware_decode_node->RegisterCallback(
@@ -80,17 +82,23 @@ auto main() -> int {
             "gpu_decoded_image", "gpu_apriltag_detections",
             "/root/constants/dev-orin/camera.json", thread_pool);
     control_loop.RegisterNode(gpu_apriltag_detector_node);
+    gpu_apriltag_detector_node->EnableTiming("gpu_apriltag_detections:latency");
 
     gpu_apriltag_detector_node->RegisterCallback(
         [&gpu_metrics](const control_loop::Context& context) -> void {
+          auto latency = context->GetMessage<control_loop::LatencyMessage>(
+              "gpu_apriltag_detections:latency");
+          if (latency != nullptr) {
+            gpu_metrics.total_detection_latency += latency->latency.count();
+            gpu_metrics.total_detection_timings++;
+          }
           auto detections = context->GetMessage<apriltag::TagDetections>(
               "gpu_apriltag_detections");
           if (detections == nullptr) {
             return;
           }
           gpu_metrics.detection_frames++;
-          gpu_metrics.total_tag_detections +=
-              detections->tag_detections.size();
+          gpu_metrics.total_tag_detections += detections->tag_detections.size();
         });
 
     auto hardware_apriltag_detector_node =
@@ -98,9 +106,18 @@ auto main() -> int {
             "hardware_decoded_image", "hardware_apriltag_detections",
             "/root/constants/dev-orin/camera.json", thread_pool);
     control_loop.RegisterNode(hardware_apriltag_detector_node);
+    hardware_apriltag_detector_node->EnableTiming(
+        "hardware_apriltag_detections:latency");
 
     hardware_apriltag_detector_node->RegisterCallback(
         [&hardware_metrics](const control_loop::Context& context) -> void {
+          auto latency = context->GetMessage<control_loop::LatencyMessage>(
+              "hardware_apriltag_detections:latency");
+          if (latency != nullptr) {
+            hardware_metrics.total_detection_latency +=
+                latency->latency.count();
+            hardware_metrics.total_detection_timings++;
+          }
           auto detections = context->GetMessage<apriltag::TagDetections>(
               "hardware_apriltag_detections");
           if (detections == nullptr) {
@@ -121,13 +138,20 @@ auto main() -> int {
 
   const size_t gpu_decodes = gpu_metrics.total_decodes.load();
   const size_t hardware_decodes = hardware_metrics.total_decodes.load();
+  const size_t gpu_detection_timings =
+      gpu_metrics.total_detection_timings.load();
+  const size_t hardware_detection_timings =
+      hardware_metrics.total_detection_timings.load();
   CHECK_GT(gpu_decodes, 0U);
   CHECK_GT(hardware_decodes, 0U);
+  CHECK_GT(gpu_detection_timings, 0U);
+  CHECK_GT(hardware_detection_timings, 0U);
   LOG(INFO) << "GPU decode count: " << gpu_decodes;
-  LOG(INFO) << "GPU detection frames: "
-            << gpu_metrics.detection_frames.load();
+  LOG(INFO) << "GPU detection frames: " << gpu_metrics.detection_frames.load();
   LOG(INFO) << "GPU tag detections: "
             << gpu_metrics.total_tag_detections.load();
+  LOG(INFO) << "GPU average AprilTag detection latency: "
+            << gpu_metrics.total_detection_latency / gpu_detection_timings;
   LOG(INFO) << "GPU average decode latency: "
             << gpu_metrics.total_decode_latency / gpu_decodes;
   LOG(INFO) << "Hardware decode count: " << hardware_decodes;
@@ -135,6 +159,9 @@ auto main() -> int {
             << hardware_metrics.detection_frames.load();
   LOG(INFO) << "Hardware tag detections: "
             << hardware_metrics.total_tag_detections.load();
+  LOG(INFO) << "Hardware average AprilTag detection latency: "
+            << hardware_metrics.total_detection_latency /
+                   hardware_detection_timings;
   LOG(INFO) << "Hardware average decode latency: "
             << hardware_metrics.total_decode_latency / hardware_decodes;
 
