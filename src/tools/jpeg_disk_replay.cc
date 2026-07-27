@@ -15,6 +15,14 @@ ABSL_FLAG(std::string, log_path, "",                                  // NOLINT
 ABSL_FLAG(uint, port, 4971,  // NOLINT
           "Port");           // NOLINT
 
+ABSL_FLAG(uint, skip_frame_frequency, 0,  // NOLINT
+          "Skip each replayed frame with probability 1/N; zero disables "
+          "skipping");  // NOLINT
+
+ABSL_FLAG(uint, empty_frame_frequency, 0,  // NOLINT
+          "Publish an empty frame every Nth replayed frame; zero disables "
+          "it");  // NOLINT
+
 auto main(int argc, char* argv[]) -> int {
   absl::ParseCommandLine(argc, argv);
 
@@ -26,7 +34,9 @@ auto main(int argc, char* argv[]) -> int {
   {
 
     auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-        absl::GetFlag(FLAGS_log_path), "jpeg_stream");
+        absl::GetFlag(FLAGS_log_path), "jpeg_stream", true, false,
+        absl::GetFlag(FLAGS_skip_frame_frequency),
+        absl::GetFlag(FLAGS_empty_frame_frequency));
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>(

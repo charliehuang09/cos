@@ -23,6 +23,16 @@ auto MakeContext(std::atomic<bool>& destructed) -> control_loop::Context {
       &destructed);
 }
 
+auto MakeJpegFrames(const std::filesystem::path& directory,
+                    std::size_t frame_count) -> void {
+  std::filesystem::create_directories(directory);
+  for (std::size_t i = 0; i < frame_count; ++i) {
+    std::ofstream frame(directory / (std::to_string(i + 1) + ".jpg"),
+                       std::ios::binary);
+    frame << "jpeg";
+  }
+}
+
 TEST(JpegDiskCameraTest, PublishesJpegBuffers) {
   const auto directory = std::filesystem::temp_directory_path() /
                          "cos-empty-camera-test";
@@ -38,6 +48,56 @@ TEST(JpegDiskCameraTest, PublishesJpegBuffers) {
   const control_loop::Context context = MakeContext(destructed);
   node.CreateCallback()(context);
   EXPECT_EQ(context->GetMessage<camera::JpegBuffer>("jpeg"), nullptr);
+
+  std::filesystem::remove_all(directory);
+}
+
+TEST(JpegDiskCameraTest, SkipsFramesUsingConfiguredProbability) {
+  const auto directory = std::filesystem::temp_directory_path() /
+                         "cos-skip-frame-camera-test";
+  constexpr std::size_t kFrameCount = 1000;
+  MakeJpegFrames(directory, kFrameCount);
+  camera::JpegDiskCamera node(directory.string(), "jpeg", false, true, 2);
+
+  std::atomic<bool> destructed = false;
+  auto callback = node.CreateCallback();
+  std::size_t published_frames = 0;
+
+  for (std::size_t i = 0; i < kFrameCount; ++i) {
+    const control_loop::Context context = MakeContext(destructed);
+    callback(context);
+    if (context->GetMessage<camera::JpegBuffer>("jpeg") != nullptr) {
+      ++published_frames;
+    }
+  }
+
+  EXPECT_GT(published_frames, 400U);
+  EXPECT_LT(published_frames, 600U);
+  std::filesystem::remove_all(directory);
+}
+
+TEST(JpegDiskCameraTest, CanPublishEmptyFramesAtAFixedFrequency) {
+  const auto directory = std::filesystem::temp_directory_path() /
+                         "cos-empty-frame-camera-test";
+  MakeJpegFrames(directory, 2);
+  camera::JpegDiskCamera node(directory.string(), "jpeg", false, true, 0, 2);
+
+  std::atomic<bool> destructed = false;
+  auto callback = node.CreateCallback();
+
+  const control_loop::Context valid = MakeContext(destructed);
+  callback(valid);
+  const auto* valid_frame = valid->GetMessage<camera::JpegBuffer>("jpeg");
+  ASSERT_NE(valid_frame, nullptr);
+  EXPECT_NE(valid_frame->ptr, nullptr);
+  EXPECT_GT(valid_frame->size, 0U);
+
+  const control_loop::Context empty = MakeContext(destructed);
+  callback(empty);
+  const auto* empty_frame = empty->GetMessage<camera::JpegBuffer>("jpeg");
+  ASSERT_NE(empty_frame, nullptr);
+  EXPECT_EQ(empty_frame->ptr, nullptr);
+  EXPECT_EQ(empty_frame->size, 0U);
 
   std::filesystem::remove_all(directory);
 }

@@ -16,10 +16,14 @@ namespace camera {
 
 JpegDiskCamera::JpegDiskCamera(std::string_view folder_path,
                                std::string_view output_channel,
-                               bool stop_when_empty, bool replay_all_frames)
+                               bool stop_when_empty, bool replay_all_frames,
+                               std::size_t skip_frame_frequency,
+                               std::size_t empty_frame_frequency)
     : output_channel_(output_channel),
       stop_when_empty_(stop_when_empty),
       replay_all_frames_(replay_all_frames),
+      skip_frame_frequency_(skip_frame_frequency),
+      empty_frame_frequency_(empty_frame_frequency),
       publications_({{output_channel_, typeid(JpegBuffer)}}) {
   std::vector<std::pair<std::filesystem::path, double>> file_paths_vector;
   for (const auto& entry : std::filesystem::directory_iterator(folder_path)) {
@@ -90,6 +94,24 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
     if (stop_when_empty_ && file_paths_.empty()) {
       stop::stop = true;
     }
+    return;
+  }
+
+  const std::size_t frame_number = ++frame_count_;
+  if (skip_frame_frequency_ != 0U) {
+    const double skip_probability =
+        1.0 / static_cast<double>(skip_frame_frequency_);
+    std::bernoulli_distribution should_skip(skip_probability);
+    if (should_skip(random_engine_)) {
+      return;
+    }
+  }
+
+  if (empty_frame_frequency_ != 0U &&
+      frame_number % empty_frame_frequency_ == 0U) {
+    auto buffer = std::make_unique<JpegBuffer>();
+    buffer->timestamp = image->second;
+    context->SetMessage(output_channel_, std::move(buffer));
     return;
   }
 
