@@ -1,9 +1,7 @@
-#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <typeindex>
 #include <vector>
 
@@ -35,14 +33,17 @@ struct SolverSpec {
 };
 
 auto CameraConstants() -> std::vector<localization::camera_constant_t> {
-  return {{"front", std::string(POSE_TEST_CONSTANTS) + "/front_intrinsics.json",
-           std::string(POSE_TEST_CONSTANTS) + "/front_extrinsics.json", ""}};
+  return {{.name = "front",
+           .intrinsics_path =
+               std::string(POSE_TEST_CONSTANTS) + "/front_intrinsics.json",
+           .extrinsics_path =
+               std::string(POSE_TEST_CONSTANTS) + "/front_extrinsics.json",
+           .detector_config_path = ""}};
 }
 
-auto MakeContext(std::atomic<bool>& destructed) -> control_loop::Context {
+auto MakeContext() -> control_loop::Context {
   return std::make_shared<control_loop::ContextInternal>(
-      std::chrono::steady_clock::now(), nullptr, std::stop_token{},
-      &destructed);
+      std::chrono::steady_clock::now(), nullptr, std::stop_token{});
 }
 
 class PoseSolverNodeTest : public testing::TestWithParam<SolverSpec> {};
@@ -64,8 +65,7 @@ TEST_P(PoseSolverNodeTest, DescribesItsInputsAndOutput) {
 TEST_P(PoseSolverNodeTest, EmptyInputDoesNotPublishAPose) {
   auto constants = CameraConstants();
   auto node = GetParam().make(constants);
-  std::atomic<bool> destructed = false;
-  const control_loop::Context context = MakeContext(destructed);
+  const control_loop::Context context = MakeContext();
   node->CreateCallback()(context);
 
   EXPECT_EQ(context->GetMessage<localization::PositionEstimate>(
@@ -79,7 +79,7 @@ INSTANTIATE_TEST_SUITE_P(
         SolverSpec{
             "square", 1,
             std::type_index(typeid(localization::AmbiguousEstimateMessage)),
-            [](const auto& constants) {
+            [](const auto& constants) -> auto {
               return std::make_unique<localization::SquareSolverNode>(
                   "detections", "estimate", constants[0].intrinsics_path,
                   constants[0].extrinsics_path);
@@ -87,7 +87,7 @@ INSTANTIATE_TEST_SUITE_P(
         SolverSpec{
             "multi_tag", 1,
             std::type_index(typeid(localization::AmbiguousEstimateMessage)),
-            [](const auto& constants) {
+            [](const auto& constants) -> auto {
               return std::make_unique<localization::MultiTagSolverNode>(
                   "detections", "estimate", constants[0].intrinsics_path,
                   constants[0].extrinsics_path);
@@ -95,17 +95,17 @@ INSTANTIATE_TEST_SUITE_P(
         SolverSpec{
             "unambiguous", 1,
             std::type_index(typeid(localization::PositionEstimate)),
-            [](const auto& constants) {
+            [](const auto& constants) -> auto {
               return std::make_unique<localization::UnambiguousSolverNode>(
                   "estimate", constants);
             }},
-        SolverSpec{
-            "joint", 1, std::type_index(typeid(localization::PositionEstimate)),
-            [](const auto& constants) {
-              return std::make_unique<localization::JointSolverNode>(
-                  "estimate", constants);
-            }}),
-    [](const testing::TestParamInfo<SolverSpec>& info) {
+        SolverSpec{"joint", 1,
+                   std::type_index(typeid(localization::PositionEstimate)),
+                   [](const auto& constants) -> auto {
+                     return std::make_unique<localization::JointSolverNode>(
+                         "estimate", constants);
+                   }}),
+    [](const testing::TestParamInfo<SolverSpec>& info) -> std::string {
       return info.param.name;
     });
 

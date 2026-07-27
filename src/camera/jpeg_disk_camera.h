@@ -21,6 +21,7 @@ class JpegDiskCamera final : public control_loop::INode {
       -> const std::vector<control_loop::MessageDescriptor>& override;
   void RegisterCallback(const std::function<void(const control_loop::Context&)>&
                             callback) override;
+  void EnableLogging();
 
  private:
   void Callback(const control_loop::Context& context);
@@ -35,6 +36,7 @@ class JpegDiskCamera final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
+  bool logging_ = false;
 };
 
 }  // namespace camera

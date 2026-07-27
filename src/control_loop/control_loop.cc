@@ -6,7 +6,6 @@
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "control_loop/timer.h"
 
 using namespace std::chrono_literals;
 
@@ -14,17 +13,12 @@ namespace control_loop {
 
 ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
                                  ControlLoop* control_loop,
-                                 std::stop_token stop_token,
-                                 std::atomic<bool>* destructed)
+                                 std::stop_token stop_token)
     : start(start),
       control_loop(control_loop),
-      stop_token(std::move(stop_token)),
-      destructed(destructed) {}
+      stop_token(std::move(stop_token)) {}
 
-ContextInternal::~ContextInternal() {
-  destructed->store(true);
-  destructed->notify_all();
-}
+ContextInternal::~ContextInternal() = default;
 
 ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
 
@@ -32,50 +26,50 @@ void ControlLoop::Start() {
   ValidateNodeGraph();
   RegisterNodeCallbacks();
 
+  contexts_.reserve(max_contexts_);
+  for (size_t i = 0; i < max_contexts_; i++) {
+    contexts_.push_back(nullptr);
+  }
+
   thread_ = std::jthread([this](const std::stop_token& stop_token) -> void {
     while (!stop_token.stop_requested()) {
-      Timer loop_timer;
-      std::stop_source stop_source;
-      std::atomic destructed = false;
+      for (size_t i = 0; i < contexts_.size(); i++) {  // NOLINT
+        if (contexts_[i] == nullptr || contexts_[i].use_count() == 1) {
+          if (contexts_[i] != nullptr && log_latency_) {
+            auto now = std::chrono::steady_clock::now();
+            auto latency =
+                std::chrono::duration<double>(now - contexts_[i]->start);
+            if (contexts_[i]->valid) {
+              timestamp_queue_.push(now);
+              if (timestamp_queue_.size() > kTimestampQueueMaxSize) {
+                timestamp_queue_.pop();
+                const std::chrono::duration<double> elapsed =
+                    now - timestamp_queue_.front();
+                loops_per_second_ =
+                    static_cast<double>(timestamp_queue_.size() - 1) /
+                    elapsed.count();
+                LOG(INFO) << "Average loops per second: " << loops_per_second_;
+                LOG(INFO) << latency.count() -
+                                 std::chrono::duration<double>(period_).count();
+              }
+              LOG(INFO) << "Control loop took " << latency.count() << "s";
+            }
+          }
 
-      Context context(new ContextInternal(std::chrono::steady_clock::now(),
-                                          this, stop_source.get_token(),
-                                          &destructed));
+          std::stop_source stop_source;
+          Context context(new ContextInternal(std::chrono::steady_clock::now(),
+                                              this, stop_source.get_token()));
+          for (const auto& dependancy : dependencies_) {
+            dependancy(context);
+          }
 
-      for (const auto& dependancy : dependencies_) {
-        dependancy(context);
-      }
-
-      for (const auto& callback : callbacks_) {
-        callback(context);
-      }
-
-      Timer timer;
-      std::this_thread::sleep_for(period_.value_or(0ms));
-      context.reset();
-
-      if (!destructed) {
-        std::ignore = stop_source.request_stop();
-        destructed.wait(false);
-        if (period_.has_value()) {
-          LOG(WARNING) << "Command loop overrun! " << timer.Stop().count()
-                       << "s loop";
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+          contexts_[i] = context;
         }
       }
-
-      auto time = loop_timer.Stop();
-      if (log_latency_ && time.count() > kMinLoopSeconds) {
-        timestamp_queue_.push(loop_timer.GetStart());
-        if (timestamp_queue_.size() > kTimestampQueueMaxSize) {
-          timestamp_queue_.pop();
-          const std::chrono::duration<double> elapsed =
-              loop_timer.GetStart() - timestamp_queue_.front();
-          loops_per_second_ = static_cast<double>(timestamp_queue_.size() - 1) /
-                              elapsed.count();
-          LOG(INFO) << "Average loops per second: " << loops_per_second_;
-        }
-        LOG(INFO) << "Control loop took " << time.count() << "s";
-      }
+      std::this_thread::sleep_for(period_);
     }
   });
 }
@@ -173,6 +167,10 @@ void ControlLoop::RegisterNodeCallbacks() {
 
 auto ControlLoop::GetLoopsPerSecond() const -> double {
   return loops_per_second_;
+}
+
+void ControlLoop::SetMaxContext(size_t max_contexts) {
+  max_contexts_ = max_contexts;
 }
 
 }  // namespace control_loop

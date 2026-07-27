@@ -90,6 +90,12 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
     if (stop_when_empty_ && file_paths_.empty()) {
       stop::stop = true;
     }
+    if (logging_) {
+      LOG(WARNING) << output_channel_
+                   << " did not produce a frame for this cycle";
+    }
+    context->valid = false;
+
     return;
   }
 
@@ -125,5 +131,9 @@ auto JpegDiskCamera::GetPublications() const
 void JpegDiskCamera::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {
   callbacks_.emplace_back(callback);
+}
+
+void JpegDiskCamera::EnableLogging() {
+  logging_ = true;
 }
 }  // namespace camera

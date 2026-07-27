@@ -1,6 +1,7 @@
 #include "control_loop/thread_pool.h"
 
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 
 namespace control_loop {
 
@@ -21,10 +22,13 @@ ThreadPool::~ThreadPool() {
 
 void ThreadPool::Submit(std::function<void()> task) {
   CHECK(task) << "Cannot submit an empty task";
+  if (!accepting_tasks_) {
+    LOG(WARNING) << "Cannot submit work to a stopped thread pool";
+    return;
+  }
 
   {
     std::lock_guard lock(mutex_);
-    CHECK(accepting_tasks_) << "Cannot submit work to a stopped thread pool";
     tasks_.push(std::move(task));
   }
   work_available_.notify_one();

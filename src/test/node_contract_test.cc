@@ -17,15 +17,14 @@
 
 namespace {
 
-auto MakeContext(std::atomic<bool>& destructed) -> control_loop::Context {
+auto MakeContext() -> control_loop::Context {
   return std::make_shared<control_loop::ContextInternal>(
-      std::chrono::steady_clock::now(), nullptr, std::stop_token{},
-      &destructed);
+      std::chrono::steady_clock::now(), nullptr, std::stop_token{});
 }
 
 TEST(JpegDiskCameraTest, PublishesJpegBuffers) {
-  const auto directory = std::filesystem::temp_directory_path() /
-                         "cos-empty-camera-test";
+  const auto directory =
+      std::filesystem::temp_directory_path() / "cos-empty-camera-test";
   std::filesystem::create_directories(directory);
   camera::JpegDiskCamera node(directory.string(), "jpeg", false);
 
@@ -34,8 +33,7 @@ TEST(JpegDiskCameraTest, PublishesJpegBuffers) {
   EXPECT_TRUE(node.GetPublications()[0].GetTypes().contains(
       std::type_index(typeid(camera::JpegBuffer))));
 
-  std::atomic<bool> destructed = false;
-  const control_loop::Context context = MakeContext(destructed);
+  const control_loop::Context context = MakeContext();
   node.CreateCallback()(context);
   EXPECT_EQ(context->GetMessage<camera::JpegBuffer>("jpeg"), nullptr);
 
@@ -54,8 +52,8 @@ TEST(JpegBufferStreamerNodeTest, ConsumesJpegBuffers) {
 
 TEST(JpegBufferLogNodeTest, ConsumesJpegBuffers) {
   control_loop::ThreadPool thread_pool(1);
-  const auto directory = std::filesystem::temp_directory_path() /
-                         "cos-jpeg-log-test";
+  const auto directory =
+      std::filesystem::temp_directory_path() / "cos-jpeg-log-test";
   std::filesystem::create_directories(directory);
   logging::JpegBufferLogNode node("jpeg", directory.string(), thread_pool);
 
@@ -65,12 +63,12 @@ TEST(JpegBufferLogNodeTest, ConsumesJpegBuffers) {
       std::type_index(typeid(camera::JpegBuffer))));
   EXPECT_TRUE(node.GetPublications().empty());
 
-  std::atomic<bool> destructed = false;
-  const control_loop::Context context = MakeContext(destructed);
+  const control_loop::Context context = MakeContext();
   std::atomic<int> callback_count = 0;
-  node.RegisterCallback([&callback_count](const control_loop::Context&) {
-    ++callback_count;
-  });
+  node.RegisterCallback(
+      [&callback_count](const control_loop::Context&) -> void {
+        ++callback_count;
+      });
   auto jpeg = std::make_unique<camera::JpegBuffer>(4, 7.25);
   std::memcpy(jpeg->ptr, "jpeg", 4);
   context->SetMessage("jpeg", std::move(jpeg));

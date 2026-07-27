@@ -1,7 +1,7 @@
 #include <atomic>
 #include <chrono>
-#include <functional>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -22,6 +22,9 @@
 #endif
 
 namespace {
+using camera::DecodedImageBuffer;
+using camera::DecodedJpegBuffer;
+using std::string_view;
 
 using Decoder = control_loop::INode;
 using Factory = std::function<std::unique_ptr<Decoder>(
@@ -33,10 +36,9 @@ struct DecoderSpec {
   Factory make;
 };
 
-auto MakeContext(std::atomic<bool>& destructed) -> control_loop::Context {
+auto MakeContext() -> control_loop::Context {
   return std::make_shared<control_loop::ContextInternal>(
-      std::chrono::steady_clock::now(), nullptr, std::stop_token{},
-      &destructed);
+      std::chrono::steady_clock::now(), nullptr, std::stop_token{});
 }
 
 class JpegDecoderNodeTest : public testing::TestWithParam<DecoderSpec> {};
@@ -59,12 +61,12 @@ TEST_P(JpegDecoderNodeTest, NotifiesCallbacksWhenInputIsAbsent) {
   control_loop::ThreadPool thread_pool(1);
   auto node = GetParam().make("jpeg", "decoded", thread_pool);
   std::atomic<int> callback_count = 0;
-  node->RegisterCallback([&callback_count](const control_loop::Context&) {
-    ++callback_count;
-  });
+  node->RegisterCallback(
+      [&callback_count](const control_loop::Context&) -> void {
+        ++callback_count;
+      });
 
-  std::atomic<bool> destructed = false;
-  const control_loop::Context context = MakeContext(destructed);
+  const control_loop::Context context = MakeContext();
   node->CreateCallback()(context);
 
   EXPECT_EQ(callback_count.load(), 1);
@@ -79,8 +81,7 @@ TEST(CpuJpegDecodeNodeTest, DecodesARealJpeg) {
 
   control_loop::ThreadPool thread_pool(1);
   camera::CpuJpegDecodeNode node("jpeg", "decoded", thread_pool);
-  std::atomic<bool> destructed = false;
-  const control_loop::Context context = MakeContext(destructed);
+  const control_loop::Context context = MakeContext();
   auto jpeg = std::make_unique<camera::JpegBuffer>(size, 42.5);
   ASSERT_TRUE(input.read(static_cast<char*>(jpeg->ptr), size));
   context->SetMessage("jpeg", std::move(jpeg));
@@ -102,28 +103,29 @@ TEST(CpuJpegDecodeNodeTest, DecodesARealJpeg) {
 INSTANTIATE_TEST_SUITE_P(
     Implementations, JpegDecoderNodeTest,
     testing::Values(
-        DecoderSpec{
-            "cpu", std::type_index(typeid(camera::DecodedImageBuffer)),
-            [](std::string_view input, std::string_view output,
-               control_loop::ThreadPool& pool) {
-              return std::make_unique<camera::CpuJpegDecodeNode>(input, output,
-                                                                  pool);
-            }},
-        DecoderSpec{
-            "nvjpeg", std::type_index(typeid(camera::DecodedJpegBuffer)),
-            [](std::string_view input, std::string_view output,
-               control_loop::ThreadPool& pool) {
-              return std::make_unique<camera::NvjpegDecodeNode>(
-                  input, output, NVJPEG_OUTPUT_Y, pool);
-            }},
-        DecoderSpec{
-            "nvjpeg_fd", std::type_index(typeid(camera::DecodedJpegFdBuffer)),
-            [](std::string_view input, std::string_view output,
-               control_loop::ThreadPool& pool) {
-              return std::make_unique<camera::NvjpegFdDecodeNode>(input, output,
-                                                                   pool);
-            }}),
-    [](const testing::TestParamInfo<DecoderSpec>& info) {
+        DecoderSpec{"cpu", std::type_index(typeid(DecodedImageBuffer)),
+                    [](std::string_view input, string_view output,
+                       control_loop::ThreadPool& pool)
+                        -> std::unique_ptr<camera::CpuJpegDecodeNode> {
+                      return std::make_unique<camera::CpuJpegDecodeNode>(
+                          input, output, pool);
+                    }},
+        DecoderSpec{"nvjpeg", std::type_index(typeid(DecodedJpegBuffer)),
+                    [](std::string_view input, string_view output,
+                       control_loop::ThreadPool& pool)
+                        -> std::unique_ptr<camera::NvjpegDecodeNode> {
+                      return std::make_unique<camera::NvjpegDecodeNode>(
+                          input, output, NVJPEG_OUTPUT_Y, pool);
+                    }},
+        DecoderSpec{"nvjpeg_fd",
+                    std::type_index(typeid(camera::DecodedJpegFdBuffer)),
+                    [](std::string_view input, string_view output,
+                       control_loop::ThreadPool& pool)
+                        -> std::unique_ptr<camera::NvjpegFdDecodeNode> {
+                      return std::make_unique<camera::NvjpegFdDecodeNode>(
+                          input, output, pool);
+                    }}),
+    [](const testing::TestParamInfo<DecoderSpec>& info) -> std::string {
       return info.param.name;
     });
 

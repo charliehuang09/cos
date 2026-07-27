@@ -29,6 +29,7 @@ target_link_libraries(nvidia_apriltag_detector_node_test PRIVATE
   stop
   jpeg_disk_camera
   absl::log_initialize
+  uvc_camera_node
 )
 
 add_executable(jpeg_decoder_node_test

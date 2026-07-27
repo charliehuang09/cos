@@ -1,10 +1,8 @@
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -18,8 +16,7 @@ class ControlLoop;
 
 struct ContextInternal {
   ContextInternal(std::chrono::steady_clock::time_point start,
-                  ControlLoop* control_loop, std::stop_token stop_token,
-                  std::atomic<bool>* destructed);
+                  ControlLoop* control_loop, std::stop_token stop_token);
   ~ContextInternal();
 
   template <typename T>
@@ -46,10 +43,10 @@ struct ContextInternal {
     return size;
   }
 
-  std::optional<std::chrono::steady_clock::time_point> start;
+  std::chrono::steady_clock::time_point start;
   ControlLoop* control_loop;
   std::stop_token stop_token;
-  std::atomic<bool>* destructed;
+  std::atomic<bool> valid = true;
 
  private:
   mutable std::mutex messages_mutex_;

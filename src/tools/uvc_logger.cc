@@ -18,7 +18,6 @@
 #include "control_loop/rio_clock.h"
 #include "logging/jpeg_buffer_log_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
-#include "utils/cuda.h"
 #include "utils/stop.h"
 
 #include "absl/log/globals.h"
