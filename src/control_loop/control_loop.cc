@@ -49,8 +49,6 @@ void ControlLoop::Start() {
                     static_cast<double>(timestamp_queue_.size() - 1) /
                     elapsed.count();
                 LOG(INFO) << "Average loops per second: " << loops_per_second_;
-                LOG(INFO) << latency.count() -
-                                 std::chrono::duration<double>(period_).count();
               }
               LOG(INFO) << "Control loop took " << latency.count() << "s";
             }
