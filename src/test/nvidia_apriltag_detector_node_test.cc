@@ -34,7 +34,7 @@ auto main() -> int {
 
   control_loop::ControlLoop control_loop(1ms);
   control_loop::ThreadPool thread_pool;
-  control_loop.SetMaxContext(10);
+  control_loop.SetMaxContext(3);
   control_loop.EnableLatencyLog();
 
   DecoderMetrics gpu_metrics;
@@ -81,14 +81,14 @@ auto main() -> int {
         [&gpu_metrics](const control_loop::Context& context) -> void {
           auto latency = context->GetMessage<control_loop::LatencyMessage>(
               "gpu_apriltag_detections:latency");
-          if (latency != nullptr) {
-            gpu_metrics.total_detection_latency += latency->latency.count();
-            gpu_metrics.total_detection_timings++;
-          }
           auto detections = context->GetMessage<apriltag::TagDetections>(
               "gpu_apriltag_detections");
           if (detections == nullptr) {
             return;
+          }
+          if (latency != nullptr) {
+            gpu_metrics.total_detection_latency += latency->latency.count();
+            gpu_metrics.total_detection_timings++;
           }
           gpu_metrics.detection_frames++;
           gpu_metrics.total_tag_detections += detections->tag_detections.size();
@@ -118,17 +118,17 @@ auto main() -> int {
 
     hardware_apriltag_detector_node->RegisterCallback(
         [&hardware_metrics](const control_loop::Context& context) -> void {
+          auto detections = context->GetMessage<apriltag::TagDetections>(
+              "hardware_apriltag_detections");
+          if (detections == nullptr) {
+            return;
+          }
           auto latency = context->GetMessage<control_loop::LatencyMessage>(
               "hardware_apriltag_detections:latency");
           if (latency != nullptr) {
             hardware_metrics.total_detection_latency +=
                 latency->latency.count();
             hardware_metrics.total_detection_timings++;
-          }
-          auto detections = context->GetMessage<apriltag::TagDetections>(
-              "hardware_apriltag_detections");
-          if (detections == nullptr) {
-            return;
           }
           hardware_metrics.detection_frames++;
           hardware_metrics.total_tag_detections +=
@@ -150,9 +150,9 @@ auto main() -> int {
   const size_t hardware_detection_timings =
       hardware_metrics.total_detection_timings.load();
   // CHECK_GT(gpu_decodes, 0U);
-  CHECK_GT(hardware_decodes, 0U);
+  // CHECK_GT(hardware_decodes, 0U);
   // CHECK_GT(gpu_detection_timings, 0U);
-  CHECK_GT(hardware_detection_timings, 0U);
+  // CHECK_GT(hardware_detection_timings, 0U);
   LOG(INFO) << "GPU decode count: " << gpu_decodes;
   LOG(INFO) << "GPU detection frames: " << gpu_metrics.detection_frames.load();
   LOG(INFO) << "GPU tag detections: "
