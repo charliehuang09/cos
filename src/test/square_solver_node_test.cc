@@ -1,5 +1,7 @@
 #include "localization/square_solver_node.h"
 #include "absl/base/log_severity.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
 #include "absl/log/check.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -8,12 +10,17 @@
 #include "camera/nvjpeg_decode_node.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
+#include "localization/multi_tag_solver_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
 
 using namespace std::chrono_literals;
 
-auto main() -> int {
+ABSL_FLAG(bool, multi_tag_solve, false,                            // NOLINT
+          "Use MultiTagSolverNode instead of SquareSolverNode.");  // NOLINT
+
+auto main(int argc, char** argv) -> int {
+  absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   stop::RegisterHandler();
@@ -46,11 +53,18 @@ auto main() -> int {
     control_loop.RegisterNode(gpu_apriltag_detector_node);
     gpu_apriltag_detector_node->EnableTiming("gpu_apriltag_detections:latency");
 
-    auto square_solver_node = std::make_shared<localization::SquareSolverNode>(
-        "gpu_apriltag_detections", "pose", camera::Intrinsics{path},
-        camera::Extrinsics{path});
-    control_loop.RegisterNode(square_solver_node);
-    square_solver_node->RegisterCallback(
+    std::shared_ptr<control_loop::INode> solver_node;
+    if (absl::GetFlag(FLAGS_multi_tag_solve)) {
+      solver_node = std::make_shared<localization::MultiTagSolverNode>(
+          "gpu_apriltag_detections", "pose", camera::Intrinsics{path},
+          camera::Extrinsics{path});
+    } else {
+      solver_node = std::make_shared<localization::SquareSolverNode>(
+          "gpu_apriltag_detections", "pose", camera::Intrinsics{path},
+          camera::Extrinsics{path});
+    }
+    control_loop.RegisterNode(solver_node);
+    solver_node->RegisterCallback(
         [](const control_loop::Context& context) -> void {
           auto pose =
               context->GetMessage<localization::AmbiguousEstimateMessage>(

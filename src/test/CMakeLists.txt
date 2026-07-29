@@ -64,6 +64,7 @@ add_executable(square_solve_node_test
 )
 target_link_libraries(square_solve_node_test PRIVATE
   square_solver_node
+  multi_tag_solver_node
   nvjpeg_decode_node
   nvidia_apriltag_detector_node
   control_loop
@@ -73,4 +74,5 @@ target_link_libraries(square_solve_node_test PRIVATE
   jpeg_buffer_streamer_node
   jpeg_disk_camera
   camera_config
+  absl::flags_parse
 )
