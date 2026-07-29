@@ -1,4 +1,6 @@
 #include "apriltag/nvidia_apriltag_detector_node.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
 #include "absl/log/check.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -27,113 +29,127 @@ struct DecoderMetrics {
 
 }  // namespace
 
-auto main() -> int {
+ABSL_FLAG(bool, gpu_decode, true, "");                              // NOLINT
+ABSL_FLAG(bool, hardware_decode, true, "");                         // NOLINT
+ABSL_FLAG(uint, max_context, 1, "");                                // NOLINT
+ABSL_FLAG(std::optional<std::string>, log_path, std::nullopt, "");  // NOLINT
+
+auto main(int argc, char** argv) -> int {
+  absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   stop::RegisterHandler();
 
   control_loop::ControlLoop control_loop(1ms);
   control_loop::ThreadPool thread_pool;
-  control_loop.SetMaxContext(3);
+  control_loop.SetMaxContext(absl::GetFlag(FLAGS_max_context));
   control_loop.EnableLatencyLog();
 
   DecoderMetrics gpu_metrics;
   DecoderMetrics hardware_metrics;
 
   {
-    // auto jpeg_disk_camera_node = std::make_shared<camera::UVCCameraNode>(
-    //     "jpeg_buffer",
-    //     camera::UVCCameraConfig{"/root/constants/dev-orin/camera.json"});
-    // jpeg_disk_camera_node->Start();
-    auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-        "/cos-logs/dev_orin", "jpeg_buffer");
-    // auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-    //     "/cos-logs/log181/left", "jpeg_buffer");
-
-    control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
+    auto log_path = absl::GetFlag(FLAGS_log_path);
+    if (log_path.has_value()) {
+      auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
+          log_path.value(), "jpeg_buffer");
+      control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
+    } else {
+      auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
+          "jpeg_buffer",
+          camera::UVCCameraConfig{"/root/constants/dev-orin/camera.json"});
+      uvc_camera_node->Start();
+      control_loop.RegisterDependancyNode(uvc_camera_node);
+    }
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
                                                            "stream", 8080);
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
-    auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
-        "jpeg_buffer", "gpu_decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
-    control_loop.RegisterNode(gpu_decode_node);
-    gpu_decode_node->EnableTiming("gpu_decoded_image:latency");
-    gpu_decode_node->RegisterCallback(
-        [&gpu_metrics](const control_loop::Context& context) -> void {
-          auto latency = context->GetMessage<control_loop::LatencyMessage>(
-              "gpu_decoded_image:latency");
-          if (latency != nullptr) {
-            gpu_metrics.total_decode_latency += latency->latency.count();
-            gpu_metrics.total_decodes++;
-          }
-        });
+    if (absl::GetFlag(FLAGS_gpu_decode)) {
+      auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
+          "jpeg_buffer", "gpu_decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
+      control_loop.RegisterNode(gpu_decode_node);
+      gpu_decode_node->EnableTiming("gpu_decoded_image:latency");
+      gpu_decode_node->RegisterCallback(
+          [&gpu_metrics](const control_loop::Context& context) -> void {
+            auto latency = context->GetMessage<control_loop::LatencyMessage>(
+                "gpu_decoded_image:latency");
+            if (latency != nullptr) {
+              gpu_metrics.total_decode_latency += latency->latency.count();
+              gpu_metrics.total_decodes++;
+            }
+          });
 
-    auto gpu_apriltag_detector_node =
-        std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
-            "gpu_decoded_image", "gpu_apriltag_detections",
-            "/root/constants/dev-orin/camera.json", thread_pool);
-    control_loop.RegisterNode(gpu_apriltag_detector_node);
-    gpu_apriltag_detector_node->EnableTiming("gpu_apriltag_detections:latency");
-    gpu_apriltag_detector_node->RegisterCallback(
-        [&gpu_metrics](const control_loop::Context& context) -> void {
-          auto latency = context->GetMessage<control_loop::LatencyMessage>(
-              "gpu_apriltag_detections:latency");
-          auto detections = context->GetMessage<apriltag::TagDetections>(
-              "gpu_apriltag_detections");
-          if (detections == nullptr) {
-            return;
-          }
-          if (latency != nullptr) {
-            gpu_metrics.total_detection_latency += latency->latency.count();
-            gpu_metrics.total_detection_timings++;
-          }
-          gpu_metrics.detection_frames++;
-          gpu_metrics.total_tag_detections += detections->tag_detections.size();
-        });
+      auto gpu_apriltag_detector_node =
+          std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
+              "gpu_decoded_image", "gpu_apriltag_detections",
+              "/root/constants/dev-orin/camera.json", thread_pool);
+      control_loop.RegisterNode(gpu_apriltag_detector_node);
+      gpu_apriltag_detector_node->EnableTiming(
+          "gpu_apriltag_detections:latency");
+      gpu_apriltag_detector_node->RegisterCallback(
+          [&gpu_metrics](const control_loop::Context& context) -> void {
+            auto latency = context->GetMessage<control_loop::LatencyMessage>(
+                "gpu_apriltag_detections:latency");
+            auto detections = context->GetMessage<apriltag::TagDetections>(
+                "gpu_apriltag_detections");
+            if (detections == nullptr) {
+              return;
+            }
+            if (latency != nullptr) {
+              gpu_metrics.total_detection_latency += latency->latency.count();
+              gpu_metrics.total_detection_timings++;
+            }
+            gpu_metrics.detection_frames++;
+            gpu_metrics.total_tag_detections +=
+                detections->tag_detections.size();
+          });
+    }
 
-    auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
-        "jpeg_buffer", "hardware_decoded_image", thread_pool);
-    control_loop.RegisterNode(hardware_decode_node);
-    hardware_decode_node->EnableTiming("hardware_decoded_image:latency");
-    hardware_decode_node->RegisterCallback(
-        [&hardware_metrics](const control_loop::Context& context) -> void {
-          auto latency = context->GetMessage<control_loop::LatencyMessage>(
-              "hardware_decoded_image:latency");
-          if (latency != nullptr) {
-            hardware_metrics.total_decode_latency += latency->latency.count();
-            hardware_metrics.total_decodes++;
-          }
-        });
+    if (absl::GetFlag(FLAGS_hardware_decode)) {
+      auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
+          "jpeg_buffer", "hardware_decoded_image", thread_pool);
+      control_loop.RegisterNode(hardware_decode_node);
+      hardware_decode_node->EnableTiming("hardware_decoded_image:latency");
+      hardware_decode_node->RegisterCallback(
+          [&hardware_metrics](const control_loop::Context& context) -> void {
+            auto latency = context->GetMessage<control_loop::LatencyMessage>(
+                "hardware_decoded_image:latency");
+            if (latency != nullptr) {
+              hardware_metrics.total_decode_latency += latency->latency.count();
+              hardware_metrics.total_decodes++;
+            }
+          });
 
-    auto hardware_apriltag_detector_node =
-        std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
-            "hardware_decoded_image", "hardware_apriltag_detections",
-            "/root/constants/dev-orin/camera.json", thread_pool);
-    control_loop.RegisterNode(hardware_apriltag_detector_node);
-    hardware_apriltag_detector_node->EnableTiming(
-        "hardware_apriltag_detections:latency");
+      auto hardware_apriltag_detector_node =
+          std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
+              "hardware_decoded_image", "hardware_apriltag_detections",
+              "/root/constants/dev-orin/camera.json", thread_pool);
+      control_loop.RegisterNode(hardware_apriltag_detector_node);
+      hardware_apriltag_detector_node->EnableTiming(
+          "hardware_apriltag_detections:latency");
 
-    hardware_apriltag_detector_node->RegisterCallback(
-        [&hardware_metrics](const control_loop::Context& context) -> void {
-          auto detections = context->GetMessage<apriltag::TagDetections>(
-              "hardware_apriltag_detections");
-          if (detections == nullptr) {
-            return;
-          }
-          auto latency = context->GetMessage<control_loop::LatencyMessage>(
-              "hardware_apriltag_detections:latency");
-          if (latency != nullptr) {
-            hardware_metrics.total_detection_latency +=
-                latency->latency.count();
-            hardware_metrics.total_detection_timings++;
-          }
-          hardware_metrics.detection_frames++;
-          hardware_metrics.total_tag_detections +=
-              detections->tag_detections.size();
-        });
+      hardware_apriltag_detector_node->RegisterCallback(
+          [&hardware_metrics](const control_loop::Context& context) -> void {
+            auto detections = context->GetMessage<apriltag::TagDetections>(
+                "hardware_apriltag_detections");
+            if (detections == nullptr) {
+              return;
+            }
+            auto latency = context->GetMessage<control_loop::LatencyMessage>(
+                "hardware_apriltag_detections:latency");
+            if (latency != nullptr) {
+              hardware_metrics.total_detection_latency +=
+                  latency->latency.count();
+              hardware_metrics.total_detection_timings++;
+            }
+            hardware_metrics.detection_frames++;
+            hardware_metrics.total_tag_detections +=
+                detections->tag_detections.size();
+          });
+    }
   }
 
   control_loop.Start();
@@ -149,28 +165,33 @@ auto main() -> int {
       gpu_metrics.total_detection_timings.load();
   const size_t hardware_detection_timings =
       hardware_metrics.total_detection_timings.load();
-  // CHECK_GT(gpu_decodes, 0U);
-  // CHECK_GT(hardware_decodes, 0U);
-  // CHECK_GT(gpu_detection_timings, 0U);
-  // CHECK_GT(hardware_detection_timings, 0U);
-  LOG(INFO) << "GPU decode count: " << gpu_decodes;
-  LOG(INFO) << "GPU detection frames: " << gpu_metrics.detection_frames.load();
-  LOG(INFO) << "GPU tag detections: "
-            << gpu_metrics.total_tag_detections.load();
-  LOG(INFO) << "GPU average AprilTag detection latency: "
-            << gpu_metrics.total_detection_latency / gpu_detection_timings;
-  LOG(INFO) << "GPU average decode latency: "
-            << gpu_metrics.total_decode_latency / gpu_decodes;
-  LOG(INFO) << "Hardware decode count: " << hardware_decodes;
-  LOG(INFO) << "Hardware detection frames: "
-            << hardware_metrics.detection_frames.load();
-  LOG(INFO) << "Hardware tag detections: "
-            << hardware_metrics.total_tag_detections.load();
-  LOG(INFO) << "Hardware average AprilTag detection latency: "
-            << hardware_metrics.total_detection_latency /
-                   hardware_detection_timings;
-  LOG(INFO) << "Hardware average decode latency: "
-            << hardware_metrics.total_decode_latency / hardware_decodes;
+  if (absl::GetFlag(FLAGS_gpu_decode)) {
+    CHECK_GT(gpu_decodes, 0U);
+    CHECK_GT(gpu_detection_timings, 0U);
+    LOG(INFO) << "GPU decode count: " << gpu_decodes;
+    LOG(INFO) << "GPU detection frames: "
+              << gpu_metrics.detection_frames.load();
+    LOG(INFO) << "GPU tag detections: "
+              << gpu_metrics.total_tag_detections.load();
+    LOG(INFO) << "GPU average AprilTag detection latency: "
+              << gpu_metrics.total_detection_latency / gpu_detection_timings;
+    LOG(INFO) << "GPU average decode latency: "
+              << gpu_metrics.total_decode_latency / gpu_decodes;
+  }
+  if (absl::GetFlag(FLAGS_hardware_decode)) {
+    CHECK_GT(hardware_decodes, 0U);
+    CHECK_GT(hardware_detection_timings, 0U);
+    LOG(INFO) << "Hardware decode count: " << hardware_decodes;
+    LOG(INFO) << "Hardware detection frames: "
+              << hardware_metrics.detection_frames.load();
+    LOG(INFO) << "Hardware tag detections: "
+              << hardware_metrics.total_tag_detections.load();
+    LOG(INFO) << "Hardware average AprilTag detection latency: "
+              << hardware_metrics.total_detection_latency /
+                     hardware_detection_timings;
+    LOG(INFO) << "Hardware average decode latency: "
+              << hardware_metrics.total_decode_latency / hardware_decodes;
+  }
 
   std::fflush(nullptr);
   std::_Exit(EXIT_SUCCESS);
