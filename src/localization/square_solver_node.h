@@ -4,10 +4,11 @@
 #include <string>
 #include <vector>
 
-#include <opencv2/core/mat.hpp>
 #include <frc/apriltag/AprilTagFieldLayout.h>
 #include <frc/geometry/Pose3d.h>
+#include <opencv2/core/mat.hpp>
 
+#include "camera/camera_config.h"
 #include "control_loop/node.h"
 #include "utils/solver_common.h"
 
@@ -17,15 +18,13 @@ class SquareSolverNode final : public control_loop::INode {
  public:
   SquareSolverNode(std::string_view input_channel,
                    std::string_view output_channel,
-                   const std::string& intrinsics_path,
-                   const std::string& extrinsics_path,
-                   frc::AprilTagFieldLayout layout =
-                       kApriltagLayout,
+                   const camera::Intrinsics& intrinsics,
+                   const camera::Extrinsics& extrinsics,
+                   frc::AprilTagFieldLayout layout = kApriltagLayout,
                    std::vector<cv::Point3d> tag_corners = kApriltagCorners);
 
-  void RegisterCallback(
-      const std::function<void(const control_loop::Context&)>& callback)
-      override;
+  void RegisterCallback(const std::function<void(const control_loop::Context&)>&
+                            callback) override;
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
   [[nodiscard]] auto GetDependencies() const
@@ -33,9 +32,9 @@ class SquareSolverNode final : public control_loop::INode {
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
 
-  auto AmbiguousSolve(
-      const std::vector<tag_detection_t>& detections,
-      bool reject_far_tags = true) -> std::vector<ambiguous_estimate_t>;
+  auto AmbiguousSolve(const std::vector<tag_detection_t>& detections,
+                      bool reject_far_tags = true)
+      -> std::vector<ambiguous_estimate_t>;
 
  private:
   static constexpr double kVarianceScalar = 1.0;

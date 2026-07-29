@@ -119,3 +119,18 @@ target_link_libraries(jpeg_disk_camera PRIVATE
   wpiutil
   rio_clock
 )
+
+add_library(camera_config)
+target_sources(camera_config
+  PRIVATE
+    camera_config.cc
+)
+target_link_libraries(camera_config PUBLIC
+  ${OpenCV_LIBS}
+  wpimath
+  cv_geometry_utils
+  absl::check
+)
+target_link_libraries(camera_config PRIVATE
+  nlohmann_json::nlohmann_json
+)

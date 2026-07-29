@@ -23,27 +23,3 @@ target_link_libraries(multi_tag_solver_node PUBLIC
   json_utils
   absl::log
 )
-
-add_library(unambiguous_solver_node)
-target_sources(unambiguous_solver_node
-  PRIVATE
-    unambiguous_solver_node.cc
-)
-target_link_libraries(unambiguous_solver_node PUBLIC
-  localization_solver_common
-  multi_tag_solver_node
-)
-
-add_library(joint_solver_node)
-target_sources(joint_solver_node
-  PRIVATE
-    joint_solver_node.cc
-)
-target_link_libraries(joint_solver_node PUBLIC
-  localization_solver_common
-  unambiguous_solver_node
-  camera_config_utils
-  cv_geometry_utils
-  json_utils
-  absl::log
-)

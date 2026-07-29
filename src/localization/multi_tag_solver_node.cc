@@ -6,28 +6,22 @@
 #include <opencv2/calib3d.hpp>
 
 #include "absl/log/log.h"
-#include "utils/camera_config.h"
 #include "utils/cv_geometry.h"
-#include "utils/json.h"
 
 namespace localization {
 
 MultiTagSolverNode::MultiTagSolverNode(
     std::string_view input_channel, std::string_view output_channel,
-    const std::string& intrinsics_path, const std::string& extrinsics_path,
+    const camera::Intrinsics& intrinsics, const camera::Extrinsics& extrinsics,
     const frc::AprilTagFieldLayout& layout,
     const std::vector<cv::Point3d>& tag_corners)
     : input_channel_(input_channel),
       output_channel_(output_channel),
-      camera_matrix_(
-          utils::CameraMatrixFromJson(utils::ReadJson(intrinsics_path))),
-      distortion_coefficients_(utils::DistortionCoefficientsFromJson(
-          utils::ReadJson(intrinsics_path))),
-      camera_to_robot_(utils::Transform3dToCvMat(
-          utils::ExtrinsicsJsonToCameraToRobot(
-              utils::ReadJson(extrinsics_path)))),
-      single_tag_solver_(input_channel, output_channel, intrinsics_path,
-                         extrinsics_path, layout, tag_corners),
+      camera_matrix_(intrinsics.ToMatrix()),
+      distortion_coefficients_(intrinsics.ToDistortionCoefficients()),
+      camera_to_robot_(extrinsics.ToCameraToRobot<cv::Mat>()),
+      single_tag_solver_(input_channel, output_channel, intrinsics, extrinsics,
+                         layout, tag_corners),
       dependencies_({control_loop::MessageDescriptor(
           input_channel_, typeid(apriltag::TagDetections))}),
       publications_({control_loop::MessageDescriptor(
@@ -58,7 +52,7 @@ void MultiTagSolverNode::RegisterCallback(
 
 auto MultiTagSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
+  return [this](const control_loop::Context& context) -> void {
     auto notify_callbacks = [this, &context]() -> void {
       for (const auto& callback : callbacks_) {
         callback(context);
@@ -78,9 +72,9 @@ auto MultiTagSolverNode::CreateCallback()
     } else {
       std::vector<AmbiguousEstimate> estimates;
       estimates.push_back(std::move(*estimate));
-      context->SetMessage(output_channel_,
-                          std::make_unique<AmbiguousEstimateMessage>(
-                              std::move(estimates)));
+      context->SetMessage(
+          output_channel_,
+          std::make_unique<AmbiguousEstimateMessage>(std::move(estimates)));
     }
     notify_callbacks();
   };
@@ -151,8 +145,7 @@ auto MultiTagSolverNode::AmbiguousSolve(
 
   if (tag_ids.size() == 1) {
     const std::vector<ambiguous_estimate_t> square_estimates =
-        single_tag_solver_.AmbiguousSolve(accepted_detections,
-                                          reject_far_tags);
+        single_tag_solver_.AmbiguousSolve(accepted_detections, reject_far_tags);
     if (square_estimates.empty()) {
       return std::nullopt;
     }
@@ -179,16 +172,15 @@ auto MultiTagSolverNode::AmbiguousSolve(
   position_estimate_t estimate;
   estimate.tag_ids = std::move(tag_ids);
   estimate.rejected_tag_ids = std::move(rejected_tag_ids);
-  estimate.pose = utils::ConvertOpencvTransformationMatrixToWpilibPose(
-      field_to_robot);
+  estimate.pose =
+      utils::ConvertOpencvTransformationMatrixToWpilibPose(field_to_robot);
   estimate.variance =
       Variance(num_tags, avg_distance, kVarianceMin, kVarianceScalar);
   estimate.num_tags = num_tags;
   estimate.avg_tag_dist = avg_distance;
 
-  return ambiguous_estimate_t{
-      .pos1 = std::move(estimate),
-      .pos2 = std::nullopt};
+  return ambiguous_estimate_t{.pos1 = std::move(estimate),
+                              .pos2 = std::nullopt};
 }
 
 }  // namespace localization

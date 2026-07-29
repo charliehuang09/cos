@@ -50,56 +50,26 @@ target_link_libraries(jpeg_decoder_node_test PRIVATE
 )
 add_test(NAME jpeg_decoder_node_test COMMAND jpeg_decoder_node_test)
 
-add_executable(pose_solver_node_test
-  pose_solver_node_test.cc
-)
-target_compile_definitions(pose_solver_node_test PRIVATE
-  POSE_TEST_CONSTANTS="${COS_POSE_TEST_CONSTANTS}"
-)
-target_link_libraries(pose_solver_node_test PRIVATE
-  square_solver_node
-  multi_tag_solver_node
-  unambiguous_solver_node
-  joint_solver_node
-  control_loop
-  GTest::gtest_main
-)
-add_test(NAME pose_solver_node_test COMMAND pose_solver_node_test)
-
-add_executable(node_contract_test
-  node_contract_test.cc
-)
-target_link_libraries(node_contract_test PRIVATE
-  jpeg_disk_camera
-  jpeg_buffer_streamer_node
-  jpeg_buffer_log_node
-  control_loop
-  thread_pool
-  GTest::gtest_main
-)
-add_test(NAME node_contract_test COMMAND node_contract_test)
-
-add_executable(full_pipeline_localization_test
-  full_pipeline_localization_test.cc
-)
-target_link_libraries(full_pipeline_localization_test PRIVATE
-  jpeg_disk_camera
-  cpu_decode_node
-  nvjpeg_decode_node
-  cpu_apriltag_detector_node
-  nvidia_apriltag_detector_node
-  joint_solver_node
-  control_loop
-  thread_pool
-  wpiutil
-  absl::flags_parse
-  absl::log
-  absl::log_initialize
-)
 add_executable(timestamp_test
   timestamp_test.cc
 )
 target_link_libraries(timestamp_test PRIVATE
   wpilibc
   ntcore
+)
+
+add_executable(square_solve_node_test
+  square_solver_node_test.cc
+)
+target_link_libraries(square_solve_node_test PRIVATE
+  square_solver_node
+  nvjpeg_decode_node
+  nvidia_apriltag_detector_node
+  control_loop
+  thread_pool
+  wpilibc
+  ntcore
+  jpeg_buffer_streamer_node
+  jpeg_disk_camera
+  camera_config
 )

@@ -5,29 +5,23 @@
 #include <opencv2/calib3d.hpp>
 
 #include "absl/log/log.h"
-#include "utils/camera_config.h"
 #include "utils/cv_geometry.h"
-#include "utils/json.h"
 
 namespace localization {
 
-SquareSolverNode::SquareSolverNode(
-    std::string_view input_channel, std::string_view output_channel,
-    const std::string& intrinsics_path, const std::string& extrinsics_path,
-    frc::AprilTagFieldLayout layout,
-    std::vector<cv::Point3d> tag_corners)
+SquareSolverNode::SquareSolverNode(std::string_view input_channel,
+                                   std::string_view output_channel,
+                                   const camera::Intrinsics& intrinsics,
+                                   const camera::Extrinsics& extrinsics,
+                                   frc::AprilTagFieldLayout layout,
+                                   std::vector<cv::Point3d> tag_corners)
     : input_channel_(input_channel),
       output_channel_(output_channel),
       layout_(std::move(layout)),
       tag_corners_(std::move(tag_corners)),
-      camera_matrix_(
-          utils::CameraMatrixFromJson(utils::ReadJson(intrinsics_path))),
-      distortion_coefficients_(utils::DistortionCoefficientsFromJson(
-          utils::ReadJson(intrinsics_path))),
-      camera_to_robot_(utils::EigenToCvMat(
-          utils::ExtrinsicsJsonToCameraToRobot(
-              utils::ReadJson(extrinsics_path))
-              .ToMatrix())),
+      camera_matrix_(intrinsics.ToMatrix()),
+      distortion_coefficients_(intrinsics.ToDistortionCoefficients()),
+      camera_to_robot_(extrinsics.ToCameraToRobot<cv::Mat>()),
       dependencies_({control_loop::MessageDescriptor(
           input_channel_, typeid(apriltag::TagDetections))}),
       publications_({control_loop::MessageDescriptor(
@@ -40,7 +34,7 @@ void SquareSolverNode::RegisterCallback(
 
 auto SquareSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
+  return [this](const control_loop::Context& context) -> void {
     auto notify_callbacks = [this, &context]() -> void {
       for (const auto& callback : callbacks_) {
         callback(context);
@@ -56,11 +50,11 @@ auto SquareSolverNode::CreateCallback()
 
     auto estimates = AmbiguousSolve(detections->tag_detections);
     if (estimates.empty()) {
-      VLOG(1) << "Square solver produced no pose estimates";
+      LOG(WARNING) << "Square solver produced no pose estimates";
     } else {
-      context->SetMessage(output_channel_,
-                          std::make_unique<AmbiguousEstimateMessage>(
-                              std::move(estimates)));
+      context->SetMessage(
+          output_channel_,
+          std::make_unique<AmbiguousEstimateMessage>(std::move(estimates)));
     }
     notify_callbacks();
   };
@@ -116,8 +110,8 @@ auto SquareSolverNode::AmbiguousSolve(
       continue;
     }
 
-    pose_estimates.push_back({.pos1 = std::move(est1),
-                              .pos2 = std::move(est2)});
+    pose_estimates.push_back(
+        {.pos1 = std::move(est1), .pos2 = std::move(est2)});
   }
   return pose_estimates;
 }
