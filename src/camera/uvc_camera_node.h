@@ -42,7 +42,9 @@ class JpegBuffer final : public control_loop::IMessage {
  public:
   JpegBuffer() : size(0), timestamp(0), ptr(nullptr) {}
   JpegBuffer(size_t size, double timestamp)
-      : size(size), timestamp(timestamp), ptr(std::malloc(size)) {}
+      : size(size),
+        timestamp(timestamp),
+        ptr(static_cast<unsigned char*>(std::malloc(size))) {}
   ~JpegBuffer() override { std::free(ptr); }
   JpegBuffer(const JpegBuffer&) = delete;
   JpegBuffer(JpegBuffer&& other) noexcept
@@ -52,7 +54,7 @@ class JpegBuffer final : public control_loop::IMessage {
 
   size_t size;
   double timestamp;
-  void* ptr;
+  unsigned char* ptr;
   auto GetType() -> const std::type_info& override {
     return typeid(JpegBuffer);
   }
@@ -67,13 +69,16 @@ class UVCCameraNode final : public control_loop::INode {
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
   void Callback(const control_loop::Context& context);
-  void CallBack(uvc_frame_t* frame);  // This should not be used publicly
   [[nodiscard]] auto GetDependencies() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
   void RegisterCallback(const std::function<void(const control_loop::Context&)>&
                             callback) override;
+  void SetTerminateJpeg(bool terminate_jpeg);
+
+ public:
+  void CallBack(uvc_frame_t* frame);  // This should not be used publicly
 
  private:
   std::string output_path_;
@@ -88,6 +93,7 @@ class UVCCameraNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
+  bool terminate_jpeg_ = true;
 };
 
 }  // namespace camera

@@ -83,7 +83,7 @@ TEST(CpuJpegDecodeNodeTest, DecodesARealJpeg) {
   camera::CpuJpegDecodeNode node("jpeg", "decoded", thread_pool);
   const control_loop::Context context = MakeContext();
   auto jpeg = std::make_unique<camera::JpegBuffer>(size, 42.5);
-  ASSERT_TRUE(input.read(static_cast<char*>(jpeg->ptr), size));
+  ASSERT_TRUE(input.read(reinterpret_cast<char*>(jpeg->ptr), size));
   context->SetMessage("jpeg", std::move(jpeg));
 
   node.CreateCallback()(context);

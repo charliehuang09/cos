@@ -80,24 +80,12 @@ auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
     -> DecodedJpegFdBuffer {
   std::lock_guard lock(decode_mutex_);
 
-  auto* jpeg_data = static_cast<unsigned char*>(jpeg_buffer->ptr);
-  size_t jpeg_size = jpeg_buffer->size;
-  std::vector<unsigned char> terminated_jpeg;
-  if (jpeg_size < 2U || jpeg_data[jpeg_size - 2U] != 0xFFU ||
-      jpeg_data[jpeg_size - 1U] != 0xD9U) {
-    terminated_jpeg.assign(jpeg_data, jpeg_data + jpeg_size);
-    terminated_jpeg.push_back(0xFFU);
-    terminated_jpeg.push_back(0xD9U);
-    jpeg_data = terminated_jpeg.data();
-    jpeg_size = terminated_jpeg.size();
-  }
-
   int decoded_fd = -1;
   uint32_t pixel_format = 0;
   uint32_t width = 0;
   uint32_t height = 0;
-  CHECK_EQ(decoder_->decodeToFd(decoded_fd, jpeg_data, jpeg_size, pixel_format,
-                                width, height),
+  CHECK_EQ(decoder_->decodeToFd(decoded_fd, jpeg_buffer->ptr, jpeg_buffer->size,
+                                pixel_format, width, height),
            0);
 
   NvBufSurface* decoded_surface = nullptr;

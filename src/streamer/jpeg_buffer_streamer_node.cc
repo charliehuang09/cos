@@ -11,7 +11,7 @@ JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
 }
 
 void JpegBufferStreamerNode::Stream(const camera::JpegBuffer& jpeg_buffer) {
-  std::string string_buffer(static_cast<char*>(jpeg_buffer.ptr),
+  std::string string_buffer(reinterpret_cast<char*>(jpeg_buffer.ptr),
                             jpeg_buffer.size);
   streamer_.publish(path_, string_buffer);
 }

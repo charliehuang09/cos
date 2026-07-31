@@ -104,7 +104,7 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
   CHECK(file_size != std::streampos(-1));
   auto buffer = std::make_unique<JpegBuffer>(file_size, image->second);
   file.seekg(0);
-  file.read(static_cast<char*>(buffer->ptr), buffer->size);
+  file.read(reinterpret_cast<char*>(buffer->ptr), buffer->size);
   context->SetMessage(output_channel_, std::move(buffer));
 }
 
