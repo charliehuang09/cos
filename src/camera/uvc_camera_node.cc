@@ -71,9 +71,14 @@ auto UVCCameraNode::CreateCallback()
 
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
-  auto buffer = std::make_unique<JpegBuffer>(frame->data_bytes,
-                                             control_loop::RioClock::GetTime());
+  auto buffer =
+      std::make_unique<JpegBuffer>(frame->data_bytes + (2 * terminate_jpeg_),
+                                   control_loop::RioClock::GetTime());
   std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
+  if (terminate_jpeg_) {
+    buffer->ptr[frame->data_bytes + 0] = 0xFFU;
+    buffer->ptr[frame->data_bytes + 1] = 0xD9U;
+  }
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -130,4 +135,9 @@ void UVCCameraNode::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {
   callbacks_.emplace_back(callback);
 }
+
+void UVCCameraNode::SetTerminateJpeg(bool terminate_jpeg) {
+  terminate_jpeg_ = terminate_jpeg;
+}
+
 }  // namespace camera
