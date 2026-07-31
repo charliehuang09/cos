@@ -22,7 +22,6 @@ DecodedJpegFdBuffer::DecodedJpegFdBuffer(DecodedJpegFdBuffer&& other) noexcept
       pixel_format(other.pixel_format),
       width(other.width),
       height(other.height),
-      stride(other.stride),
       output_size(other.output_size),
       timestamp(other.timestamp) {}
 
@@ -122,7 +121,6 @@ auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
   output.pixel_format = pixel_format;
   output.width = static_cast<int>(width);
   output.height = static_cast<int>(height);
-  output.stride = destination.planeParams.pitch[0];
   for (uint32_t plane = 0; plane < destination.planeParams.num_planes;
        ++plane) {
     output.output_size += destination.planeParams.psize[plane];

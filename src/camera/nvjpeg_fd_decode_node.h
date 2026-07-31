@@ -30,7 +30,6 @@ class DecodedJpegFdBuffer final : public control_loop::IMessage {
   uint32_t pixel_format = 0;
   int width = 0;
   int height = 0;
-  size_t stride = 0;
   size_t output_size = 0;
   double timestamp = 0;
 };
