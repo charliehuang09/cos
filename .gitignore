@@ -8,4 +8,3 @@ bos-logs/
 **/*.png
 .cache
 .idea/
-build-debug/
