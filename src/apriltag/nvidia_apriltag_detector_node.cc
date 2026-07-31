@@ -1,9 +1,8 @@
 #include "apriltag/nvidia_apriltag_detector_node.h"
 
-#include "NvBufSurface.h"
+#include <vpi/algo/ConvertImageFormat.h>
 #include "absl/log/check.h"
 #include "control_loop/timer.h"
-#include "nvbufsurface.h"
 
 #include <vpi/Array.h>
 #include <vpi/Context.h>
@@ -170,20 +169,36 @@ auto NvidiaApriltagDetectorNode::Detect(const camera::DecodedJpegBuffer& buffer)
 auto NvidiaApriltagDetectorNode::Detect(
     const camera::DecodedJpegFdBuffer& buffer)
     -> std::vector<TagDetections::tag_detection> {
-  NvBufSurface* surface = nullptr;
-  CHECK_EQ(NvBufSurfaceFromFd(buffer.fd, reinterpret_cast<void**>(&surface)),
-           0);
-  CHECK(surface != nullptr);
-  CHECK_EQ(NvBufSurfaceMap(surface, 0, 0, NVBUF_MAP_READ), 0);
-  CHECK_EQ(NvBufSurfaceSyncForCpu(surface, 0, 0), 0);
-  const auto* data = static_cast<const unsigned char*>(
-      surface->surfaceList[0].mappedAddr.addr[0]);
-  CHECK(data != nullptr);
+  CHECK(!vpiContextPush(context_));
 
-  auto detections =
-      DetectGray(data, buffer.width, buffer.height, buffer.stride);
-  CHECK_EQ(NvBufSurfaceUnMap(surface, 0, 0), 0);
-  return detections;
+  VPIImageData image_data{};
+  image_data.bufferType = VPI_IMAGE_BUFFER_NVBUFFER;
+  image_data.buffer.fd = buffer.fd;
+  VPIImage image;
+  vpiImageCreateWrapper(&image_data, nullptr, backend | VPI_BACKEND_CPU,
+                        &image);
+
+  std::lock_guard lock(detect_mutex_);
+
+  VPIImage image_u8;
+  vpiImageCreate(width_, height_, VPI_IMAGE_FORMAT_U8,
+                 backend | VPI_BACKEND_CPU, &image_u8);
+
+  VPIConvertImageFormatParams cvtParams;
+  vpiInitConvertImageFormatParams(&cvtParams);
+
+  vpiSubmitConvertImageFormat(stream_, VPI_BACKEND_PVA, image, image_u8,
+                              &cvtParams);
+
+  auto result = Detect(image_u8);
+
+  vpiImageDestroy(image_u8);
+  vpiImageDestroy(image);
+  VPIContext popped_context = nullptr;
+  CHECK(!vpiContextPop(&popped_context));
+  CHECK(popped_context == context_);
+
+  return result;
 }
 
 auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
@@ -218,10 +233,17 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
 
 auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
     -> std::vector<TagDetections::tag_detection> {
-  CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
-                                   image, detections_));
+  CHECK(image != nullptr);
 
-  CHECK(!vpiStreamSync(stream_));
+  VPIImageFormat format;
+  vpiImageGetFormat(image, &format);
+  CHECK_EQ(format, VPI_IMAGE_FORMAT_U8);
+
+  CHECK_EQ(vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
+                                     image, detections_),
+           VPI_SUCCESS);
+
+  CHECK_EQ(vpiStreamSync(stream_), VPI_SUCCESS);
 
   VPIArrayData detections_data{};
   CHECK(!vpiArrayLockData(detections_, VPI_LOCK_READ, VPI_ARRAY_BUFFER_HOST_AOS,
@@ -240,9 +262,8 @@ auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
 
     std::vector<cv::Point2d> distorted_corners;
     distorted_corners.reserve(4);
-    for (int j = 0; j < 4; ++j) {
-      distorted_corners.emplace_back(detections_vpi[i].corners[j].x,
-                                     detections_vpi[i].corners[j].y);
+    for (auto& corner : detections_vpi[i].corners) {
+      distorted_corners.emplace_back(corner.x, corner.y);
     }
     std::vector<cv::Point2d> undistorted_corners;
     cv::undistortPoints(distorted_corners, undistorted_corners, camera_matrix_,
