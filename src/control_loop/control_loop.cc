@@ -13,10 +13,11 @@ namespace control_loop {
 
 ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
                                  ControlLoop* control_loop,
-                                 std::stop_token stop_token)
+                                 std::stop_token stop_token, std::uint64_t id)
     : start(start),
       control_loop(control_loop),
-      stop_token(std::move(stop_token)) {}
+      stop_token(std::move(stop_token)),
+      id(id) {}
 
 ContextInternal::~ContextInternal() = default;
 
@@ -56,7 +57,8 @@ void ControlLoop::Start() {
 
           std::stop_source stop_source;
           Context context(new ContextInternal(std::chrono::steady_clock::now(),
-                                              this, stop_source.get_token()));
+                                              this, stop_source.get_token(),
+                                              ++loop_count_));
           for (const auto& dependancy : dependencies_) {
             dependancy(context);
           }

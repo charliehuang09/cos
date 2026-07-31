@@ -20,7 +20,7 @@ ThreadPool::~ThreadPool() {
   Shutdown();
 }
 
-void ThreadPool::Submit(std::function<void()> task) {
+void ThreadPool::Submit(std::function<void()> task, std::uint64_t priority) {
   CHECK(task) << "Cannot submit an empty task";
   if (!accepting_tasks_) {
     LOG(WARNING) << "Cannot submit work to a stopped thread pool";
@@ -29,7 +29,7 @@ void ThreadPool::Submit(std::function<void()> task) {
 
   {
     std::lock_guard lock(mutex_);
-    tasks_.push(std::move(task));
+    tasks_.emplace(std::move(task), priority);
   }
   work_available_.notify_one();
 }
@@ -67,7 +67,7 @@ void ThreadPool::WorkerLoop() {
         return;
       }
 
-      task = std::move(tasks_.front());
+      task = tasks_.top().task;
       tasks_.pop();
     }
     task();

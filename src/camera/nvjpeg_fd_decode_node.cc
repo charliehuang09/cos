@@ -55,21 +55,24 @@ auto NvjpegFdDecodeNode::CreateCallback()
       return;
     }
 
-    thread_pool_.Submit([this, context, jpeg_buffer]() -> void {
-      control_loop::Timer timer;
-      std::unique_ptr<control_loop::IMessage> decoded_buffer =
-          std::make_unique<DecodedJpegFdBuffer>(DecodeJpegBuffer(jpeg_buffer));
-      context->SetMessage(output_path_, std::move(decoded_buffer));
+    thread_pool_.Submit(
+        [this, context, jpeg_buffer]() -> void {
+          control_loop::Timer timer;
+          std::unique_ptr<control_loop::IMessage> decoded_buffer =
+              std::make_unique<DecodedJpegFdBuffer>(
+                  DecodeJpegBuffer(jpeg_buffer));
+          context->SetMessage(output_path_, std::move(decoded_buffer));
 
-      if (latency_channel_.has_value()) {
-        context->SetMessage(
-            latency_channel_.value(),
-            std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
-      }
-      for (const auto& callback : callbacks_) {
-        callback(context);
-      }
-    });
+          if (latency_channel_.has_value()) {
+            context->SetMessage(
+                latency_channel_.value(),
+                std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
+          }
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+        },
+        context->id);
   };
 }
 

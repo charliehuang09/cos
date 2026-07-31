@@ -154,7 +154,7 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
       callback(context);
     }
   };
-  thread_pool_.Submit(task);
+  thread_pool_.Submit(task, context->id);
   return;
 }
 

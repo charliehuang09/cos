@@ -38,7 +38,7 @@ struct DecoderSpec {
 
 auto MakeContext() -> control_loop::Context {
   return std::make_shared<control_loop::ContextInternal>(
-      std::chrono::steady_clock::now(), nullptr, std::stop_token{});
+      std::chrono::steady_clock::now(), nullptr, std::stop_token{}, 0);
 }
 
 class JpegDecoderNodeTest : public testing::TestWithParam<DecoderSpec> {};

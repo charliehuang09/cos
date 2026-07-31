@@ -42,13 +42,15 @@ auto CpuApriltagDetectorNode::CreateCallback()
       return;
     }
 
-    thread_pool_.Submit([this, context, image] -> void {
-      auto detections = std::make_unique<TagDetections>(Detect(*image));
-      context->SetMessage(output_channel_, std::move(detections));
-      for (const auto& callback : callbacks_) {
-        callback(context);
-      }
-    });
+    thread_pool_.Submit(
+        [this, context, image] -> void {
+          auto detections = std::make_unique<TagDetections>(Detect(*image));
+          context->SetMessage(output_channel_, std::move(detections));
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+        },
+        context->id);
   };
 }
 

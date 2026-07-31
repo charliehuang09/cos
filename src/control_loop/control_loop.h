@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <queue>
 #include <thread>
@@ -41,6 +42,7 @@ class ControlLoop {
   std::atomic<double> loops_per_second_ = -1;
   std::vector<std::shared_ptr<ContextInternal>> contexts_;
   size_t max_contexts_ = 1;
+  std::uint64_t loop_count_ = 0;
 
  private:
   static const size_t kTimestampQueueMaxSize = 100;

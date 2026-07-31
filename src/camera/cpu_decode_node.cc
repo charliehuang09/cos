@@ -33,13 +33,15 @@ auto CpuJpegDecodeNode::CreateCallback()
       return;
     }
 
-    thread_pool_.Submit([this, context, jpeg] -> void {
-      auto decoded = std::make_unique<DecodedImageBuffer>(Decode(jpeg));
-      context->SetMessage(output_path_, std::move(decoded));
-      for (const auto& callback : callbacks_) {
-        callback(context);
-      }
-    });
+    thread_pool_.Submit(
+        [this, context, jpeg] -> void {
+          auto decoded = std::make_unique<DecodedImageBuffer>(Decode(jpeg));
+          context->SetMessage(output_path_, std::move(decoded));
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+        },
+        context->id);
   };
 }
 

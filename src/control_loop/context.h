@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <stop_token>
@@ -16,7 +17,8 @@ class ControlLoop;
 
 struct ContextInternal {
   ContextInternal(std::chrono::steady_clock::time_point start,
-                  ControlLoop* control_loop, std::stop_token stop_token);
+                  ControlLoop* control_loop, std::stop_token stop_token,
+                  std::uint64_t id);
   ~ContextInternal();
 
   template <typename T>
@@ -47,6 +49,7 @@ struct ContextInternal {
   ControlLoop* control_loop;
   std::stop_token stop_token;
   std::atomic<bool> valid = true;
+  const std::uint64_t id;
 
  private:
   mutable std::mutex messages_mutex_;
