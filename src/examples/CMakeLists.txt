@@ -32,4 +32,8 @@ target_sources(nvidia_apriltag_detect
 )
 target_link_libraries(nvidia_apriltag_detect PRIVATE
   nvidia_apriltag_detector_node
+  absl::flags_parse
+  absl::log
+  absl::log_initialize
+  $<LINK_LIBRARY:WHOLE_ARCHIVE,absl::log_flags>
 )
