@@ -140,6 +140,7 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
   }
   std::function<void()> task = [this, context, cuda_buffer,
                                 fd_buffer]() -> void {
+    CHECK(!vpiContextPush(context_));
     control_loop::Timer timer;
     std::unique_ptr<control_loop::IMessage> detections =
         std::make_unique<TagDetections>(
@@ -150,6 +151,9 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
           latency_channel_.value(),
           std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
     }
+    VPIContext popped_context = nullptr;
+    CHECK(!vpiContextPop(&popped_context));
+    CHECK(popped_context == context_);
     for (const auto& callback : callbacks_) {
       callback(context);
     }
@@ -194,7 +198,6 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
   CHECK_EQ(width, width_);
   CHECK_EQ(height, height_);
   CHECK_GE(stride, static_cast<size_t>(width));
-  CHECK(!vpiContextPush(context_));
 
   VPIImageData image_data{};
   CHECK(!vpiImageLockData(input_, VPI_LOCK_WRITE,
@@ -210,9 +213,6 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
   CHECK(!vpiImageUnlock(input_));
 
   auto detections = Detect(input_);
-  VPIContext popped_context = nullptr;
-  CHECK(!vpiContextPop(&popped_context));
-  CHECK(popped_context == context_);
   return detections;
 }
 
