@@ -70,20 +70,31 @@ auto UVCCameraNode::CreateCallback()
 }
 
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
+  std::lock_guard<std::mutex> lock(mutex_);
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
-  auto buffer =
-      std::make_unique<JpegBuffer>(frame->data_bytes + (2 * terminate_jpeg_),
-                                   control_loop::RioClock::GetTime());
-  std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
+  CHECK_LT(frame->data_bytes + (2 * terminate_jpeg_), buffer_size_);
+
+  auto buffer_index = GetAvailableBuffer();
+  if (buffer_index == buffer_length_) {
+    LOG(WARNING) << "No empty buffers!";
+    return;
+  }
+  memory_buffer_[buffer_index * (buffer_size_ + 1)] = true;
+  unsigned char* buffer_start =
+      memory_buffer_ + (buffer_index * (buffer_size_ + 1)) + 1;
+  std::memcpy(buffer_start, frame->data, frame->data_bytes);
   if (terminate_jpeg_) {
-    buffer->ptr[frame->data_bytes + 0] = 0xFFU;
-    buffer->ptr[frame->data_bytes + 1] = 0xD9U;
+    *(buffer_start + frame->data_bytes + 0) = 0xFFU;
+    *(buffer_start + frame->data_bytes + 1) = 0xD9U;
   }
 
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    buffer_ = std::move(buffer);
-  }
+  auto buffer = std::make_unique<JpegBuffer>(
+      buffer_start, frame->data_bytes + (2 * terminate_jpeg_),
+      control_loop::RioClock::GetTime());
+  CHECK(*(buffer_start - 1) == true);
+  buffer->destruction_flag = buffer_start - 1;
+
+  buffer_ = std::move(buffer);
 }
 
 void UVCCameraNode::Callback(const control_loop::Context& context) {
@@ -102,6 +113,12 @@ void UVCCameraNode::Callback(const control_loop::Context& context) {
 }
 
 void UVCCameraNode::Start() {
+  memory_buffer_ =
+      static_cast<unsigned char*>(malloc((buffer_size_ + 1) * buffer_length_));
+  for (int i = 0; i < buffer_length_; i++) {
+    memory_buffer_[i * (buffer_size_ + 1)] = false;
+  }
+
   int code = uvc_start_streaming(
       device_handle_, &ctrl_,
       [](uvc_frame_t* frame, void* ptr) -> void {
@@ -118,6 +135,7 @@ UVCCameraNode::~UVCCameraNode() {
   uvc_close(device_handle_);
   uvc_unref_device(device_);
   uvc_exit(context_);
+  free(memory_buffer_);
   LOG(INFO) << name_ << " has been destructed";
 }
 
@@ -140,4 +158,20 @@ void UVCCameraNode::SetTerminateJpeg(bool terminate_jpeg) {
   terminate_jpeg_ = terminate_jpeg;
 }
 
+void UVCCameraNode::SetBufferLength(size_t length) {
+  buffer_length_ = length;
+}
+
+void UVCCameraNode::SetBufferSize(size_t size) {
+  buffer_size_ = size;
+}
+
+auto UVCCameraNode::GetAvailableBuffer() -> size_t {
+  for (size_t i = 0; i < buffer_length_; i++) {
+    if (memory_buffer_[i * (buffer_size_ + 1)] == false) {
+      return i;
+    }
+  }
+  return buffer_length_;
+}
 }  // namespace camera

@@ -6,7 +6,9 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <vector>
 
+#include "absl/log/check.h"
 #include "control_loop/node.h"
 
 #include "libuvc/libuvc.h"
@@ -40,13 +42,23 @@ struct UVCCameraConfig {
 
 class JpegBuffer final : public control_loop::IMessage {
  public:
+  JpegBuffer(const JpegBuffer&) = delete;
+  auto operator=(const JpegBuffer&) -> JpegBuffer& = delete;
   JpegBuffer() : size(0), timestamp(0), ptr(nullptr) {}
+  JpegBuffer(unsigned char* ptr, size_t size, double timestamp)
+      : size(size), timestamp(timestamp), ptr(ptr) {}
   JpegBuffer(size_t size, double timestamp)
       : size(size),
         timestamp(timestamp),
         ptr(static_cast<unsigned char*>(std::malloc(size))) {}
-  ~JpegBuffer() override { std::free(ptr); }
-  JpegBuffer(const JpegBuffer&) = delete;
+  ~JpegBuffer() override {
+    if (destruction_flag == nullptr) {
+      std::free(ptr);
+      return;
+    }
+    CHECK(*destruction_flag == true);
+    *destruction_flag = false;
+  }
   JpegBuffer(JpegBuffer&& other) noexcept
       : size(other.size), timestamp(other.timestamp), ptr(other.ptr) {
     other.ptr = nullptr;
@@ -55,6 +67,7 @@ class JpegBuffer final : public control_loop::IMessage {
   size_t size;
   double timestamp;
   unsigned char* ptr;
+  unsigned char* destruction_flag = nullptr;
   auto GetType() -> const std::type_info& override {
     return typeid(JpegBuffer);
   }
@@ -76,9 +89,14 @@ class UVCCameraNode final : public control_loop::INode {
   void RegisterCallback(const std::function<void(const control_loop::Context&)>&
                             callback) override;
   void SetTerminateJpeg(bool terminate_jpeg);
+  void SetBufferLength(size_t length);
+  void SetBufferSize(size_t size);
 
  public:
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
+
+ private:
+  auto GetAvailableBuffer() -> size_t;
 
  private:
   std::string output_path_;
@@ -94,6 +112,10 @@ class UVCCameraNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   bool terminate_jpeg_ = true;
+  size_t buffer_length_ = 5;
+  size_t buffer_size_ = 300000;
+  unsigned char* memory_buffer_ = nullptr;
+  std::atomic<size_t> current_memory_buffer_ = -1;
 };
 
 }  // namespace camera
