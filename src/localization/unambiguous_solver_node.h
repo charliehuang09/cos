@@ -12,7 +12,7 @@
 #include "control_loop/node.h"
 #include "localization/multi_tag_solver_node.h"
 #include "localization/position.h"
-#include "utils/solver_common.h"
+#include "localization/solver_common.h"
 
 namespace localization {
 
