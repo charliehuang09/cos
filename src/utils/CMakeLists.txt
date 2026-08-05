@@ -27,17 +27,6 @@ target_link_libraries(json_utils PUBLIC
   absl::check
 )
 
-# add_library(camera_config_utils)
-# target_sources(camera_config_utils
-#   PRIVATE
-#     camera_config.cc
-# )
-# target_link_libraries(camera_config_utils PUBLIC
-#   ${OpenCV_LIBS}
-#   wpimath
-#   nlohmann_json::nlohmann_json
-# )
-
 add_library(cv_geometry_utils)
 target_sources(cv_geometry_utils
   PRIVATE
