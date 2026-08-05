@@ -5,7 +5,6 @@ target_sources(square_solver_node
 )
 target_link_libraries(square_solver_node PUBLIC
   localization_solver_common
-  camera_config_utils
   cv_geometry_utils
   json_utils
 )
@@ -18,7 +17,6 @@ target_sources(multi_tag_solver_node
 target_link_libraries(multi_tag_solver_node PUBLIC
   localization_solver_common
   square_solver_node
-  camera_config_utils
   cv_geometry_utils
   json_utils
   absl::log

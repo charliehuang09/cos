@@ -32,6 +32,5 @@ target_link_libraries(nvidia_apriltag_detector_node
   PRIVATE
     cuda_utils
     nlohmann_json::nlohmann_json
-    camera_config_utils
 
 )
