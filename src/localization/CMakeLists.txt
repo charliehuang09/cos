@@ -23,3 +23,13 @@ target_link_libraries(multi_tag_solver_node PUBLIC
   json_utils
   absl::log
 )
+
+add_library(unambiguous_solver_node)
+target_sources(unambiguous_solver_node
+  PRIVATE
+    unambiguous_solver_node.cc
+)
+target_link_libraries(unambiguous_solver_node PUBLIC
+  localization_solver_common
+  multi_tag_solver_node
+)
