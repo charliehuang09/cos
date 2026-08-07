@@ -26,8 +26,6 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_ARCHITECTURES 87)
 set(CMAKE_CUDA_FLAGS "--expt-relaxed-constexpr")
 
-option(ENABLE_CLANG_TIDY "Enable clang-tidy for static analysis" OFF)
-
 add_compile_options(-march=armv8-a+simd)
 
 list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_SYSROOT}/opt/nvidia/vpi4")
@@ -39,12 +37,6 @@ find_package(wpilib REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(vpi REQUIRED)
 find_package(libuvc REQUIRED)
-
-# OpenCV's test module exports its own GoogleTest implementation. It is not
-# needed by COS and conflicts with the GoogleTest version used by our tests.
-# Keep this after the other package lookups because wpilib/vpi may refresh the
-# OpenCV package variables.
-list(FILTER OpenCV_LIBS EXCLUDE REGEX "opencv_ts")
 
 add_subdirectory(third_party)
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=dev-orin
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/root/bin/dev_orin_main
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
