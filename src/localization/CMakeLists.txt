@@ -17,6 +17,7 @@ target_sources(square_solver_node
 )
 target_link_libraries(square_solver_node PUBLIC
   localization_solver_common
+  camera_config
   cv_geometry_utils
   json_utils
 )
@@ -42,4 +43,17 @@ target_sources(unambiguous_solver_node
 target_link_libraries(unambiguous_solver_node PUBLIC
   localization_solver_common
   multi_tag_solver_node
+)
+
+add_library(position_estimate_sender_node)
+target_sources(position_estimate_sender_node
+  PRIVATE
+    position_estimate_sender_node.cc
+)
+target_link_libraries(position_estimate_sender_node 
+  PUBLIC
+    wpilibc
+    ntcore
+  PRIVATE
+    absl::log
 )

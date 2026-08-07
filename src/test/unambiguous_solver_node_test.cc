@@ -52,15 +52,16 @@ auto main(int argc, char** argv) -> int {
         std::make_shared<localization::UnambiguousSolverNode>("pose");
     solver_node->AddCamera("gpu_apriltag_detections", camera::Intrinsics{path},
                            camera::Extrinsics{path}, control_loop);
-    control_loop.RegisterNode(solver_node);
     solver_node->RegisterCallback(
         [](const control_loop::Context& context) -> void {
           auto pose =
-              context->GetMessage<localization::PositionEstimate>("pose");
+              context->GetMessage<localization::PositionEstimateMessage>(
+                  "pose");
           if (pose != nullptr) {
             LOG(INFO) << *pose;
           }
         });
+    control_loop.RegisterNode(solver_node);
   }
 
   control_loop.Start();

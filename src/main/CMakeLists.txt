@@ -1,0 +1,22 @@
+add_executable(dev_orin_main)
+target_sources(dev_orin_main
+  PRIVATE
+    dev_orin_main.cc
+)
+target_link_libraries(dev_orin_main PRIVATE
+  jpeg_buffer_streamer_node
+  uvc_camera_node
+  stop
+  absl::flags_parse
+  nvjpeg_decode_node
+  JPEG::JPEG
+  control_loop
+  thread_pool
+  cuda_utils
+  wpilibc
+  nvidia_apriltag_detector_node
+  unambiguous_solver_node
+  position_estimate_sender_node
+  jpeg_buffer_log_node
+  ${OpenCV_LIBS}
+)

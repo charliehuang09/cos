@@ -69,7 +69,7 @@ auto MultiTagSolverNode::CreateCallback()
 
     auto estimate = AmbiguousSolve(detections->tag_detections);
     if (!estimate.has_value()) {
-      VLOG(1) << "Multi-tag solver produced no pose estimate";
+      LOG(WARNING) << "Multi-tag solver produced no pose estimate";
       context->SetMessage(output_channel_, nullptr);
     } else {
       std::vector<AmbiguousEstimate> estimates;

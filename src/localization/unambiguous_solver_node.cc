@@ -45,7 +45,7 @@ UnambiguousSolverNode::UnambiguousSolverNode(std::string_view output_channel,
     : output_channel_(output_channel),
       layout_(std::move(layout)),
       publications_({control_loop::MessageDescriptor(
-          output_channel_, typeid(position_estimate_t))}) {}
+          output_channel_, typeid(PositionEstimateMessage))}) {}
 
 void UnambiguousSolverNode::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {
@@ -89,7 +89,7 @@ auto UnambiguousSolverNode::CreateCallback()
     if (result.has_value()) {
       context->SetMessage(
           output_channel_,
-          std::make_unique<position_estimate_t>(result.value()));
+          std::make_unique<PositionEstimateMessage>(result.value()));
     } else {
       context->SetMessage(output_channel_, nullptr);
     }
