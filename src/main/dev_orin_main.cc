@@ -9,6 +9,7 @@
 #include "localization/position_estimate_sender_node.h"
 #include "localization/unambiguous_solver_node.h"
 #include "networktables/NetworkTableInstance.h"
+#include "simulation/simulation_position_sender_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
 
@@ -62,6 +63,10 @@ auto main(int argc, char** argv) -> int {
           "pose", "Orin/localization", networktables_instance);
   position_estimate_sender_node->SetLogEstimates(true);
   control_loop.RegisterNode(position_estimate_sender_node);
+
+  auto simulation_position_sender_node =
+      std::make_shared<simulation::SimulationPositionSenderNode>("pose");
+  control_loop.RegisterNode(simulation_position_sender_node);
 
   control_loop.Start();
 

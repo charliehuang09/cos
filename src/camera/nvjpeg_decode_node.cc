@@ -170,7 +170,7 @@ auto NvjpegDecodeNode::CreateCallback()
   return [this](const control_loop::Context& context) -> void {
     bool exists;
     auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_, exists);
-    CHECK(exists);
+    CHECK(exists) << input_path_;
     if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr ||
         jpeg_buffer->size == 0U) {
       context->SetMessage(output_path_, nullptr);

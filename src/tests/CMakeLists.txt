@@ -94,4 +94,5 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   camera_config
   absl::flags_parse
   unambiguous_solver_node
+  simulation_position_sender_node
 )
