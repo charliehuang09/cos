@@ -40,7 +40,7 @@ void ControlLoop::Start() {
             auto now = std::chrono::steady_clock::now();
             auto latency =
                 std::chrono::duration<double>(now - contexts_[i]->start);
-            if (contexts_[i]->valid) {
+            if (contexts_[i]->include_in_perfomance_metrics) {
               timestamp_queue_.push(now);
               if (timestamp_queue_.size() > kTimestampQueueMaxSize) {
                 timestamp_queue_.pop();

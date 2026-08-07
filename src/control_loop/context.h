@@ -64,7 +64,7 @@ struct ContextInternal {
   std::chrono::steady_clock::time_point start;
   ControlLoop* control_loop;
   std::stop_token stop_token;
-  std::atomic<bool> valid = true;
+  std::atomic<bool> include_in_perfomance_metrics = true;
   const std::uint64_t id;
 
  private:

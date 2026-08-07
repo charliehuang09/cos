@@ -94,7 +94,7 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
       LOG(WARNING) << output_channel_
                    << " did not produce a frame for this cycle";
     }
-    context->valid = false;
+    context->include_in_perfomance_metrics = false;
 
     return;
   }
