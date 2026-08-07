@@ -21,6 +21,11 @@ struct ContextInternal {
                   std::uint64_t id);
   ~ContextInternal();
 
+  auto Exists(const std::string& path) const -> bool {
+    std::lock_guard lock(messages_mutex_);
+    return messages_.contains(path);
+  }
+
   template <typename T>
   auto GetMessage(std::string_view path) const -> T* {
     std::lock_guard lock(messages_mutex_);

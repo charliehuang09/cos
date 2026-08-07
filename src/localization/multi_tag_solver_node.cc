@@ -62,13 +62,15 @@ auto MultiTagSolverNode::CreateCallback()
     auto* detections =
         context->GetMessage<apriltag::TagDetections>(input_channel_);
     if (detections == nullptr) {
+      context->SetMessage(output_channel_, nullptr);
       notify_callbacks();
       return;
     }
 
     auto estimate = AmbiguousSolve(detections->tag_detections);
     if (!estimate.has_value()) {
-      VLOG(1) << "Multi-tag solver produced no pose estimate";
+      LOG(WARNING) << "Multi-tag solver produced no pose estimate";
+      context->SetMessage(output_channel_, nullptr);
     } else {
       std::vector<AmbiguousEstimate> estimates;
       estimates.push_back(std::move(*estimate));
