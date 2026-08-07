@@ -24,8 +24,32 @@ using control_loop::Context;
 
 namespace {
 
+constexpr VPIBackend kBackend = VPI_BACKEND_PVA;
+
 auto CheckCuda(cudaError_t status) -> void {
   CHECK(status == cudaSuccess) << cudaGetErrorString(status);
+}
+
+class SharedVpiContext final {
+ public:
+  SharedVpiContext() {
+    CHECK(!vpiContextCreate(kBackend | VPI_BACKEND_CPU, &context_));
+  }
+
+  ~SharedVpiContext() { vpiContextDestroy(context_); }
+
+  SharedVpiContext(const SharedVpiContext&) = delete;
+  auto operator=(const SharedVpiContext&) -> SharedVpiContext& = delete;
+
+  [[nodiscard]] auto Get() const -> VPIContext { return context_; }
+
+ private:
+  VPIContext context_ = nullptr;
+};
+
+auto GetSharedVpiContext() -> VPIContext {
+  static SharedVpiContext context;
+  return context.Get();
 }
 
 }  // namespace
@@ -33,7 +57,6 @@ auto CheckCuda(cudaError_t status) -> void {
 static const VPIAprilTagDecodeParams params = {                 // NOLINT
     NULL, 0, 1,                                                 // NOLINT
     VPIAprilTagFamily::VPI_APRILTAG_36H11};                     // NOLINT
-static const VPIBackend backend = VPIBackend::VPI_BACKEND_PVA;  // NOLINT
 static const int max_detections = 64;
 
 NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
@@ -54,23 +77,28 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   CHECK(width_ > 0);
   CHECK(height_ > 0);
 
-  CHECK(!vpiContextCreate(backend | VPI_BACKEND_CPU, &context_));
-  CHECK(!vpiContextSetCurrent(context_));
+  context_ = GetSharedVpiContext();
+  CHECK(!vpiContextPush(context_));
 
   CHECK(
-      !vpiCreateAprilTagDetector(backend, width_, height_, &params, &payload_));
+      !vpiCreateAprilTagDetector(kBackend, width_, height_, &params, &payload_));
 
   CHECK(!vpiArrayCreate(max_detections, VPI_ARRAY_TYPE_APRILTAG_DETECTION, 0,
                         &detections_));
   // This detector only submits work to PVA. Enabling every stream backend also
   // initializes VPI's CUDA/EGL stack, whose process-exit finalizers conflict
   // with the CUDA context used by nvJPEG on Jetson.
-  CHECK(!vpiStreamCreate(backend | VPI_BACKEND_CPU, &stream_));
+  CHECK(!vpiStreamCreate(kBackend | VPI_BACKEND_CPU, &stream_));
   CHECK(!vpiImageCreate(width_, height_, VPI_IMAGE_FORMAT_U8,
-                        backend | VPI_BACKEND_CPU, &input_));
+                        kBackend | VPI_BACKEND_CPU, &input_));
+
+  VPIContext popped_context = nullptr;
+  CHECK(!vpiContextPop(&popped_context));
+  CHECK(popped_context == context_);
 }
 
 NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
+  CHECK(!vpiContextPush(context_));
   if (stream_ != nullptr) {
     CHECK(!vpiStreamSync(stream_));
     vpiStreamDestroy(stream_);
@@ -84,9 +112,10 @@ NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
   if (payload_ != nullptr) {
     vpiPayloadDestroy(payload_);
   }
-  if (context_ != nullptr) {
-    vpiContextDestroy(context_);
-  }
+
+  VPIContext popped_context = nullptr;
+  CHECK(!vpiContextPop(&popped_context));
+  CHECK(popped_context == context_);
 }
 
 void NvidiaApriltagDetectorNode::WarmUp() {
@@ -105,7 +134,7 @@ void NvidiaApriltagDetectorNode::WarmUp() {
   }
   CHECK(!vpiImageUnlock(input_));
 
-  CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
+  CHECK(!vpiSubmitAprilTagDetector(stream_, kBackend, payload_, max_detections,
                                    input_, detections_));
   CHECK(!vpiStreamSync(stream_));
 
@@ -213,7 +242,7 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
 
 auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
     -> std::vector<TagDetections::tag_detection> {
-  CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
+  CHECK(!vpiSubmitAprilTagDetector(stream_, kBackend, payload_, max_detections,
                                    image, detections_));
 
   CHECK(!vpiStreamSync(stream_));

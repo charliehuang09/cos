@@ -12,6 +12,7 @@
 #include <vpi/algo/AprilTags.h>
 
 #include <barrier>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <functional>
@@ -23,6 +24,8 @@
 // VPI streams concurrently, or --serialized=true to serialize them.
 ABSL_FLAG(bool, serialized, false,
           "Serialize both detector submissions with one process-wide mutex.");
+ABSL_FLAG(bool, shared_context, false,
+          "Create both detectors in one VPI context.");
 ABSL_FLAG(int, iterations, 1,
           "Number of simultaneous submissions per detector.");
 ABSL_FLAG(int, width, 1280, "Input image width.");
@@ -37,13 +40,17 @@ std::mutex serialized_detect_mutex;
 
 class Detector final {
  public:
-  Detector(int width, int height) : width_(width), height_(height) {
+  Detector(int width, int height, VPIContext shared_context = nullptr)
+      : width_(width), height_(height), context_(shared_context) {
     CHECK_GT(width_, 0);
     CHECK_GT(height_, 0);
 
-    CHECK_EQ(vpiContextCreate(kBackend | VPI_BACKEND_CPU, &context_),
-             VPI_SUCCESS);
-    CHECK_EQ(vpiContextSetCurrent(context_), VPI_SUCCESS);
+    if (context_ == nullptr) {
+      CHECK_EQ(vpiContextCreate(kBackend | VPI_BACKEND_CPU, &context_),
+               VPI_SUCCESS);
+      owns_context_ = true;
+    }
+    CHECK_EQ(vpiContextPush(context_), VPI_SUCCESS);
 
     const VPIAprilTagDecodeParams params = {
         nullptr, 0, 1, VPIAprilTagFamily::VPI_APRILTAG_36H11};
@@ -58,12 +65,17 @@ class Detector final {
     CHECK_EQ(vpiImageCreate(width_, height_, VPI_IMAGE_FORMAT_U8,
                             kBackend | VPI_BACKEND_CPU, &input_),
              VPI_SUCCESS);
+
+    VPIContext popped_context = nullptr;
+    CHECK_EQ(vpiContextPop(&popped_context), VPI_SUCCESS);
+    CHECK_EQ(popped_context, context_);
   }
 
   Detector(const Detector&) = delete;
   auto operator=(const Detector&) -> Detector& = delete;
 
   ~Detector() {
+    CHECK_EQ(vpiContextPush(context_), VPI_SUCCESS);
     if (stream_ != nullptr) {
       CHECK_EQ(vpiStreamSync(stream_), VPI_SUCCESS);
       vpiStreamDestroy(stream_);
@@ -77,7 +89,11 @@ class Detector final {
     if (payload_ != nullptr) {
       vpiPayloadDestroy(payload_);
     }
-    if (context_ != nullptr) {
+
+    VPIContext popped_context = nullptr;
+    CHECK_EQ(vpiContextPop(&popped_context), VPI_SUCCESS);
+    CHECK_EQ(popped_context, context_);
+    if (owns_context_) {
       vpiContextDestroy(context_);
     }
   }
@@ -115,6 +131,7 @@ class Detector final {
   VPIArray detections_ = nullptr;
   VPIStream stream_ = nullptr;
   VPIImage input_ = nullptr;
+  bool owns_context_ = false;
 };
 
 auto RunDetector(Detector& detector, std::barrier<>& start, int iterations,
@@ -140,19 +157,40 @@ auto main(int argc, char** argv) -> int {
   const int iterations = absl::GetFlag(FLAGS_iterations);
   CHECK_GT(iterations, 0);
   const bool serialized = absl::GetFlag(FLAGS_serialized);
-  Detector first(absl::GetFlag(FLAGS_width), absl::GetFlag(FLAGS_height));
-  Detector second(absl::GetFlag(FLAGS_width), absl::GetFlag(FLAGS_height));
-  std::barrier start(2);
+  const bool shared_context_enabled = absl::GetFlag(FLAGS_shared_context);
+  VPIContext shared_context = nullptr;
+  if (shared_context_enabled) {
+    CHECK_EQ(vpiContextCreate(kBackend | VPI_BACKEND_CPU, &shared_context),
+             VPI_SUCCESS);
+  }
 
-  std::thread first_thread(RunDetector, std::ref(first), std::ref(start),
-                           iterations, serialized);
-  std::thread second_thread(RunDetector, std::ref(second), std::ref(start),
-                            iterations, serialized);
-  first_thread.join();
-  second_thread.join();
+  const auto begin = std::chrono::steady_clock::now();
+  {
+    Detector first(absl::GetFlag(FLAGS_width), absl::GetFlag(FLAGS_height),
+                   shared_context);
+    Detector second(absl::GetFlag(FLAGS_width), absl::GetFlag(FLAGS_height),
+                    shared_context);
+    std::barrier start(2);
+
+    std::thread first_thread(RunDetector, std::ref(first), std::ref(start),
+                             iterations, serialized);
+    std::thread second_thread(RunDetector, std::ref(second), std::ref(start),
+                              iterations, serialized);
+    first_thread.join();
+    second_thread.join();
+  }
+  const std::chrono::duration<double> elapsed =
+      std::chrono::steady_clock::now() - begin;
+
+  if (shared_context != nullptr) {
+    vpiContextDestroy(shared_context);
+  }
 
   LOG(INFO) << "Completed " << iterations
             << " concurrent PVA AprilTag submissions per detector"
-            << (serialized ? " with serialization." : " without serialization.");
+            << (serialized ? " with serialization" : " without serialization")
+            << (shared_context_enabled ? " in one shared context" :
+                                         " in separate contexts")
+            << " in " << elapsed.count() << " seconds.";
   return 0;
 }
