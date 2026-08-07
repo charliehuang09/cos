@@ -48,6 +48,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+FetchContent_Declare(
+  ixwebsocket
+  GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
+  GIT_TAG v12.0.1
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(ixwebsocket)
+target_compile_options(ixwebsocket PRIVATE
+    -Wno-array-bounds
+)
+
 add_subdirectory(src)
 
 include(cmake/DevOrin.cmake)

@@ -9,6 +9,7 @@ add_subdirectory(localization)
 add_subdirectory(logging)
 add_subdirectory(tools)
 add_subdirectory(test)
+add_subdirectory(simulation)
 add_subdirectory(main)
 add_subdirectory(examples)
 
