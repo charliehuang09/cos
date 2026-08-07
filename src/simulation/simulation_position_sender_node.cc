@@ -64,8 +64,8 @@ SimulationPositionSenderNode::SimulationPositionSenderNode(
       });
 
   const auto [listening, error] = server_.listen();
-  CHECK(!listening) << "Unable to listen on ws://127.0.0.1:5805"
-                    << "/robot: " << error;
+  CHECK(listening) << "Unable to listen on ws://127.0.0.1:5805"
+                   << "/robot: " << error;
   server_.start();
 }
 
@@ -93,9 +93,24 @@ auto SimulationPositionSenderNode::CreateCallback()
       std::lock_guard lock(mutex_);
       connectedClients = clients_;
     }
-    for (const auto& client : connectedClients)
+    for (const auto& client : connectedClients) {
       client->send(GetPoseString(pose->pose));
+    }
+
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
   };
+}
+
+void SimulationPositionSenderNode::RegisterCallback(
+    const std::function<void(const control_loop::Context&)>& callback) {
+  callbacks_.push_back(callback);
+}
+
+SimulationPositionSenderNode::~SimulationPositionSenderNode() {
+  server_.stop();
+  ix::uninitNetSystem();
 }
 
 }  // namespace simulation

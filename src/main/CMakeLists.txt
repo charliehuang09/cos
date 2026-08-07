@@ -18,5 +18,6 @@ target_link_libraries(dev_orin_main PRIVATE
   unambiguous_solver_node
   position_estimate_sender_node
   jpeg_buffer_log_node
+  simulation_position_sender_node
   ${OpenCV_LIBS}
 )
