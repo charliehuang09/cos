@@ -51,7 +51,6 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode,
 
  private:
   VPIImage input_ = nullptr;
-  VPIContext context_ = nullptr;
   VPIPayload payload_ = nullptr;
   VPIArray detections_ = nullptr;
   VPIStream stream_ = nullptr;

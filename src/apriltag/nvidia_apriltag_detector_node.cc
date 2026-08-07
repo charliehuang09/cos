@@ -5,7 +5,6 @@
 #include "nvbufsurface.h"
 
 #include <vpi/Array.h>
-#include <vpi/Context.h>
 #include <vpi/Image.h>
 #include <vpi/Stream.h>
 
@@ -30,33 +29,11 @@ auto CheckCuda(cudaError_t status) -> void {
   CHECK(status == cudaSuccess) << cudaGetErrorString(status);
 }
 
-class SharedVpiContext final {
- public:
-  SharedVpiContext() {
-    CHECK(!vpiContextCreate(kBackend | VPI_BACKEND_CPU, &context_));
-  }
-
-  ~SharedVpiContext() { vpiContextDestroy(context_); }
-
-  SharedVpiContext(const SharedVpiContext&) = delete;
-  auto operator=(const SharedVpiContext&) -> SharedVpiContext& = delete;
-
-  [[nodiscard]] auto Get() const -> VPIContext { return context_; }
-
- private:
-  VPIContext context_ = nullptr;
-};
-
-auto GetSharedVpiContext() -> VPIContext {
-  static SharedVpiContext context;
-  return context.Get();
-}
-
 }  // namespace
 
-static const VPIAprilTagDecodeParams params = {                 // NOLINT
-    NULL, 0, 1,                                                 // NOLINT
-    VPIAprilTagFamily::VPI_APRILTAG_36H11};                     // NOLINT
+static const VPIAprilTagDecodeParams params = {  // NOLINT
+    NULL, 0, 1,                                  // NOLINT
+    VPIAprilTagFamily::VPI_APRILTAG_36H11};      // NOLINT
 static const int max_detections = 64;
 
 NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
@@ -77,11 +54,8 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   CHECK(width_ > 0);
   CHECK(height_ > 0);
 
-  context_ = GetSharedVpiContext();
-  CHECK(!vpiContextPush(context_));
-
-  CHECK(
-      !vpiCreateAprilTagDetector(kBackend, width_, height_, &params, &payload_));
+  CHECK(!vpiCreateAprilTagDetector(kBackend, width_, height_, &params,
+                                   &payload_));
 
   CHECK(!vpiArrayCreate(max_detections, VPI_ARRAY_TYPE_APRILTAG_DETECTION, 0,
                         &detections_));
@@ -91,14 +65,9 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   CHECK(!vpiStreamCreate(kBackend | VPI_BACKEND_CPU, &stream_));
   CHECK(!vpiImageCreate(width_, height_, VPI_IMAGE_FORMAT_U8,
                         kBackend | VPI_BACKEND_CPU, &input_));
-
-  VPIContext popped_context = nullptr;
-  CHECK(!vpiContextPop(&popped_context));
-  CHECK(popped_context == context_);
 }
 
 NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
-  CHECK(!vpiContextPush(context_));
   if (stream_ != nullptr) {
     CHECK(!vpiStreamSync(stream_));
     vpiStreamDestroy(stream_);
@@ -112,16 +81,10 @@ NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
   if (payload_ != nullptr) {
     vpiPayloadDestroy(payload_);
   }
-
-  VPIContext popped_context = nullptr;
-  CHECK(!vpiContextPop(&popped_context));
-  CHECK(popped_context == context_);
 }
 
 void NvidiaApriltagDetectorNode::WarmUp() {
   std::lock_guard lock(detect_mutex_);
-  CHECK(!vpiContextPush(context_));
-
   VPIImageData image_data{};
   CHECK(!vpiImageLockData(input_, VPI_LOCK_WRITE,
                           VPI_IMAGE_BUFFER_HOST_PITCH_LINEAR, &image_data));
@@ -137,10 +100,6 @@ void NvidiaApriltagDetectorNode::WarmUp() {
   CHECK(!vpiSubmitAprilTagDetector(stream_, kBackend, payload_, max_detections,
                                    input_, detections_));
   CHECK(!vpiStreamSync(stream_));
-
-  VPIContext popped_context = nullptr;
-  CHECK(!vpiContextPop(&popped_context));
-  CHECK(popped_context == context_);
 }
 
 auto NvidiaApriltagDetectorNode::CreateCallback()
@@ -164,7 +123,6 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
   }
   std::function<void()> task = [this, context, cuda_buffer,
                                 fd_buffer]() -> void {
-    CHECK(!vpiContextPush(context_));
     control_loop::Timer timer;
     std::unique_ptr<control_loop::IMessage> detections =
         std::make_unique<TagDetections>(
@@ -175,9 +133,6 @@ void NvidiaApriltagDetectorNode::Callback(const Context& context) {
           latency_channel_.value(),
           std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
     }
-    VPIContext popped_context = nullptr;
-    CHECK(!vpiContextPop(&popped_context));
-    CHECK(popped_context == context_);
     for (const auto& callback : callbacks_) {
       callback(context);
     }
