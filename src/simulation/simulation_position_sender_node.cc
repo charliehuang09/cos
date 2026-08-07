@@ -28,7 +28,8 @@ SimulationPositionSenderNode::SimulationPositionSenderNode(
     std::string_view input_path)
     : input_path_(input_path),
       server_(5805, "127.0.0.1"),
-      dependencies_({{input_path_, typeid(localization::PositionEstimate)}}) {
+      dependencies_(
+          {{input_path_, typeid(localization::PositionEstimateMessage)}}) {
   server_.setOnConnectionCallback(
       [this](
           const std::weak_ptr<ix::WebSocket>& webSocket,
@@ -82,7 +83,7 @@ auto SimulationPositionSenderNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     auto pose =
-        context->GetMessage<localization::PositionEstimate>(input_path_);
+        context->GetMessage<localization::PositionEstimateMessage>(input_path_);
     if (pose == nullptr) {
       return;
     }
