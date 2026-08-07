@@ -88,13 +88,13 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
 
   if (!image.has_value()) {
     if (stop_when_empty_ && file_paths_.empty()) {
-      stop::stop = true;
+      stop::RequestStop();
     }
     if (logging_) {
       LOG(WARNING) << output_channel_
                    << " did not produce a frame for this cycle";
     }
-    context->valid = false;
+    context->include_in_perfomance_metrics = false;
 
     return;
   }

@@ -1,3 +1,5 @@
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
 find_library(NVMM_JPEG_TEST_LIBRARY NAMES nvmm_jpeg REQUIRED)
 
 if(CMAKE_CROSSCOMPILING)
@@ -75,4 +77,21 @@ target_link_libraries(square_solve_node_test PRIVATE
   jpeg_disk_camera
   camera_config
   absl::flags_parse
+)
+
+add_executable(unambiguous_solver_node_test
+  unambiguous_solver_node_test.cc
+)
+target_link_libraries(unambiguous_solver_node_test PRIVATE
+  nvjpeg_decode_node
+  nvidia_apriltag_detector_node
+  control_loop
+  thread_pool
+  wpilibc
+  ntcore
+  jpeg_buffer_streamer_node
+  jpeg_disk_camera
+  camera_config
+  absl::flags_parse
+  unambiguous_solver_node
 )
