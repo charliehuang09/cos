@@ -51,6 +51,7 @@ auto SquareSolverNode::CreateCallback()
     auto estimates = AmbiguousSolve(detections->tag_detections);
     if (estimates.empty()) {
       LOG(WARNING) << "Square solver produced no pose estimates";
+      context->SetMessage(output_channel_, nullptr);
     } else {
       context->SetMessage(
           output_channel_,

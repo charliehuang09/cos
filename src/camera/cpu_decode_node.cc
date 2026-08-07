@@ -27,8 +27,10 @@ auto CpuJpegDecodeNode::CreateCallback()
       }
     };
 
+    CHECK(context->Exists(input_path_));
     const auto* jpeg = context->GetMessage<JpegBuffer>(input_path_);
     if (jpeg == nullptr || jpeg->ptr == nullptr || jpeg->size == 0U) {
+      context->SetMessage(output_path_, nullptr);
       notify_callbacks();
       return;
     }

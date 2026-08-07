@@ -1,3 +1,5 @@
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/main")
+
 add_executable(dev_orin_main)
 target_sources(dev_orin_main
   PRIVATE
