@@ -27,7 +27,7 @@ ABSL_FLAG(std::string, config_path, "",         // NOLINT
 
 ABSL_FLAG(                                                  // NOLINT
     std::optional<std::string>, stream_path, std::nullopt,  // NOLINT
-    "Path for the stream. eg url is 10.9.71.101:8080/path. No stream if "  // NOLINT
+    "Path for the stream. eg url is 10.9.71.101:4971/path. No stream if "  // NOLINT
     "left blank");  // NOLINT
 
 ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT

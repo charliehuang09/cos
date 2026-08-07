@@ -39,7 +39,7 @@ auto main(int argc, char** argv) -> int {
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
-                                                           "stream", 8080);
+                                                           "stream", 4971);
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
     auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
