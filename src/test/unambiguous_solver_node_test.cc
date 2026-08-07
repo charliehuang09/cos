@@ -9,6 +9,7 @@
 #include "camera/nvjpeg_decode_node.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
+#include "simulation/simulation_position_sender_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
 
@@ -29,12 +30,12 @@ auto main(int argc, char** argv) -> int {
 
   {
     auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-        "/cos-logs/log60/left", "jpeg_buffer");
+        "/cos-logs/log102/left", "jpeg_buffer");
     control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
-                                                           "stream", 8080);
+                                                           "stream", 4971);
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
     auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
@@ -62,6 +63,10 @@ auto main(int argc, char** argv) -> int {
           }
         });
     control_loop.RegisterNode(solver_node);
+
+    auto simulation_position_sender_node =
+        std::make_shared<simulation::SimulationPositionSenderNode>("pose");
+    control_loop.RegisterNode(simulation_position_sender_node);
   }
 
   control_loop.Start();
