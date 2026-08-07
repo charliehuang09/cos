@@ -88,7 +88,7 @@ void JpegDiskCamera::Callback(const control_loop::Context& context) {
 
   if (!image.has_value()) {
     if (stop_when_empty_ && file_paths_.empty()) {
-      stop::stop = true;
+      stop::RequestStop();
     }
     if (logging_) {
       LOG(WARNING) << output_channel_

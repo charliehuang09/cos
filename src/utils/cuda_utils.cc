@@ -1,4 +1,4 @@
-#include "utils/cuda.h"
+#include "utils/cuda_utils.h"
 
 #include "absl/log/check.h"
 
