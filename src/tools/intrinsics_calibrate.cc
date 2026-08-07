@@ -43,21 +43,11 @@ ABSL_FLAG(std::string, stream_path, "/calibration",     // NOLINT
 ABSL_FLAG(std::string, board_output_path,               // NOLINT
           "calibration_board.png",                     // NOLINT
           "path for the generated ChArUco board PNG");  // NOLINT
+ABSL_FLAG(bool, generate_board, false,                   // NOLINT
+          "generate the ChArUco board PNG");             // NOLINT
 ABSL_FLAG(std::string, intrinsics_output_path,          // NOLINT
           "intrinsics.json",                           // NOLINT
           "path for the generated intrinsics JSON");    // NOLINT
-ABSL_FLAG(int, squares_x, 11,                            // NOLINT
-          "number of ChArUco board squares in x");       // NOLINT
-ABSL_FLAG(int, squares_y, 8,                             // NOLINT
-          "number of ChArUco board squares in y");       // NOLINT
-ABSL_FLAG(double, square_length, 0.03,                   // NOLINT
-          "ChArUco square side length, in calibration units");  // NOLINT
-ABSL_FLAG(double, marker_length, 0.022,                  // NOLINT
-          "ArUco marker side length, in calibration units");  // NOLINT
-ABSL_FLAG(int, pixels_per_square, 200,                   // NOLINT
-          "generated board pixels per square");          // NOLINT
-ABSL_FLAG(int, margin_squares, 1,                        // NOLINT
-          "generated board margin, in square widths");   // NOLINT
 ABSL_FLAG(int, jpeg_quality, 85,                         // NOLINT
           "annotated MJPEG JPEG quality");               // NOLINT
 
@@ -65,6 +55,13 @@ namespace {
 
 using json = nlohmann::json;
 using MJPEGStreamer = nadjieb::MJPEGStreamer;
+
+constexpr static int ksquares_x = 12;
+constexpr static int ksquares_y = 9;
+constexpr static float ksquares_length = 0.025;
+constexpr static float kpixel_per_square = 128;
+constexpr static float kmarker_length = 0.020;
+constexpr static int kmargin_squares = 0;
 
 struct DetectionResult {
   cv::Mat charuco_corners;
@@ -106,10 +103,7 @@ auto IntrinsicsToJson(const cv::Mat& camera_matrix, const cv::Mat& dist_coeffs)
 
 auto CreateBoard() -> cv::aruco::CharucoBoard {
   return cv::aruco::CharucoBoard(
-      cv::Size(absl::GetFlag(FLAGS_squares_x),
-               absl::GetFlag(FLAGS_squares_y)),
-      static_cast<float>(absl::GetFlag(FLAGS_square_length)),
-      static_cast<float>(absl::GetFlag(FLAGS_marker_length)),
+      cv::Size(ksquares_x, ksquares_y), ksquares_length, kmarker_length,
       cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_250));
 }
 
@@ -121,17 +115,16 @@ auto CreateDetector(const cv::aruco::CharucoBoard& board)
 }
 
 auto GenerateBoardImage(const cv::aruco::CharucoBoard& board) -> cv::Mat {
-  const int pixels_per_square = absl::GetFlag(FLAGS_pixels_per_square);
-  const int margin_squares = absl::GetFlag(FLAGS_margin_squares);
   const cv::Size image_size(
-      (absl::GetFlag(FLAGS_squares_x) + 2 * margin_squares) *
-          pixels_per_square,
-      (absl::GetFlag(FLAGS_squares_y) + 2 * margin_squares) *
-          pixels_per_square);
+      static_cast<int>((ksquares_x + 2 * kmargin_squares) *
+                       kpixel_per_square),
+      static_cast<int>((ksquares_y + 2 * kmargin_squares) *
+                       kpixel_per_square));
 
   cv::Mat board_image;
-  board.generateImage(image_size, board_image, margin_squares * pixels_per_square,
-                      1);
+  board.generateImage(
+      image_size, board_image,
+      static_cast<int>(kmargin_squares * kpixel_per_square), 1);
   return board_image;
 }
 
@@ -223,9 +216,13 @@ auto main(int argc, char* argv[]) -> int {
   const cv::aruco::CharucoBoard board = CreateBoard();
   const cv::aruco::CharucoDetector detector = CreateDetector(board);
 
-  const cv::Mat board_image = GenerateBoardImage(board);
-  CHECK(cv::imwrite(absl::GetFlag(FLAGS_board_output_path), board_image))
-      << "Failed to write " << absl::GetFlag(FLAGS_board_output_path);
+  if (absl::GetFlag(FLAGS_generate_board)) {
+    const cv::Mat board_image = GenerateBoardImage(board);
+    CHECK(cv::imwrite(absl::GetFlag(FLAGS_board_output_path), board_image))
+        << "Failed to write " << absl::GetFlag(FLAGS_board_output_path);
+    std::cout << "Wrote board to "
+              << absl::GetFlag(FLAGS_board_output_path) << std::endl;
+  }
 
   camera::UVCCameraConfig config(absl::GetFlag(FLAGS_config_path));
   auto camera_node =
@@ -304,9 +301,7 @@ auto main(int argc, char* argv[]) -> int {
   camera_node->Start();
   control_loop.Start();
 
-  std::cout << "Wrote board to " << absl::GetFlag(FLAGS_board_output_path)
-            << '\n'
-            << "Streaming annotated frames on port "
+  std::cout << "Streaming annotated frames on port "
             << absl::GetFlag(FLAGS_port) << absl::GetFlag(FLAGS_stream_path)
             << '\n'
             << "Press Enter to capture a frame, or type q then Enter to "
