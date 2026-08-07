@@ -6,5 +6,10 @@ target_sources(simulation_position_sender_node
 target_link_libraries(simulation_position_sender_node PRIVATE
   absl::log
   ixwebsocket
+  wpilibc
+  nlohmann_json::nlohmann_json
+)
+target_compile_options(simulation_position_sender_node PRIVATE
+  $<$<CXX_COMPILER_ID:GNU>:-Wno-array-bounds>
 )
 

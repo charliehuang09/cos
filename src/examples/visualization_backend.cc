@@ -25,9 +25,10 @@ void stop(int) {
 
 auto makePose(double seconds) -> std::string {
   (void)seconds;
-  const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
-                             .count();
+  const auto timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
 
   std::ostringstream json;
   json.setf(std::ios::fixed);
@@ -46,51 +47,62 @@ auto main() -> int {
 
   ix::initNetSystem();
   ix::WebSocketServer server(kPort, "127.0.0.1");
-  server.setOnConnectionCallback([](const std::weak_ptr<ix::WebSocket>& webSocket,
-                                    const std::shared_ptr<ix::ConnectionState>& connectionState) -> void {
-    const auto socket = webSocket.lock();
-    if (!socket) return;
-
-    socket->setOnMessageCallback([webSocket, connectionState](const ix::WebSocketMessagePtr& message) -> void {
-      const auto socket = webSocket.lock();
-      if (!socket) return;
-
-      if (message->type == ix::WebSocketMessageType::Open) {
-        if (message->openInfo.uri != "/robot") {
-          socket->close(1008, "Only /robot is available");
+  server.setOnConnectionCallback(
+      [](const std::weak_ptr<ix::WebSocket>& webSocket,
+         const std::shared_ptr<ix::ConnectionState>& connectionState) -> void {
+        const auto socket = webSocket.lock();
+        if (!socket)
           return;
-        }
 
-        std::lock_guard lock(clientsMutex);
-        clients.insert(socket);
-        std::cout << "Viewer connected from " << connectionState->getRemoteIp() << "\n";
-      } else if (message->type == ix::WebSocketMessageType::Close) {
-        std::lock_guard lock(clientsMutex);
-        clients.erase(socket);
-      }
-    });
-  });
+        socket->setOnMessageCallback(
+            [webSocket,
+             connectionState](const ix::WebSocketMessagePtr& message) -> void {
+              const auto socket = webSocket.lock();
+              if (!socket)
+                return;
+
+              if (message->type == ix::WebSocketMessageType::Open) {
+                if (message->openInfo.uri != "/robot") {
+                  socket->close(1008, "Only /robot is available");
+                  return;
+                }
+
+                std::lock_guard lock(clientsMutex);
+                clients.insert(socket);
+                std::cout << "Viewer connected from "
+                          << connectionState->getRemoteIp() << "\n";
+              } else if (message->type == ix::WebSocketMessageType::Close) {
+                std::lock_guard lock(clientsMutex);
+                clients.erase(socket);
+              }
+            });
+      });
 
   const auto [listening, error] = server.listen();
   if (!listening) {
-    std::cerr << "Unable to listen on ws://127.0.0.1:" << kPort << "/robot: " << error << "\n";
+    std::cerr << "Unable to listen on ws://127.0.0.1:" << kPort
+              << "/robot: " << error << "\n";
     ix::uninitNetSystem();
     return 1;
   }
 
   server.start();
-  std::cout << "Robot test server listening at ws://127.0.0.1:" << kPort << "/robot\n";
+  std::cout << "Robot test server listening at ws://127.0.0.1:" << kPort
+            << "/robot\n";
 
   const auto startedAt = std::chrono::steady_clock::now();
   while (keepRunning) {
-    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - startedAt).count();
+    const double seconds = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - startedAt)
+                               .count();
     const std::string pose = makePose(seconds);
     std::set<std::shared_ptr<ix::WebSocket>> connectedClients;
     {
       std::lock_guard lock(clientsMutex);
       connectedClients = clients;
     }
-    for (const auto& client : connectedClients) client->send(pose);
+    for (const auto& client : connectedClients)
+      client->send(pose);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 
