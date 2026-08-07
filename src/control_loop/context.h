@@ -36,6 +36,17 @@ struct ContextInternal {
     return dynamic_cast<T*>(message_it->second.get());
   }
 
+  template <typename T>
+  auto GetMessage(std::string& path, bool& exists) const -> T* {
+    std::lock_guard lock(messages_mutex_);
+    exists = messages_.contains(path);
+    const auto message_it = messages_.find(std::string(path));
+    if (message_it == messages_.end()) {
+      return nullptr;
+    }
+    return dynamic_cast<T*>(message_it->second.get());
+  }
+
   void SetMessage(std::string_view path, std::unique_ptr<IMessage> message) {
     std::lock_guard lock(messages_mutex_);
     messages_.emplace(path, std::move(message));

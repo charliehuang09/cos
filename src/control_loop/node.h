@@ -6,6 +6,10 @@
 #include "control_loop/message.h"
 namespace control_loop {
 
+// If a node declares a publication, it must setMessage when its callback is run.
+// If it fails to produce a message, it should set the message to nullptr
+// If a node has dependencies, it cannot assume that all the messages are there. It should call Exists to find out.
+// Let X be the number of dependencies nodes a given node has. That node's callback will be called X times per control loop
 class INode {
  public:
   virtual ~INode() = default;

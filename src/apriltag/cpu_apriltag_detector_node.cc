@@ -33,9 +33,13 @@ CpuApriltagDetectorNode::CpuApriltagDetectorNode(
 auto CpuApriltagDetectorNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
+    bool exists;
     const auto* image =
-        context->GetMessage<camera::DecodedImageBuffer>(input_channel_);
+        context->GetMessage<camera::DecodedImageBuffer>(input_channel_, exists);
+    CHECK(exists);
+
     if (image == nullptr) {
+      context->SetMessage(output_channel_, nullptr);
       for (const auto& callback : callbacks_) {
         callback(context);
       }

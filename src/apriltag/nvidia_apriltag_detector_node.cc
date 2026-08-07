@@ -122,6 +122,7 @@ auto NvidiaApriltagDetectorNode::CreateCallback()
 }
 
 void NvidiaApriltagDetectorNode::Callback(const Context& context) {
+  CHECK(context->Exists(input_channel_));
   auto* cuda_buffer =
       context->GetMessage<camera::DecodedJpegBuffer>(input_channel_);
   auto* fd_buffer =
