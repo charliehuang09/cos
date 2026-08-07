@@ -44,3 +44,23 @@ target_link_libraries(jpeg_disk_replay PRIVATE
   control_loop
   thread_pool
 )
+
+add_executable(intrinsics_calibrate)
+target_sources(intrinsics_calibrate
+  PRIVATE
+    intrinsics_calibrate.cc
+)
+target_link_libraries(intrinsics_calibrate PRIVATE
+  uvc_camera_node
+  control_loop
+  stop
+  absl::check
+  absl::flags_parse
+  absl::log_initialize
+  nadjieb_mjpeg_streamer::nadjieb_mjpeg_streamer
+  nlohmann_json::nlohmann_json
+  ${OpenCV_LIBS}
+)
+target_include_directories(intrinsics_calibrate PRIVATE
+  ${OpenCV_INCLUDE_DIRS}
+)
