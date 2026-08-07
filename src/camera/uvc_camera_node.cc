@@ -90,7 +90,7 @@ void UVCCameraNode::Callback(const control_loop::Context& context) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (buffer_ == nullptr) {
-      context->valid = false;
+      context->include_in_perfomance_metrics = false;
       context->SetMessage(output_path_, nullptr);
       LOG(WARNING) << name_ << " did not produce a frame for this cycle";
     } else {
