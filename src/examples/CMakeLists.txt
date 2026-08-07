@@ -37,3 +37,11 @@ target_link_libraries(nvidia_apriltag_detect PRIVATE
   absl::log_initialize
   $<LINK_LIBRARY:WHOLE_ARCHIVE,absl::log_flags>
 )
+
+add_executable(visualization_backend)
+target_sources(visualization_backend PRIVATE
+  visualization_backend.cc
+)
+target_link_libraries(visualization_backend PRIVATE
+  ixwebsocket
+)
