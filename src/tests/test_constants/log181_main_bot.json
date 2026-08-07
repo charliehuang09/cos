@@ -1,0 +1,16 @@
+{
+  "cameras": [
+    {
+      "name": "main_bot_left",
+      "log_directory": "left",
+      "intrinsics_path": "main_bot/left_intrinsics.json",
+      "extrinsics_path": "main_bot/left_extrinsics.json"
+    },
+    {
+      "name": "main_bot_right",
+      "log_directory": "right",
+      "intrinsics_path": "main_bot/right_intrinsics.json",
+      "extrinsics_path": "main_bot/right_extrinsics.json"
+    }
+  ]
+}
