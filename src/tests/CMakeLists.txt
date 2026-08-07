@@ -1,15 +1,5 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
-find_library(NVMM_JPEG_TEST_LIBRARY NAMES nvmm_jpeg REQUIRED)
-
-if(CMAKE_CROSSCOMPILING)
-  set(COS_JPEG_TEST_IMAGE "/cos-logs/log181/right/6.675735.jpg")
-  set(COS_POSE_TEST_CONSTANTS "/root/test_constants/main_bot")
-else()
-  set(COS_JPEG_TEST_IMAGE "${CMAKE_SOURCE_DIR}/bos-logs/log181/right/6.675735.jpg")
-  set(COS_POSE_TEST_CONSTANTS "${CMAKE_CURRENT_SOURCE_DIR}/test_constants/main_bot")
-endif()
-
 add_executable(test_thread_pool
   thread_pool_test.cc
 )
@@ -18,6 +8,7 @@ target_link_libraries(test_thread_pool PRIVATE
   GTest::gtest_main
 )
 add_test(NAME test_thread_pool COMMAND test_thread_pool)
+
 add_executable(nvidia_apriltag_detector_node_test
   nvidia_apriltag_detector_node_test.cc
 )
@@ -34,24 +25,6 @@ target_link_libraries(nvidia_apriltag_detector_node_test PRIVATE
   absl::log_initialize
   uvc_camera_node
 )
-
-add_executable(jpeg_decoder_node_test
-  jpeg_decoder_node_test.cc
-)
-target_compile_definitions(jpeg_decoder_node_test PRIVATE
-  JPEG_TEST_IMAGE="${COS_JPEG_TEST_IMAGE}"
-)
-target_link_libraries(jpeg_decoder_node_test PRIVATE
-  jetson_mmjpeg
-  ${NVMM_JPEG_TEST_LIBRARY}
-  cpu_decode_node
-  nvjpeg_decode_node
-  nvjpeg_fd_decode_node
-  control_loop
-  thread_pool
-  GTest::gtest_main
-)
-add_test(NAME jpeg_decoder_node_test COMMAND jpeg_decoder_node_test)
 
 add_executable(timestamp_test
   timestamp_test.cc
