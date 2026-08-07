@@ -23,8 +23,6 @@ using control_loop::Context;
 
 namespace {
 
-constexpr VPIBackend kBackend = VPI_BACKEND_PVA;
-
 auto CheckCuda(cudaError_t status) -> void {
   CHECK(status == cudaSuccess) << cudaGetErrorString(status);
 }
@@ -38,14 +36,16 @@ static const int max_detections = 64;
 
 NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
     std::string_view input_channel, std::string_view output_channel,
-    std::string_view config_path, control_loop::ThreadPool& thread_pool)
+    std::string_view config_path, control_loop::ThreadPool& thread_pool,
+    bool PVA)
     : input_channel_(input_channel),
       output_channel_(output_channel),
       thread_pool_(thread_pool),
       dependencies_({{input_channel_,
                       {typeid(camera::DecodedJpegBuffer),
                        typeid(camera::DecodedJpegFdBuffer)}}}),
-      publications_({{output_channel_, typeid(TagDetections)}}) {
+      publications_({{output_channel_, typeid(TagDetections)}}),
+      backend_(PVA ? VPI_BACKEND_PVA : VPI_BACKEND_CPU) {
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
   const nlohmann::json config = nlohmann::json::parse(config_file);
@@ -54,7 +54,7 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   CHECK(width_ > 0);
   CHECK(height_ > 0);
 
-  CHECK(!vpiCreateAprilTagDetector(kBackend, width_, height_, &params,
+  CHECK(!vpiCreateAprilTagDetector(backend_, width_, height_, &params,
                                    &payload_));
 
   CHECK(!vpiArrayCreate(max_detections, VPI_ARRAY_TYPE_APRILTAG_DETECTION, 0,
@@ -62,9 +62,9 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   // This detector only submits work to PVA. Enabling every stream backend also
   // initializes VPI's CUDA/EGL stack, whose process-exit finalizers conflict
   // with the CUDA context used by nvJPEG on Jetson.
-  CHECK(!vpiStreamCreate(kBackend | VPI_BACKEND_CPU, &stream_));
+  CHECK(!vpiStreamCreate(backend_ | VPI_BACKEND_CPU, &stream_));
   CHECK(!vpiImageCreate(width_, height_, VPI_IMAGE_FORMAT_U8,
-                        kBackend | VPI_BACKEND_CPU, &input_));
+                        backend_ | VPI_BACKEND_CPU, &input_));
 }
 
 NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
@@ -97,8 +97,9 @@ void NvidiaApriltagDetectorNode::WarmUp() {
   }
   CHECK(!vpiImageUnlock(input_));
 
-  CHECK(!vpiSubmitAprilTagDetector(stream_, kBackend, payload_, max_detections,
-                                   input_, detections_));
+  CHECK_EQ(vpiSubmitAprilTagDetector(stream_, backend_, payload_,
+                                     max_detections, input_, detections_),
+           VPI_SUCCESS);
   CHECK(!vpiStreamSync(stream_));
 }
 
@@ -197,8 +198,9 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
 
 auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
     -> std::vector<TagDetections::tag_detection> {
-  CHECK(!vpiSubmitAprilTagDetector(stream_, kBackend, payload_, max_detections,
-                                   image, detections_));
+  CHECK_EQ(vpiSubmitAprilTagDetector(stream_, backend_, payload_,
+                                     max_detections, image, detections_),
+           VPI_SUCCESS);
 
   CHECK(!vpiStreamSync(stream_));
 

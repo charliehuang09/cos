@@ -24,7 +24,8 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode,
   NvidiaApriltagDetectorNode(std::string_view input_channel,
                              std::string_view output_channel,
                              std::string_view config_path,
-                             control_loop::ThreadPool& thread_pool);
+                             control_loop::ThreadPool& thread_pool,
+                             bool PVA = true);
   ~NvidiaApriltagDetectorNode() override;
   void WarmUp();
   void RegisterCallback(const std::function<void(const control_loop::Context&)>&
@@ -64,6 +65,7 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode,
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::optional<std::string> latency_channel_ = std::nullopt;
+  VPIBackend backend_;
 };
 
 }  // namespace apriltag
