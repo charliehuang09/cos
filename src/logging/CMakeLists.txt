@@ -7,3 +7,6 @@ target_link_libraries(jpeg_buffer_log_node PRIVATE
   absl::log
 )
 
+add_library(wpilog_writer)
+target_sources(wpilog_writer PRIVATE wpilog_writer.cc)
+target_link_libraries(wpilog_writer PRIVATE wpilibc)
