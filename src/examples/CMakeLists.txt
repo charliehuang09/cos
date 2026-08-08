@@ -47,3 +47,13 @@ target_sources(visualization_backend PRIVATE
 target_link_libraries(visualization_backend PRIVATE
   ixwebsocket
 )
+
+add_executable(gpu_apriltag)
+target_sources(gpu_apriltag PRIVATE
+  gpu_apriltag.cc
+)
+target_link_libraries(gpu_apriltag PRIVATE
+  absl::log
+  absl::check
+  ${OpenCV_LIBS}
+)
