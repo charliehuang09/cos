@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <queue>
 #include <thread>
 #include <vector>
@@ -10,12 +11,17 @@
 #include "control_loop/context.h"
 #include "control_loop/node.h"
 
+namespace logging {
+class WPILogWriter;
+}  // namespace logging
+
 namespace control_loop {
 
 class ControlLoop {
  public:
   ControlLoop(
       std::chrono::milliseconds frequency = std::chrono::milliseconds(10));
+  ~ControlLoop();
   void RegisterCallback(const std::function<void(const Context&)>& callback);
   void RegisterDependancy(const std::function<void(const Context&)>&);
   void RegisterNode(const std::shared_ptr<INode>& node);
@@ -25,10 +31,14 @@ class ControlLoop {
   void Stop();
   [[nodiscard]] auto GetLoopsPerSecond() const -> double;
   void SetMaxContext(size_t max_contexts);
+  [[nodiscard]] auto GetPublications() const -> std::vector<MessageDescriptor>;
 
  private:
+  friend struct ContextInternal;
+
   void ValidateNodeGraph();
   void RegisterNodeCallbacks();
+  void LogContext(const ContextInternal& context);
 
  private:
   std::jthread thread_;
@@ -40,6 +50,7 @@ class ControlLoop {
   bool log_latency_ = false;
   std::queue<std::chrono::steady_clock::time_point> timestamp_queue_;
   std::atomic<double> loops_per_second_ = -1;
+  std::unique_ptr<logging::WPILogWriter> wpilog_writer_;
   std::vector<std::shared_ptr<ContextInternal>> contexts_;
   size_t max_contexts_ = 1;
   std::uint64_t loop_count_ = 0;
