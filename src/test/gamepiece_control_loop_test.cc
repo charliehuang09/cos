@@ -231,7 +231,7 @@ TEST(GamepieceControlLoopTest, KeepsInFlightFrameAndConsumesLatestFrame) {
   loop.Stop();
 
   EXPECT_TRUE(first_frame.expired());
-  EXPECT_FALSE(third_frame.expired());
+  EXPECT_TRUE(third_frame.expired());
   EXPECT_FALSE(copied_localization_message);
   EXPECT_EQ(std::ranges::find(observed_timestamps, 2.0),
             observed_timestamps.end());

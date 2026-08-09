@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -21,7 +22,8 @@ namespace gamepiece {
 // the latest decoded frame from each registered decoder channel.
 class GamepieceControlLoop {
  public:
-  GamepieceControlLoop();
+  explicit GamepieceControlLoop(
+      std::chrono::milliseconds period = std::chrono::milliseconds(20));
   ~GamepieceControlLoop();
 
   GamepieceControlLoop(const GamepieceControlLoop&) = delete;
@@ -43,9 +45,7 @@ class GamepieceControlLoop {
   void Run(std::stop_token stop_token);
 
   std::shared_ptr<DecodedFrameState> decoded_frame_state_;
-  // The context for the currently running gamepiece iteration. Keeping this
-  // on the loop mirrors ControlLoop's context ownership and makes its
-  // lifetime explicit while callbacks are being dispatched.
+  std::chrono::milliseconds period_;
   control_loop::Context context_;
   std::vector<std::string> decoded_channels_in_order_;
   std::vector<std::vector<

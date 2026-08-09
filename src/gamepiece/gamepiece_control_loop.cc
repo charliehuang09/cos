@@ -22,8 +22,11 @@ struct GamepieceControlLoop::DecodedFrameState {
   std::vector<double> timestamps;
 };
 
-GamepieceControlLoop::GamepieceControlLoop()
-    : decoded_frame_state_(std::make_shared<DecodedFrameState>()) {}
+GamepieceControlLoop::GamepieceControlLoop(std::chrono::milliseconds period)
+    : decoded_frame_state_(std::make_shared<DecodedFrameState>()),
+      period_(period) {
+  CHECK_GT(period_.count(), 0);
+}
 
 GamepieceControlLoop::~GamepieceControlLoop() { Stop(); }
 
@@ -159,22 +162,28 @@ void GamepieceControlLoop::RegisterNodeCallbacks() {
 }
 
 void GamepieceControlLoop::Run(std::stop_token stop_token) {
+  auto next_tick = std::chrono::steady_clock::now() + period_;
   while (!stop_token.stop_requested()) {
     std::vector<std::shared_ptr<camera::DecodedJpegBuffer>> decoded_buffers;
     std::vector<double> timestamps;
     {
       std::unique_lock lock(decoded_frame_state_->mutex);
-      decoded_frame_state_->frame_available.wait(lock, [&] {
-        return stop_token.stop_requested() ||
-               std::ranges::any_of(
-                   decoded_frame_state_->decoded_buffers,
-                   [](const auto& buffer) { return buffer != nullptr; });
-      });
+      decoded_frame_state_->frame_available.wait_until(
+          lock, next_tick,
+          [&] { return stop_token.stop_requested(); });
       if (stop_token.stop_requested()) {
         return;
       }
+      next_tick += period_;
+      if (!std::ranges::any_of(decoded_frame_state_->decoded_buffers,
+                               [](const auto& buffer) {
+                                 return buffer != nullptr;
+                               })) {
+        continue;
+      }
       decoded_buffers = decoded_frame_state_->decoded_buffers;
       timestamps = decoded_frame_state_->timestamps;
+      std::ranges::fill(decoded_frame_state_->decoded_buffers, nullptr);
     }
 
     std::stop_source iteration_stop_source;
