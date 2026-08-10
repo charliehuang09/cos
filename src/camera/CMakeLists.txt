@@ -54,7 +54,7 @@ target_include_directories(jetson_mmjpeg
     "${CMAKE_CURRENT_BINARY_DIR}/nvjpeg-headers"
 )
 target_compile_definitions(jetson_mmjpeg PRIVATE TEGRA_ACCELERATE)
-target_compile_options(jetson_mmjpeg PRIVATE -Wno-unused-parameter)
+target_compile_options(jetson_mmjpeg PRIVATE -Wno-unused-parameter -Wno-extra)
 target_link_libraries(jetson_mmjpeg
   PUBLIC
     ${NVMM_JPEG_LIBRARY}

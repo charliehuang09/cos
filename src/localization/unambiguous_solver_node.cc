@@ -240,6 +240,7 @@ auto UnambiguousSolverNode::GetAmbiguousEstimates(
 auto UnambiguousSolverNode::Solve(
     const std::vector<ambiguous_estimate_t*>& estimates, bool reject_far_tags)
     -> std::optional<position_estimate_t> {
+  (void)reject_far_tags;  // TODO
   std::vector<ambiguous_estimate_t> filtered_estimates;
   filtered_estimates.reserve(estimates.size());
   for (const ambiguous_estimate_t* estimate : estimates) {
