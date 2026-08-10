@@ -11,6 +11,10 @@
 
 #include "control_loop/message.h"
 
+namespace logging {
+class WPILogWriter;
+}  // namespace logging
+
 namespace control_loop {
 
 class ControlLoop;
@@ -68,6 +72,8 @@ struct ContextInternal {
   const std::uint64_t id;
 
  private:
+  friend class logging::WPILogWriter;
+
   mutable std::mutex messages_mutex_;
   std::unordered_map<std::string, std::unique_ptr<IMessage>> messages_;
 };

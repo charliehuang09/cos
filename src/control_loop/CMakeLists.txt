@@ -9,6 +9,7 @@ target_compile_options(control_loop PRIVATE
 target_link_libraries(control_loop PRIVATE
   absl::log
   timer
+  wpilog_writer
 )
 
 find_package(Threads REQUIRED)

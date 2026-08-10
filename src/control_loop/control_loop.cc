@@ -6,6 +6,7 @@
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "logging/wpilog_writer.h"
 
 using namespace std::chrono_literals;
 
@@ -19,13 +20,26 @@ ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
       stop_token(std::move(stop_token)),
       id(id) {}
 
-ContextInternal::~ContextInternal() = default;
+ContextInternal::~ContextInternal() {
+  if (control_loop != nullptr) {
+    control_loop->LogContext(*this);
+  }
+}
 
 ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
+
+ControlLoop::~ControlLoop() {
+  Stop();
+  contexts_.clear();
+  if (wpilog_writer_ != nullptr) {
+    wpilog_writer_->Close();
+  }
+}
 
 void ControlLoop::Start() {
   ValidateNodeGraph();
   RegisterNodeCallbacks();
+  wpilog_writer_ = std::make_unique<logging::WPILogWriter>(*this);
 
   contexts_.reserve(max_contexts_);
   for (size_t i = 0; i < max_contexts_; i++) {
@@ -105,18 +119,6 @@ void ControlLoop::EnableLatencyLog() {
 
 void ControlLoop::ValidateNodeGraph() {
   std::unordered_map<std::string, std::type_index> publishers;
-  for (const auto& node : dependancy_nodes_) {
-    for (const auto& message_descriptor : node->GetPublications()) {
-      PCHECK(!publishers.contains(message_descriptor.GetChannel()))
-          << "Multiple publishers to the same channel. Channel is: "
-          << message_descriptor.GetChannel();
-      PCHECK(message_descriptor.GetTypes().size() == 1)
-          << "Publisher message descriptor has multiple types. Channel is: "
-          << message_descriptor.GetChannel();
-      publishers.insert({message_descriptor.GetChannel(),
-                         *message_descriptor.GetTypes().begin()});
-    }
-  }
   for (const auto& node : nodes_) {
     for (const auto& message_descriptor : node->GetPublications()) {
       PCHECK(!publishers.contains(message_descriptor.GetChannel()))
@@ -127,19 +129,6 @@ void ControlLoop::ValidateNodeGraph() {
           << message_descriptor.GetChannel();
       publishers.insert({message_descriptor.GetChannel(),
                          *message_descriptor.GetTypes().begin()});
-    }
-  }
-  for (const auto& node : nodes_) {
-    for (const auto& message_descriptor : node->GetDependencies()) {
-      PCHECK(publishers.contains(message_descriptor.GetChannel()))
-          << "Node channel dependancy does has not been registered. Channel "
-             "is: "
-          << message_descriptor.GetChannel();
-      PCHECK(message_descriptor.GetTypes().contains(
-          publishers.at(message_descriptor.GetChannel())))
-          << "Publisher and subscriber channel type does not match. Channel "
-             "is: "
-          << message_descriptor.GetChannel();
     }
   }
 }
@@ -171,6 +160,25 @@ auto ControlLoop::GetLoopsPerSecond() const -> double {
 
 void ControlLoop::SetMaxContext(size_t max_contexts) {
   max_contexts_ = max_contexts;
+}
+
+auto ControlLoop::GetPublications() const -> std::vector<MessageDescriptor> {
+  std::vector<MessageDescriptor> publications;
+  for (const auto& node : dependancy_nodes_) {
+    const std::vector<MessageDescriptor>& node_pubs = node->GetPublications();
+    publications.insert(publications.end(), node_pubs.begin(), node_pubs.end());
+  }
+  for (const auto& node : nodes_) {
+    const std::vector<MessageDescriptor>& node_pubs = node->GetPublications();
+    publications.insert(publications.end(), node_pubs.begin(), node_pubs.end());
+  }
+  return publications;
+}
+
+void ControlLoop::LogContext(const ContextInternal& context) {
+  if (wpilog_writer_ != nullptr) {
+    wpilog_writer_->Write(context);
+  }
 }
 
 }  // namespace control_loop
