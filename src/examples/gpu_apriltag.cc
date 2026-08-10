@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <opencv2/opencv.hpp>
 
 #include "absl/container/flat_hash_map.h"
@@ -295,6 +296,48 @@ void PopulateBoundarySegmentedApriltag(
   }
 }
 
+auto SortSegments(
+    absl::flat_hash_map<std::pair<uint, uint>,
+                        std::vector<std::pair<uint, uint>>>& segments) {
+  for (auto& [_, segment] : segments) {
+    auto sum = std::accumulate(
+        segment.begin(), segment.end(), std::pair<uint, uint>{0, 0},
+        [](std::pair<uint, uint> sum,
+           std::pair<uint, uint> value) -> std::pair<uint, uint> {
+          sum.first += value.first;
+          sum.second += value.second;
+          return sum;
+        });
+    std::pair<uint, uint> mean{sum.first / segment.size(),
+                               sum.second / segment.size()};
+
+    std::ranges::sort(
+        segment,
+        [&mean](std::pair<uint, uint> a, std::pair<uint, uint> b) -> bool {
+          double a_angle = std::atan2(
+              static_cast<double>(a.first) - static_cast<double>(mean.first),
+              static_cast<double>(a.second) - static_cast<double>(mean.second));
+          double b_angle = std::atan2(
+              static_cast<double>(b.first) - static_cast<double>(mean.first),
+              static_cast<double>(b.second) - static_cast<double>(mean.second));
+          return a_angle > b_angle;
+        });
+  }
+}
+
+void PopulateSortedBoundarySegmentedApriltag(
+    absl::flat_hash_map<std::pair<uint, uint>,
+                        std::vector<std::pair<uint, uint>>>& segments,
+    ImageView sorted_boundary_segmented_apriltag) {
+  for (auto& [_, segment] : segments) {
+    float size = segment.size();
+    for (uint i = 0; i < segment.size(); i++) {
+      uint8_t value = (i / size) * 255;
+      sorted_boundary_segmented_apriltag(segment[i].first, segment[i].second) =
+          value;
+    }
+  }
+}
 void DetectAprilTag(ImageView apriltag) {
   CHECK(apriltag.height % 4 == 0);
   CHECK(apriltag.width % 4 == 0);
@@ -351,6 +394,7 @@ void DetectAprilTag(ImageView apriltag) {
   ImWrite("/root/segmented_apriltag.png", segmented_apriltag);
 
   auto segments = GetSegments(segmented_apriltag);
+  SortSegments(segments);
 
   auto* boundary_segmented_apriltag_buffer = static_cast<uint32_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint32_t)));
@@ -362,12 +406,25 @@ void DetectAprilTag(ImageView apriltag) {
   PopulateBoundarySegmentedApriltag(segments, boundary_segmented_apriltag);
   ImWrite("/root/boundary_segmented_apriltag.png", boundary_segmented_apriltag);
 
+  auto* sorted_boundary_segmented_apriltag_buffer = static_cast<uint8_t*>(
+      calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
+  ImageView sorted_boundary_segmented_apriltag{
+      .data = sorted_boundary_segmented_apriltag_buffer,
+      .stride = apriltag.stride,
+      .height = apriltag.height,
+      .width = apriltag.width};
+  PopulateSortedBoundarySegmentedApriltag(segments,
+                                          sorted_boundary_segmented_apriltag);
+  ImWrite("/root/sorted_boundary_segmented_apriltag.png",
+          sorted_boundary_segmented_apriltag);
+
   free(min_buffer);
   free(max_buffer);
   free(threshold_buffer);
   free(valid_buffer);
   free(binarized_apriltag_buffer);
   free(boundary_segmented_apriltag_buffer);
+  free(sorted_boundary_segmented_apriltag_buffer);
 }
 
 auto main() -> int {
