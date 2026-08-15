@@ -46,7 +46,12 @@ struct CandidatesQuad {
   std::array<std::pair<uint, uint>, 4> corners{};
 };
 
-using BitLocation = std::array<std::array<std::pair<uint, uint>, 8>, 8>;
+struct ApriltagDetection {
+  Quad quad;
+  int id;
+};
+
+using BitLocation = std::array<std::array<std::pair<uint, uint>, 10>, 10>;
 
 void ImWrite(const std::string& path, const ImageView& image) {
   cv::Mat mat(image.height, image.width, CV_8UC1, image.data, image.stride);
@@ -202,7 +207,8 @@ inline void ApplyThreshold(uint8_t threshold, uint8_t valid, ImageView apriltag,
   if (valid == 0) {
     for (uint i = row; i < row + 4; i++) {
       for (uint j = col; j < col + 4; j++) {
-        binarized_apriltag(i, j) = 255 / 2;
+        binarized_apriltag(i, j) =
+            (apriltag(i, j) > threshold) ? (255 / 2) + 50 : (255 / 2) - 50;
       }
     }
   } else {
@@ -269,7 +275,7 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
   uint id = 1;
   for (uint i = 0; i < binarized_apriltag.height; i++) {
     for (uint j = 0; j < binarized_apriltag.width; j++) {
-      if (binarized_apriltag(i, j) != 255 / 2 &&
+      if ((binarized_apriltag(i, j) == 255 || binarized_apriltag(i, j) == 0) &&
           segmented_apriltag(i, j) == 0) {
         Segment(i, j, binarized_apriltag, segmented_apriltag, id++);
       }
@@ -597,28 +603,26 @@ auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
 
     std::pair<float, float> first_row_offset{quad.corners[0].first,
                                              quad.corners[0].second};
-    first_row_offset.first += first_row_vector.first / 2;
-    first_row_offset.second += first_row_vector.second / 2;
+    first_row_offset.first -= first_row_vector.first / 2;
+    first_row_offset.second -= first_row_vector.second / 2;
 
     std::pair<float, float> second_row_offset{quad.corners[3].first,
                                               quad.corners[3].second};
-    second_row_offset.first += second_row_vector.first / 2;
-    second_row_offset.second += second_row_vector.second / 2;
+    second_row_offset.first -= second_row_vector.first / 2;
+    second_row_offset.second -= second_row_vector.second / 2;
 
     std::pair<float, float> first_col_offset{quad.corners[0].first,
                                              quad.corners[0].second};
-    first_col_offset.first += first_col_vector.first / 2;
-    first_col_offset.second += first_col_vector.second / 2;
+    first_col_offset.first -= first_col_vector.first / 2;
+    first_col_offset.second -= first_col_vector.second / 2;
 
     std::pair<float, float> second_col_offset{quad.corners[1].first,
                                               quad.corners[1].second};
-    second_col_offset.first += second_col_vector.first / 2;
-    second_col_offset.second += second_col_vector.second / 2;
+    second_col_offset.first -= second_col_vector.first / 2;
+    second_col_offset.second -= second_col_vector.second / 2;
 
     BitLocation bit_location;
-    static_assert(bit_location.size() == 8);
-    static_assert(bit_location[0].size() == 8);
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 10; i++) {
 
       std::pair<float, float> first_row_position{
           first_row_offset.first + (i * first_row_vector.first),
@@ -632,7 +636,7 @@ auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
           second_row_position.first - first_row_position.first,
           second_row_position.second - first_row_position.second};
 
-      for (int j = 0; j < 8; j++) {
+      for (int j = 0; j < 10; j++) {
         std::pair<float, float> first_col_position{
             first_col_offset.first + (j * first_col_vector.first),
             first_col_offset.second + (j * first_col_vector.second)};
@@ -670,8 +674,8 @@ void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
                                   ImageView32 bit_locations_apriltag) {
   int idx = 0;
   for (const auto& bit_location : bit_locations) {
-    for (uint i = 0; i < 8; i++) {
-      for (uint j = 0; j < 8; j++) {
+    for (uint i = 0; i < 10; i++) {
+      for (uint j = 0; j < 10; j++) {
         bit_locations_apriltag(bit_location[i][j].first,
                                bit_location[i][j].second) = idx * 2222009;
       }
@@ -680,7 +684,125 @@ void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
   }
 }
 
-void DetectAprilTag(ImageView apriltag) {
+void PrintCode(const BitLocation& bit_location, ImageView binarized_apriltag) {
+  for (int i = 1; i <= 8; i++) {
+    for (int j = 1; j <= 8; j++) {
+      std::cout << static_cast<int>(
+                       binarized_apriltag(bit_location[i][j].first,
+                                          bit_location[i][j].second) > 255 / 2)
+                << " ";
+    }
+    std::cout << "\n";
+  }
+  std::cout << "----------------------------\n";
+}
+
+auto GetBlackWhiteThreshold(ImageView apriltag,
+                            const BitLocation& bit_location) {
+  float white = 0;
+  for (int i = 0; i < 10; i++) {
+    white += apriltag(bit_location[0][i].first, bit_location[0][i].second);
+    white += apriltag(bit_location[9][i].first, bit_location[9][i].second);
+    white += apriltag(bit_location[i][0].first, bit_location[i][0].second);
+    white += apriltag(bit_location[i][9].first, bit_location[i][9].second);
+  }
+  white /= 40;
+
+  float black = 0;
+  for (int i = 1; i < 9; i++) {
+    black += apriltag(bit_location[1][i].first, bit_location[1][i].second);
+    black += apriltag(bit_location[8][i].first, bit_location[8][i].second);
+    black += apriltag(bit_location[i][1].first, bit_location[i][1].second);
+    black += apriltag(bit_location[i][8].first, bit_location[i][8].second);
+  }
+  black /= 40;
+
+  return (white + black) / 2;
+}
+auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag,
+               apriltag_family_t* family)
+    -> std::pair<std::vector<int>, std::vector<int>> {
+  std::vector<int> tag_ids;
+  std::vector<int> rotations;
+  tag_ids.reserve(bit_locations.size());
+  rotations.reserve(bit_locations.size());
+  for (const auto& bit_location : bit_locations) {
+    uint64_t code = 0;
+    auto threshold = GetBlackWhiteThreshold(apriltag, bit_location);
+    for (uint32_t j = 0; j < family->nbits; j++) {
+      const auto x = family->bit_x[j];
+      const auto y = family->bit_y[j];
+
+      code <<= 1;
+      if (apriltag(bit_location[y + 1][x + 1].first,
+                   bit_location[y + 1][x + 1].second) > threshold) {
+        code |= 1ULL;
+      }
+    }
+    int tag_id = -1;
+    int rotation = -1;
+    for (int j = 0; j < 4; j++) {
+      constexpr int nbits = 36;
+      constexpr int shift = 9;
+      constexpr uint64_t mask = (1ULL << nbits) - 1;
+
+      for (uint32_t k = 0; k < family->ncodes; k++) {
+        int hamming = std::popcount(code ^ family->codes[k]);
+        if (hamming <= 2) {
+          tag_id = k;
+          LOG(INFO) << "Found tag: " << k << " " << hamming << " " << j;
+          rotation = j;
+          break;
+        }
+      }
+      code = ((code << shift) | (code >> (nbits - shift))) & mask;
+    }
+    tag_ids.push_back(tag_id);
+    rotations.push_back(rotation);
+  }
+  return {tag_ids, rotations};
+}
+
+void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations) {
+  CHECK_EQ(quads.size(), rotations.size());
+  Quad tmp_quad;
+  for (size_t i = 0; i < quads.size(); i++) {
+    if (rotations[i] == -1) {
+      continue;
+    }
+    static_assert(tmp_quad.corners.size() == 4);
+    for (int j = 0; j < 4; j++) {
+      tmp_quad.corners[(j + rotations[i]) % 4] = quads[i].corners[j];
+    }
+    for (int j = 0; j < 4; j++) {
+      quads[i].corners[j] = tmp_quad.corners[j];
+    }
+  }
+}
+
+void DrawTagDetections(cv::Mat& image,
+                       const std::vector<ApriltagDetection>& detections) {
+
+  for (const auto& detection : detections) {
+    std::array<cv::Point, 4> points;
+
+    for (int j = 0; j < 4; ++j) {
+      points[j] = cv::Point{static_cast<int>(detection.quad.corners[j].second),
+                            static_cast<int>(detection.quad.corners[j].first)};
+    }
+
+    for (int j = 0; j < 4; ++j) {
+      cv::line(image, points[j], points[(j + 1) % 4], cv::Scalar(0, 255, 0), 2);
+    }
+
+    cv::circle(image, points[0], 5, cv::Scalar(0, 0, 255), -1);
+    cv::putText(image, "ID: " + std::to_string(detection.id),
+                points[0] + cv::Point(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                cv::Scalar(0, 255, 0), 2);
+  }
+}
+
+auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
   CHECK(apriltag.height % 4 == 0);
   CHECK(apriltag.width % 4 == 0);
   auto* max_buffer = static_cast<uint8_t*>(
@@ -811,6 +933,18 @@ void DetectAprilTag(ImageView apriltag) {
   PopulateBitLocationsApriltag(bit_locations, bit_locations_apriltag);
   ImWrite("/root/bit_locations_apriltag.png", bit_locations_apriltag);
 
+  apriltag_family_t* family = tag36h11_create();
+  auto [tag_ids, rotations] = GetTagIds(bit_locations, apriltag, family);
+  RotateQuads(quads, rotations);
+
+  std::vector<ApriltagDetection> detections;
+  CHECK_EQ(tag_ids.size(), rotations.size());
+  for (size_t i = 0; i < tag_ids.size(); i++) {
+    if (tag_ids[i] != -1) {
+      detections.emplace_back(quads[i], tag_ids[i]);
+    }
+  }
+
   free(max_buffer);
   free(min_buffer);
   free(threshold_buffer);
@@ -822,6 +956,8 @@ void DetectAprilTag(ImageView apriltag) {
   free(candidate_quad_corners_apriltag_buffer);
   free(quad_apriltag_buffer);
   free(bit_locations_apriltag_buffer);
+
+  return detections;
 }
 
 auto main() -> int {
@@ -831,6 +967,9 @@ auto main() -> int {
   uint height = apriltag.rows;
   uint width = apriltag.cols;
   CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
-  DetectAprilTag(ImageView{
+  auto detections = DetectAprilTag(ImageView{
       .data = pixels, .stride = width, .height = height, .width = width});
+  auto annotated_apriltag = apriltag.clone();
+  DrawTagDetections(annotated_apriltag, detections);
+  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
 }
