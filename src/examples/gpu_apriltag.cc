@@ -288,21 +288,34 @@ auto GetSegments(ImageView32 segmented_apriltag)
   absl::flat_hash_map<std::pair<uint, uint>,
                       absl::flat_hash_set<std::pair<uint, uint>>>
       segments_set;
-  for (uint i = 1; i < segmented_apriltag.height - 1; i++) {
-    for (uint j = 1; j < segmented_apriltag.width - 1; j++) {
+  for (uint i = 0; i < segmented_apriltag.height - 1; i += 1) {
+    for (uint j = 0; j < segmented_apriltag.width - 1; j += 1) {
       if (segmented_apriltag(i, j) != 0) {
+        constexpr uint dx = 0;
+        constexpr uint dy = 1;
         auto id = segmented_apriltag(i, j);
-        constexpr std::array<int, 4> dx_array = {0, 0, 1, -1};
-        constexpr std::array<int, 4> dy_array = {-1, 1, 0, 0};
-        for (const auto& dx : dx_array) {
-          for (const auto& dy : dy_array) {
-            auto neighbor_id = segmented_apriltag(i + dx, j + dy);
-            if (neighbor_id != 0 && neighbor_id != id) {
-              segments_set[{std::max(id, neighbor_id),
-                            std::min(id, neighbor_id)}]
-                  .emplace(i + dx, j + dy);
-            }
-          }
+        auto neighbor_id = segmented_apriltag(i + dx, j + dy);
+        if (neighbor_id != 0 && neighbor_id != id) {
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i + dx, j + dy);
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i, j);
+        }
+      }
+    }
+  }
+  for (uint i = 0; i < segmented_apriltag.height - 1; i += 1) {
+    for (uint j = 0; j < segmented_apriltag.width - 1; j += 1) {
+      if (segmented_apriltag(i, j) != 0) {
+        constexpr uint dx = 1;
+        constexpr uint dy = 0;
+        auto id = segmented_apriltag(i, j);
+        auto neighbor_id = segmented_apriltag(i + dx, j + dy);
+        if (neighbor_id != 0 && neighbor_id != id) {
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i + dx, j + dy);
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i, j);
         }
       }
     }
