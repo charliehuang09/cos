@@ -9,15 +9,56 @@
 #include <opencv2/opencv.hpp>
 
 namespace {
-void PopulateColor(uint id, uint8_t& r, uint8_t& g, uint8_t& b) {
+[[gnu::always_inline]]
+void inline PopulateColor(uint id, uint8_t& r, uint8_t& g, uint8_t& b) {
   r = (id * 2222009) % 256;
   g = (id * 2222022) % 256;
   b = (id * 2222222) % 256;
 }
 
-auto SolveQuadratic(float a, float b, float c) -> std::pair<float, float> {
+[[gnu::always_inline]]
+auto inline SolveQuadratic(float a, float b, float c)
+    -> std::pair<float, float> {
   float determinant = std::sqrt((b * b) - (4 * a * c));
   return {(-b + determinant) / (2 * a), (-b - determinant) / (2 * a)};
+}
+
+[[gnu::always_inline]]
+void inline GetMinMax(apriltag::ImageView apriltag, uint row, uint col,
+                      uint8_t& min, uint8_t& max) {
+  row *= 4;
+  col *= 4;
+  min = apriltag(row, col);
+  max = apriltag(row, col);
+  for (uint i = 0; i < 4; i++) {
+    for (uint j = 0; j < 4; j++) {
+      min = std::min(min, (apriltag(row + i, col + j)));
+      max = std::max(min, (apriltag(row + i, col + j)));
+    }
+  }
+}
+
+[[gnu::always_inline]]
+void inline ApplyThreshold(uint8_t threshold, uint8_t valid,
+                           apriltag::ImageView apriltag,
+                           apriltag::ImageView binarized_apriltag, uint row,
+                           uint col) {
+  row *= 4;
+  col *= 4;
+  if (valid == 0) {
+    for (uint i = row; i < row + 4; i++) {
+      for (uint j = col; j < col + 4; j++) {
+        binarized_apriltag(i, j) =
+            (apriltag(i, j) > threshold) ? (255 / 2) + 50 : (255 / 2) - 50;
+      }
+    }
+  } else {
+    for (uint i = row; i < row + 4; i++) {
+      for (uint j = col; j < col + 4; j++) {
+        binarized_apriltag(i, j) = (apriltag(i, j) > threshold) ? 255 : 0;
+      }
+    }
+  }
 }
 
 [[maybe_unused]]
@@ -105,20 +146,6 @@ void ImWrite(const std::string& path, ImageView32 segmented_apriltag) {
   free(segmented_apriltag_buffer_b);
 }
 
-void GetMinMax(ImageView apriltag, uint row, uint col, uint8_t& min,
-               uint8_t& max) {
-  row *= 4;
-  col *= 4;
-  min = apriltag(row, col);
-  max = apriltag(row, col);
-  for (uint i = 0; i < 4; i++) {
-    for (uint j = 0; j < 4; j++) {
-      min = std::min(min, (apriltag(row + i, col + j)));
-      max = std::max(min, (apriltag(row + i, col + j)));
-    }
-  }
-}
-
 void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max) {
   for (uint i = 0; i < min.height; i++) {
     for (uint j = 0; j < min.width; j++) {
@@ -175,26 +202,6 @@ void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
       });
       threshold(i, j) = (max_value / 2) + (min_value / 2);
       valid(i, j) = max_value - min_value > 50 ? 255 : 0;
-    }
-  }
-}
-
-void ApplyThreshold(uint8_t threshold, uint8_t valid, ImageView apriltag,
-                    ImageView binarized_apriltag, uint row, uint col) {
-  row *= 4;
-  col *= 4;
-  if (valid == 0) {
-    for (uint i = row; i < row + 4; i++) {
-      for (uint j = col; j < col + 4; j++) {
-        binarized_apriltag(i, j) =
-            (apriltag(i, j) > threshold) ? (255 / 2) + 50 : (255 / 2) - 50;
-      }
-    }
-  } else {
-    for (uint i = row; i < row + 4; i++) {
-      for (uint j = col; j < col + 4; j++) {
-        binarized_apriltag(i, j) = (apriltag(i, j) > threshold) ? 255 : 0;
-      }
     }
   }
 }

@@ -52,16 +52,10 @@ void ImWrite(const std::string& path, const ImageView& image_r,
 
 void ImWrite(const std::string& path, ImageView32 segmented_apriltag);
 
-void GetMinMax(ImageView apriltag, uint row, uint col, uint8_t& min,
-               uint8_t& max);
-
 void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max);
 
 void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
                             ImageView valid);
-
-void ApplyThreshold(uint8_t threshold, uint8_t valid, ImageView apriltag,
-                    ImageView binarized_apriltag, uint row, uint col);
 
 void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
                                ImageView apriltag,
