@@ -15,9 +15,6 @@ extern "C" {
 
 using std::pair;
 
-const std::array<int, 4> dx_array = {0, 0, 1, -1};
-const std::array<int, 4> dy_array = {-1, 1, 0, 0};
-
 struct ImageView {
   uint8_t* data;
   uint stride;
@@ -57,7 +54,7 @@ using BitLocation = std::array<std::array<std::pair<uint, uint>, 10>, 10>;
 
 void ImWrite(const std::string& path, const ImageView& image) {
   cv::Mat mat(image.height, image.width, CV_8UC1, image.data, image.stride);
-  cv::imwrite(path, mat, {cv::IMWRITE_PNG_COMPRESSION, 0});
+  cv::imwrite(path, mat);
 }
 
 void ImWrite(const std::string& path, const ImageView& image_r,
@@ -249,6 +246,8 @@ void Segment(uint row, uint col, ImageView binarized_apriltag,
   while (!q.empty()) {
     std::pair<uint, uint> coords = q.front();
     q.pop();
+    constexpr std::array<int, 4> dx_array = {0, 0, 1, -1};
+    constexpr std::array<int, 4> dy_array = {-1, 1, 0, 0};
     for (const auto& dx : dx_array) {
       for (const auto& dy : dy_array) {
         uint new_row = coords.first + dx;  // uint - int: defined behavior?
@@ -293,6 +292,8 @@ auto GetSegments(ImageView32 segmented_apriltag)
     for (uint j = 1; j < segmented_apriltag.width - 1; j++) {
       if (segmented_apriltag(i, j) != 0) {
         auto id = segmented_apriltag(i, j);
+        constexpr std::array<int, 4> dx_array = {0, 0, 1, -1};
+        constexpr std::array<int, 4> dy_array = {-1, 1, 0, 0};
         for (const auto& dx : dx_array) {
           for (const auto& dy : dy_array) {
             auto neighbor_id = segmented_apriltag(i + dx, j + dy);
@@ -1017,7 +1018,6 @@ auto main() -> int {
       .data = pixels, .stride = width, .height = height, .width = width});
   auto annotated_apriltag = apriltag.clone();
   DrawTagDetections(annotated_apriltag, detections);
-  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag,
-              {cv::IMWRITE_PNG_COMPRESSION, 0});
+  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
   LOG(INFO) << average_run_time / runs;
 }
