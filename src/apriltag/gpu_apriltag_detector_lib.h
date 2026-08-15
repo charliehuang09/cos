@@ -117,5 +117,6 @@ void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations);
 void DrawTagDetections(cv::Mat& image,
                        const std::vector<ApriltagDetection>& detections);
 
-auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection>;
+auto DetectAprilTag(ImageView apriltag, bool imwrite = true)
+    -> std::vector<ApriltagDetection>;
 }  // namespace apriltag

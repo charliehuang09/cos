@@ -825,7 +825,8 @@ void DrawTagDetections(cv::Mat& image,
   }
 }
 
-auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
+auto DetectAprilTag(ImageView apriltag, bool imwrite)
+    -> std::vector<ApriltagDetection> {
   CHECK(apriltag.height % 4 == 0);
   CHECK(apriltag.width % 4 == 0);
   auto* max_buffer = static_cast<uint8_t*>(
@@ -841,8 +842,10 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
                 .height = apriltag.height / 4,
                 .width = apriltag.width / 4};
   PopulateMinMax(apriltag, min, max);
-  ImWrite("/root/max.png", max);
-  ImWrite("/root/min.png", min);
+  if (imwrite) {
+    ImWrite("/root/max.png", max);
+    ImWrite("/root/min.png", min);
+  }
 
   auto* threshold_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
@@ -858,8 +861,10 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
                   .height = apriltag.height / 4,
                   .width = apriltag.width / 4};
   PopulateThresholdValid(min, max, threshold, valid);
-  ImWrite("/root/threshold.png", threshold);
-  ImWrite("/root/valid.png", valid);
+  if (imwrite) {
+    ImWrite("/root/threshold.png", threshold);
+    ImWrite("/root/valid.png", valid);
+  }
 
   auto* binarized_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
@@ -869,7 +874,9 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
                                .width = apriltag.width};
 
   PopulateBinarizedApriltag(threshold, valid, apriltag, binarized_apriltag);
-  ImWrite("/root/binarized_apriltag.png", binarized_apriltag);
+  if (imwrite) {
+    ImWrite("/root/binarized_apriltag.png", binarized_apriltag);
+  }
 
   auto* segmented_apriltag_buffer = static_cast<uint32_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint32_t)));
@@ -878,7 +885,9 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
                                  .height = apriltag.height,
                                  .width = apriltag.width};
   PopulateSegmentedApriltag(binarized_apriltag, segmented_apriltag);
-  ImWrite("/root/segmented_apriltag.png", segmented_apriltag);
+  if (imwrite) {
+    ImWrite("/root/segmented_apriltag.png", segmented_apriltag);
+  }
 
   auto segments = GetSegments(segmented_apriltag);
   SortSegments(segments);
@@ -891,7 +900,10 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
       .height = apriltag.height,
       .width = apriltag.width};
   PopulateBoundarySegmentedApriltag(segments, boundary_segmented_apriltag);
-  ImWrite("/root/boundary_segmented_apriltag.png", boundary_segmented_apriltag);
+  if (imwrite) {
+    ImWrite("/root/boundary_segmented_apriltag.png",
+            boundary_segmented_apriltag);
+  }
 
   auto* sorted_boundary_segmented_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
@@ -903,8 +915,10 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
 
   PopulateSortedBoundarySegmentedApriltag(segments,
                                           sorted_boundary_segmented_apriltag);
-  ImWrite("/root/sorted_boundary_segmented_apriltag.png",
-          sorted_boundary_segmented_apriltag);
+  if (imwrite) {
+    ImWrite("/root/sorted_boundary_segmented_apriltag.png",
+            sorted_boundary_segmented_apriltag);
+  }
 
   auto mses = GetMses(segments);
   CHECK_EQ(mses.size(), segments.size());
@@ -924,8 +938,10 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
       .width = apriltag.width};
   PopulateCandidateQuadCornersApriltagBuffer(candidate_quad_corners,
                                              candidate_quad_corners_apriltag);
-  ImWrite("/root/candidate_quad_corners_apriltag.png",
-          candidate_quad_corners_apriltag);
+  if (imwrite) {
+    ImWrite("/root/candidate_quad_corners_apriltag.png",
+            candidate_quad_corners_apriltag);
+  }
 
   auto* quad_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
@@ -939,7 +955,9 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
   OrderQuads(quads);
   CHECK_EQ(quads.size(), segments.size());
   PopulateQuadApriltagBuffer(quads, quad_apriltag);
-  ImWrite("/root/quad_apriltag.png", quad_apriltag);
+  if (imwrite) {
+    ImWrite("/root/quad_apriltag.png", quad_apriltag);
+  }
 
   auto bit_locations = GetBitLocations(quads);
 
@@ -954,7 +972,9 @@ auto DetectAprilTag(ImageView apriltag) -> std::vector<ApriltagDetection> {
       .width = apriltag.width,
   };
   PopulateBitLocationsApriltag(bit_locations, bit_locations_apriltag);
-  ImWrite("/root/bit_locations_apriltag.png", bit_locations_apriltag);
+  if (imwrite) {
+    ImWrite("/root/bit_locations_apriltag.png", bit_locations_apriltag);
+  }
 
   apriltag_family_t* family = tag36h11_create();
   auto [tag_ids, rotations] = GetTagIds(bit_locations, apriltag, family);

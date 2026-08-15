@@ -18,12 +18,16 @@ auto main() -> int {
   double average_run_time = 0.0;
   for (int i = 0; i < 25; i++) {
     control_loop::Timer timer;
-    auto detections = DetectAprilTag(apriltag::ImageView{
-        .data = pixels, .stride = width, .height = height, .width = width});
+    auto detections = DetectAprilTag(
+        apriltag::ImageView{
+            .data = pixels, .stride = width, .height = height, .width = width},
+        false);
     average_run_time += timer.Stop().count();
   }
-  auto detections = DetectAprilTag(apriltag::ImageView{
-      .data = pixels, .stride = width, .height = height, .width = width});
+  auto detections = DetectAprilTag(
+      apriltag::ImageView{
+          .data = pixels, .stride = width, .height = height, .width = width},
+      true);
   auto annotated_apriltag = apriltag.clone();
   DrawTagDetections(annotated_apriltag, detections);
   cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
