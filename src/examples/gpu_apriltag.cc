@@ -14,9 +14,9 @@ auto main() -> int {
   uint height = apriltag.rows;
   uint width = apriltag.cols;
   CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
-  constexpr int runs = 25;
+  constexpr int runs = 100;
   double average_run_time = 0.0;
-  for (int i = 0; i < 25; i++) {
+  for (int i = 0; i < runs; i++) {
     control_loop::Timer timer;
     auto detections = DetectAprilTag(
         apriltag::ImageView{

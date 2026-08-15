@@ -773,7 +773,6 @@ auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag,
         int hamming = std::popcount(code ^ family->codes[k]);
         if (hamming <= 2) {
           tag_id = k;
-          LOG(INFO) << "Found tag: " << k << " " << hamming << " " << j;
           rotation = j;
           break;
         }
