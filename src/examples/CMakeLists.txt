@@ -53,6 +53,7 @@ target_sources(gpu_apriltag PRIVATE
   gpu_apriltag.cc
 )
 target_link_libraries(gpu_apriltag PRIVATE
+  timer
   apriltag
   absl::flat_hash_map
   absl::log

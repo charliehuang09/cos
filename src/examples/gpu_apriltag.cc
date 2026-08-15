@@ -6,6 +6,8 @@
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 
+#include "control_loop/timer.h"
+
 extern "C" {
 #include <apriltag.h>
 #include <tag36h11.h>
@@ -55,7 +57,7 @@ using BitLocation = std::array<std::array<std::pair<uint, uint>, 10>, 10>;
 
 void ImWrite(const std::string& path, const ImageView& image) {
   cv::Mat mat(image.height, image.width, CV_8UC1, image.data, image.stride);
-  cv::imwrite(path, mat);
+  cv::imwrite(path, mat, {cv::IMWRITE_PNG_COMPRESSION, 0});
 }
 
 void ImWrite(const std::string& path, const ImageView& image_r,
@@ -967,9 +969,19 @@ auto main() -> int {
   uint height = apriltag.rows;
   uint width = apriltag.cols;
   CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
+  constexpr int runs = 25;
+  double average_run_time = 0.0;
+  for (int i = 0; i < 25; i++) {
+    control_loop::Timer timer;
+    auto detections = DetectAprilTag(ImageView{
+        .data = pixels, .stride = width, .height = height, .width = width});
+    average_run_time += timer.Stop().count();
+  }
   auto detections = DetectAprilTag(ImageView{
       .data = pixels, .stride = width, .height = height, .width = width});
   auto annotated_apriltag = apriltag.clone();
   DrawTagDetections(annotated_apriltag, detections);
-  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
+  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag,
+              {cv::IMWRITE_PNG_COMPRESSION, 0});
+  LOG(INFO) << average_run_time / runs;
 }
