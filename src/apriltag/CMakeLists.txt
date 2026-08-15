@@ -25,3 +25,18 @@ target_link_libraries(nvidia_apriltag_detector_node
     nlohmann_json::nlohmann_json
 
 )
+
+add_library(gpu_apriltag_detector_lib)
+target_sources(gpu_apriltag_detector_lib
+  PRIVATE
+    gpu_apriltag_detector_lib.cc
+)
+target_link_libraries(gpu_apriltag_detector_lib 
+  PUBLIC
+    apriltag
+    ${OpenCV_LIBS}
+    timer
+  PRIVATE
+    absl::flat_hash_map
+    absl::flat_hash_set
+)

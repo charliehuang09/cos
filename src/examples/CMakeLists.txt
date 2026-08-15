@@ -54,8 +54,7 @@ target_sources(gpu_apriltag PRIVATE
 )
 target_link_libraries(gpu_apriltag PRIVATE
   timer
-  apriltag
-  absl::flat_hash_map
+  gpu_apriltag_detector_lib
   absl::log
   absl::check
   ${OpenCV_LIBS}
