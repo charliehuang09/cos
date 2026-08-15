@@ -346,13 +346,31 @@ auto SortSegments(std::vector<std::vector<std::pair<uint, uint>>>& segments) {
     std::ranges::sort(
         segment,
         [&mean](std::pair<uint, uint> a, std::pair<uint, uint> b) -> bool {
-          double a_angle = std::atan2(
-              static_cast<double>(a.first) - static_cast<double>(mean.first),
-              static_cast<double>(a.second) - static_cast<double>(mean.second));
-          double b_angle = std::atan2(
-              static_cast<double>(b.first) - static_cast<double>(mean.first),
-              static_cast<double>(b.second) - static_cast<double>(mean.second));
-          return a_angle > b_angle;
+          const int64_t a_row = static_cast<int64_t>(a.first) - mean.first;
+          const int64_t a_col = static_cast<int64_t>(a.second) - mean.second;
+
+          const int64_t b_row = static_cast<int64_t>(b.first) - mean.first;
+          const int64_t b_col = static_cast<int64_t>(b.second) - mean.second;
+
+          auto sector = [](int64_t x, int64_t y) -> int {
+            if (x == 0 && y < 0)
+              return 0;  // angle = pi
+            if (x > 0)
+              return 1;  // (0, pi)
+            if (x == 0)
+              return 2;  // angle = 0
+            return 3;    // (-pi, 0)
+          };
+
+          const int sa = sector(a_row, a_col);
+          const int sb = sector(b_row, b_col);
+
+          if (sa != sb) {
+            return sa < sb;
+          }
+
+          // Equivalent angular ordering without atan2.
+          return a_col * b_row - a_row * b_col < 0;
         });
   }
 }
@@ -541,13 +559,31 @@ void OrderQuads(std::vector<Quad>& quads) {
     std::ranges::sort(
         quad.corners,
         [&mean](std::pair<uint, uint> a, std::pair<uint, uint> b) -> bool {
-          double a_angle = std::atan2(
-              static_cast<double>(a.first) - static_cast<double>(mean.first),
-              static_cast<double>(a.second) - static_cast<double>(mean.second));
-          double b_angle = std::atan2(
-              static_cast<double>(b.first) - static_cast<double>(mean.first),
-              static_cast<double>(b.second) - static_cast<double>(mean.second));
-          return a_angle > b_angle;
+          const int64_t a_row = static_cast<int64_t>(a.first) - mean.first;
+          const int64_t a_col = static_cast<int64_t>(a.second) - mean.second;
+
+          const int64_t b_row = static_cast<int64_t>(b.first) - mean.first;
+          const int64_t b_col = static_cast<int64_t>(b.second) - mean.second;
+
+          auto sector = [](int64_t x, int64_t y) -> int {
+            if (x == 0 && y < 0)
+              return 0;  // angle = pi
+            if (x > 0)
+              return 1;  // (0, pi)
+            if (x == 0)
+              return 2;  // angle = 0
+            return 3;    // (-pi, 0)
+          };
+
+          const int sa = sector(a_row, a_col);
+          const int sb = sector(b_row, b_col);
+
+          if (sa != sb) {
+            return sa < sb;
+          }
+
+          // Equivalent angular ordering without atan2.
+          return a_col * b_row - a_row * b_col < 0;
         });
   }
 }
