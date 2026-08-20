@@ -235,23 +235,22 @@ void Segment(uint row, uint col, ImageView binarized_apriltag,
     q.pop();
     constexpr std::array<int, 4> dx_array = {0, 0, 1, -1};
     constexpr std::array<int, 4> dy_array = {-1, 1, 0, 0};
-    for (const auto& dx : dx_array) {
-      for (const auto& dy : dy_array) {
-        uint new_row = coords.first + dx;  // uint - int: defined behavior?
-        uint new_col = coords.second + dy;
-        if (new_col >= binarized_apriltag.width ||
-            new_row >= binarized_apriltag.height) {
-          continue;
-        }
-        if (binarized_apriltag(new_row, new_col) != color) {
-          continue;
-        }
-        if (segmented_apriltag(new_row, new_col) != 0) {
-          continue;
-        }
-        segmented_apriltag(new_row, new_col) = id;
-        q.emplace(new_row, new_col);
+    for (int i = 0; i < 4; i++) {
+      uint new_row =
+          coords.first + dx_array[i];  // uint - int: defined behavior?
+      uint new_col = coords.second + dy_array[i];
+      if (new_col >= binarized_apriltag.width ||
+          new_row >= binarized_apriltag.height) {
+        continue;
       }
+      if (binarized_apriltag(new_row, new_col) != color) {
+        continue;
+      }
+      if (segmented_apriltag(new_row, new_col) != 0) {
+        continue;
+      }
+      segmented_apriltag(new_row, new_col) = id;
+      q.emplace(new_row, new_col);
     }
   }
 }
@@ -657,6 +656,7 @@ auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
     second_col_offset.second -= second_col_vector.second / 2;
 
     BitLocation bit_location;
+    bool valid = true;
     for (int i = 0; i < 10; i++) {
 
       std::pair<float, float> first_row_position{
@@ -698,9 +698,12 @@ auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
             first_row_position.first + row_vector.first * alpha,
             first_row_position.second + row_vector.second * alpha};
         bit_location[i][j] = intersection;
+        if (intersection.first < 0 || intersection.second < 0) {
+          valid = false;
+        }
       }
     }
-    bit_locations.push_back(bit_location);
+    bit_locations.push_back(valid ? bit_location : BitLocation{});
   }
   return bit_locations;
 }

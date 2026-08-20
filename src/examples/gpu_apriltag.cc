@@ -14,6 +14,13 @@ auto main() -> int {
   uint height = apriltag.rows;
   uint width = apriltag.cols;
   CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
+  auto detections = DetectAprilTag(
+      apriltag::ImageView{
+          .data = pixels, .stride = width, .height = height, .width = width},
+      true);
+  auto annotated_apriltag = apriltag.clone();
+  DrawTagDetections(annotated_apriltag, detections);
+  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
   constexpr int runs = 100;
   double average_run_time = 0.0;
   for (int i = 0; i < runs; i++) {
@@ -24,12 +31,5 @@ auto main() -> int {
         false);
     average_run_time += timer.Stop().count();
   }
-  auto detections = DetectAprilTag(
-      apriltag::ImageView{
-          .data = pixels, .stride = width, .height = height, .width = width},
-      true);
-  auto annotated_apriltag = apriltag.clone();
-  DrawTagDetections(annotated_apriltag, detections);
-  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
   LOG(INFO) << average_run_time / runs;
 }
