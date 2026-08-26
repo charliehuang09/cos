@@ -7,25 +7,29 @@
 #include <vector>
 namespace apriltag {
 
-using BitLocation =
-    std::array<std::array<std::pair<unsigned int, unsigned int>, 10>, 10>;
+using BitLocation = std::array<std::array<std::pair<int, int>, 10>, 10>;
 
 struct ImageView {
   uint8_t* data;
-  unsigned int stride;
-  unsigned int height;
-  unsigned int width;
+  int stride;
+  int height;
+  int width;
 
   auto operator()(size_t row, size_t col) -> uint8_t& {
     return data[row * stride + col];
   }
 };
 
+struct Coord {
+  int row;
+  int col;
+};
+
 struct ImageView32 {
   uint32_t* data;
-  unsigned int stride;
-  unsigned int height;
-  unsigned int width;
+  int stride;
+  int height;
+  int width;
 
   auto operator()(size_t row, size_t col) -> uint32_t& {
     return data[row * stride + col];
@@ -37,7 +41,7 @@ struct Quad {
 };
 
 struct CandidatesQuad {
-  std::array<std::pair<unsigned int, unsigned int>, 4> corners{};
+  std::array<std::pair<int, int>, 4> corners{};
 };
 
 struct ApriltagDetection {
@@ -61,30 +65,30 @@ void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
                                ImageView apriltag,
                                ImageView binarized_apriltag);
 
-void Segment(uint row, uint col, ImageView binarized_apriltag,
+void Segment(int row, int col, ImageView binarized_apriltag,
              ImageView32 segmented_apriltag, int32_t id);
 
 void PopulateSegmentedApriltag(ImageView binarized_apriltag,
                                ImageView32 segmented_apriltag);
 
 auto GetSegments(ImageView32 segmented_apriltag)
-    -> std::vector<std::vector<std::pair<uint, uint>>>;
+    -> std::vector<std::vector<std::pair<int, int>>>;
 
 void PopulateBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<uint, uint>>>& segments,
+    std::vector<std::vector<std::pair<int, int>>>& segments,
     ImageView32 boundary_segmented_apriltag);
 
-auto SortSegments(std::vector<std::vector<std::pair<uint, uint>>>& segments);
+auto SortSegments(std::vector<std::vector<std::pair<int, int>>>& segments);
 
 void PopulateSortedBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<uint, uint>>>& segments,
+    std::vector<std::vector<std::pair<int, int>>>& segments,
     ImageView sorted_boundary_segmented_apriltag);
 
-auto GetMses(std::vector<std::vector<std::pair<uint, uint>>>& segments)
+auto GetMses(std::vector<std::vector<std::pair<int, int>>>& segments)
     -> std::vector<std::vector<float>>;
 
 auto GetCandidatesQuadCorners(
-    const std::vector<std::vector<std::pair<uint, uint>>>& segments,
+    const std::vector<std::vector<std::pair<int, int>>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad>;
 

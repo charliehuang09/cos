@@ -10,7 +10,7 @@
 
 namespace {
 [[gnu::always_inline]]
-void inline PopulateColor(uint id, uint8_t& r, uint8_t& g, uint8_t& b) {
+void inline PopulateColor(int id, uint8_t& r, uint8_t& g, uint8_t& b) {
   r = (id * 2222009) % 256;
   g = (id * 2222022) % 256;
   b = (id * 2222222) % 256;
@@ -24,14 +24,14 @@ auto inline SolveQuadratic(float a, float b, float c)
 }
 
 [[gnu::always_inline]]
-void inline GetMinMax(apriltag::ImageView apriltag, uint row, uint col,
+void inline GetMinMax(apriltag::ImageView apriltag, int row, int col,
                       uint8_t& min, uint8_t& max) {
   row *= 4;
   col *= 4;
   min = apriltag(row, col);
   max = apriltag(row, col);
-  for (uint i = 0; i < 4; i++) {
-    for (uint j = 0; j < 4; j++) {
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 4; j++) {
       min = std::min(min, (apriltag(row + i, col + j)));
       max = std::max(min, (apriltag(row + i, col + j)));
     }
@@ -41,20 +41,20 @@ void inline GetMinMax(apriltag::ImageView apriltag, uint row, uint col,
 [[gnu::always_inline]]
 void inline ApplyThreshold(uint8_t threshold, uint8_t valid,
                            apriltag::ImageView apriltag,
-                           apriltag::ImageView binarized_apriltag, uint row,
-                           uint col) {
+                           apriltag::ImageView binarized_apriltag, int row,
+                           int col) {
   row *= 4;
   col *= 4;
   if (valid == 0) {
-    for (uint i = row; i < row + 4; i++) {
-      for (uint j = col; j < col + 4; j++) {
+    for (int i = row; i < row + 4; i++) {
+      for (int j = col; j < col + 4; j++) {
         binarized_apriltag(i, j) =
             (apriltag(i, j) > threshold) ? (255 / 2) + 50 : (255 / 2) - 50;
       }
     }
   } else {
-    for (uint i = row; i < row + 4; i++) {
-      for (uint j = col; j < col + 4; j++) {
+    for (int i = row; i < row + 4; i++) {
+      for (int j = col; j < col + 4; j++) {
         binarized_apriltag(i, j) = (apriltag(i, j) > threshold) ? 255 : 0;
       }
     }
@@ -125,9 +125,9 @@ void ImWrite(const std::string& path, ImageView32 segmented_apriltag) {
                                  .height = segmented_apriltag.height,
                                  .width = segmented_apriltag.width};
 
-  for (uint i = 0; i < segmented_apriltag.height; i++) {
-    for (uint j = 0; j < segmented_apriltag.width; j++) {
-      uint8_t id = segmented_apriltag(i, j);
+  for (int i = 0; i < segmented_apriltag.height; i++) {
+    for (int j = 0; j < segmented_apriltag.width; j++) {
+      int8_t id = segmented_apriltag(i, j);
       if (id != 0) {
         uint8_t r, g, b;
         PopulateColor(id, r, g, b);
@@ -147,8 +147,8 @@ void ImWrite(const std::string& path, ImageView32 segmented_apriltag) {
 }
 
 void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max) {
-  for (uint i = 0; i < min.height; i++) {
-    for (uint j = 0; j < min.width; j++) {
+  for (int i = 0; i < min.height; i++) {
+    for (int j = 0; j < min.width; j++) {
       GetMinMax(apriltag, i, j, min(i, j), max(i, j));
     }
   }
@@ -161,18 +161,18 @@ void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
   CHECK_EQ(valid.width, threshold.width);
   CHECK_EQ(valid.height, threshold.height);
 
-  for (uint i = 0; i < min.height; i++) {
+  for (int i = 0; i < min.height; i++) {
     threshold(i, 0) = (min(i, 0) / 2) + (max(i, 0) / 2);
     threshold(i, min.width - 1) =
         (min(i, min.width - 1) / 2) + (max(i, min.width - 1) / 2);
   }
-  for (uint j = 0; j < min.width; j++) {
+  for (int j = 0; j < min.width; j++) {
     threshold(0, j) = (min(0, j) / 2) + (max(0, j) / 2);
     threshold(min.height - 1, j) =
         (min(min.height - 1, j) / 2) + (max(min.height - 1, j) / 2);
   }
-  for (uint i = 1; i < min.height - 1; i++) {
-    for (uint j = 1; j < min.width - 1; j++) {
+  for (int i = 1; i < min.height - 1; i++) {
+    for (int j = 1; j < min.width - 1; j++) {
       uint8_t max_value = std::max({
           max(i - 1, j - 1),
           max(i - 1, j + 0),
@@ -216,31 +216,31 @@ void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
   CHECK_EQ(threshold.height, valid.height);
   CHECK_EQ(threshold.width, valid.width);
 
-  for (uint j = 0; j < threshold.width; j++) {
-    for (uint i = 0; i < threshold.height; i++) {
+  for (int j = 0; j < threshold.width; j++) {
+    for (int i = 0; i < threshold.height; i++) {
       ApplyThreshold(threshold(i, j), valid(i, j), apriltag, binarized_apriltag,
                      i, j);
     }
   }
 }
 
-void Segment(uint row, uint col, ImageView binarized_apriltag,
+void Segment(int row, int col, ImageView binarized_apriltag,
              ImageView32 segmented_apriltag, int32_t id) {
-  std::queue<std::pair<uint, uint>> q;
+  std::queue<std::pair<int, int>> q;
   q.emplace(row, col);
   uint8_t color = binarized_apriltag(row, col);
   segmented_apriltag(row, col) = id;
   while (!q.empty()) {
-    std::pair<uint, uint> coords = q.front();
+    std::pair<int, int> coords = q.front();
     q.pop();
     constexpr std::array<int, 4> dx_array = {0, 0, 1, -1};
     constexpr std::array<int, 4> dy_array = {-1, 1, 0, 0};
     for (int i = 0; i < 4; i++) {
-      uint new_row =
-          coords.first + dx_array[i];  // uint - int: defined behavior?
-      uint new_col = coords.second + dy_array[i];
-      if (new_col >= binarized_apriltag.width ||
-          new_row >= binarized_apriltag.height) {
+      int new_row = coords.first + dx_array[i];
+      int new_col = coords.second + dy_array[i];
+      if (new_col < 0 || new_row < 0 ||
+          new_col >= binarized_apriltag.width ||
+          new_row >= binarized_apriltag.height) [[unlikely]] {
         continue;
       }
       if (binarized_apriltag(new_row, new_col) != color) {
@@ -259,9 +259,9 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
                                ImageView32 segmented_apriltag) {
   CHECK_EQ(binarized_apriltag.width, segmented_apriltag.width);
   CHECK_EQ(binarized_apriltag.height, segmented_apriltag.height);
-  uint id = 1;
-  for (uint i = 0; i < binarized_apriltag.height; i++) {
-    for (uint j = 0; j < binarized_apriltag.width; j++) {
+  int id = 1;
+  for (int i = 0; i < binarized_apriltag.height; i++) {
+    for (int j = 0; j < binarized_apriltag.width; j++) {
       if ((binarized_apriltag(i, j) == 255 || binarized_apriltag(i, j) == 0) &&
           segmented_apriltag(i, j) == 0) {
         Segment(i, j, binarized_apriltag, segmented_apriltag, id++);
@@ -271,15 +271,15 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
 }
 
 auto GetSegments(ImageView32 segmented_apriltag)
-    -> std::vector<std::vector<std::pair<uint, uint>>> {
-  absl::flat_hash_map<std::pair<uint, uint>,
-                      absl::flat_hash_set<std::pair<uint, uint>>>
+    -> std::vector<std::vector<std::pair<int, int>>> {
+  absl::flat_hash_map<std::pair<int, int>,
+                      absl::flat_hash_set<std::pair<int, int>>>
       segments_set;
-  for (uint i = 0; i < segmented_apriltag.height - 1; i += 1) {
-    for (uint j = 0; j < segmented_apriltag.width - 1; j += 1) {
+  for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
+    for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
       if (segmented_apriltag(i, j) != 0) {
-        constexpr uint dx = 0;
-        constexpr uint dy = 1;
+        constexpr int dx = 0;
+        constexpr int dy = 1;
         auto id = segmented_apriltag(i, j);
         auto neighbor_id = segmented_apriltag(i + dx, j + dy);
         if (neighbor_id != 0 && neighbor_id != id) {
@@ -291,11 +291,11 @@ auto GetSegments(ImageView32 segmented_apriltag)
       }
     }
   }
-  for (uint i = 0; i < segmented_apriltag.height - 1; i += 1) {
-    for (uint j = 0; j < segmented_apriltag.width - 1; j += 1) {
+  for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
+    for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
       if (segmented_apriltag(i, j) != 0) {
-        constexpr uint dx = 1;
-        constexpr uint dy = 0;
+        constexpr int dx = 1;
+        constexpr int dy = 0;
         auto id = segmented_apriltag(i, j);
         auto neighbor_id = segmented_apriltag(i + dx, j + dy);
         if (neighbor_id != 0 && neighbor_id != id) {
@@ -307,11 +307,11 @@ auto GetSegments(ImageView32 segmented_apriltag)
       }
     }
   }
-  std::vector<std::vector<std::pair<uint, uint>>> segments;
+  std::vector<std::vector<std::pair<int, int>>> segments;
   for (const auto& [ids, pixel_coords_set] : segments_set) {
     constexpr size_t min_segment_size = 500;
     if (pixel_coords_set.size() >= min_segment_size) {
-      std::vector<std::pair<uint, uint>> pixel_coords_vector(
+      std::vector<std::pair<int, int>> pixel_coords_vector(
           pixel_coords_set.begin(), pixel_coords_set.end());
       segments.push_back(std::move(pixel_coords_vector));
     }
@@ -320,9 +320,9 @@ auto GetSegments(ImageView32 segmented_apriltag)
 }
 
 void PopulateBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<uint, uint>>>& segments,
+    std::vector<std::vector<std::pair<int, int>>>& segments,
     ImageView32 boundary_segmented_apriltag) {
-  uint id = 1;
+  int id = 1;
   for (const auto& pixel_coords : segments) {
     for (const auto& pixel_coord : pixel_coords) {
       boundary_segmented_apriltag(pixel_coord.first, pixel_coord.second) = id;
@@ -331,22 +331,21 @@ void PopulateBoundarySegmentedApriltag(
   }
 }
 
-auto SortSegments(std::vector<std::vector<std::pair<uint, uint>>>& segments) {
+auto SortSegments(std::vector<std::vector<std::pair<int, int>>>& segments) {
   for (auto& segment : segments) {
     auto sum = std::accumulate(
-        segment.begin(), segment.end(), std::pair<uint, uint>{0, 0},
-        [](std::pair<uint, uint> sum,
-           std::pair<uint, uint> value) -> std::pair<uint, uint> {
+        segment.begin(), segment.end(), std::pair<int, int>{0, 0},
+        [](std::pair<int, int> sum,
+           std::pair<int, int> value) -> std::pair<int, int> {
           sum.first += value.first;
           sum.second += value.second;
           return sum;
         });
-    std::pair<uint, uint> mean{sum.first / segment.size(),
-                               sum.second / segment.size()};
+    std::pair<int, int> mean{sum.first / segment.size(),
+                             sum.second / segment.size()};
 
     std::ranges::sort(
-        segment,
-        [&mean](std::pair<uint, uint> a, std::pair<uint, uint> b) -> bool {
+        segment, [&mean](std::pair<int, int> a, std::pair<int, int> b) -> bool {
           const int64_t a_row = static_cast<int64_t>(a.first) - mean.first;
           const int64_t a_col = static_cast<int64_t>(a.second) - mean.second;
 
@@ -377,11 +376,11 @@ auto SortSegments(std::vector<std::vector<std::pair<uint, uint>>>& segments) {
 }
 
 void PopulateSortedBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<uint, uint>>>& segments,
+    std::vector<std::vector<std::pair<int, int>>>& segments,
     ImageView sorted_boundary_segmented_apriltag) {
   for (auto& segment : segments) {
     float size = segment.size();
-    for (uint i = 0; i < segment.size(); i++) {
+    for (size_t i = 0; i < segment.size(); i++) {
       uint8_t value = (i / size) * 255;
       sorted_boundary_segmented_apriltag(segment[i].first, segment[i].second) =
           value;
@@ -389,16 +388,16 @@ void PopulateSortedBoundarySegmentedApriltag(
   }
 }
 
-auto GetMses(std::vector<std::vector<std::pair<uint, uint>>>& segments)
+auto GetMses(std::vector<std::vector<std::pair<int, int>>>& segments)
     -> std::vector<std::vector<float>> {
   std::vector<std::vector<float>> mses;
-  constexpr uint window_size = 100;
+  constexpr int window_size = 100;
   constexpr float window_size_float = window_size;
   for (const auto& segment : segments) {
-    std::pair<uint, uint> first_moment{0, 0};
-    std::pair<uint, uint> second_moment{0, 0};
-    uint xy_moment = 0;
-    for (uint i = 0; i < window_size; i++) {
+    std::pair<int, int> first_moment{0, 0};
+    std::pair<int, int> second_moment{0, 0};
+    int xy_moment = 0;
+    for (int i = 0; i < window_size; i++) {
       first_moment.first += segment[i].first;
       first_moment.second += segment[i].second;
 
@@ -408,11 +407,10 @@ auto GetMses(std::vector<std::vector<std::pair<uint, uint>>>& segments)
       xy_moment += segment[i].first * segment[i].second;
     }
 
-    uint window_head = window_size;
-    uint window_tail = 0;
+    int window_head = window_size;
+    int window_tail = 0;
     std::vector<float> mse(segment.size());
-    for (uint i = window_size / 2; i < segment.size() + (window_size / 2);
-         i++) {
+    for (int i = window_size / 2; i < segment.size() + (window_size / 2); i++) {
       auto mean_x = first_moment.first / window_size_float;
       auto mean_y = first_moment.second / window_size_float;
 
@@ -462,7 +460,7 @@ auto GetMses(std::vector<std::vector<std::pair<uint, uint>>>& segments)
 }
 
 auto GetCandidatesQuadCorners(
-    const std::vector<std::vector<std::pair<uint, uint>>>& segments,
+    const std::vector<std::vector<std::pair<int, int>>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad> {
   std::vector<CandidatesQuad> quads;
@@ -471,16 +469,16 @@ auto GetCandidatesQuadCorners(
     const auto& segment = segments[idx];
     const auto& mse = mse_map[idx];
     CHECK_EQ(segment.size(), mse.size());
-    constexpr uint window_size = 100;
+    constexpr int window_size = 100;
     CandidatesQuad quad{};
     std::array<float, quad.corners.size()> max_mse{};
-    for (uint i = 0; i < mse.size(); i++) {
+    for (size_t i = 0; i < mse.size(); i++) {
       const float middle_mse = mse[(i + (window_size / 2)) % mse.size()];
       if (middle_mse < max_mse[0]) {
         continue;
       }
       bool peak = true;
-      for (uint j = i; j < i + window_size; j++) {
+      for (size_t j = i; j < i + window_size; j++) {
         if (middle_mse < mse[(j + (window_size / 2)) % mse.size()]) {
           peak = false;
           break;
@@ -489,7 +487,7 @@ auto GetCandidatesQuadCorners(
       if (peak) {
         max_mse[0] = middle_mse;
         quad.corners[0] = segment[(i + (window_size / 2)) % segment.size()];
-        for (uint k = 1; k < max_mse.size(); k++) {
+        for (size_t k = 1; k < max_mse.size(); k++) {
           if (max_mse[k - 1] > max_mse[k]) {
             std::swap(max_mse[k - 1], max_mse[k]);
             std::swap(quad.corners[k - 1], quad.corners[k]);
@@ -542,10 +540,10 @@ auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
 
 void OrderQuads(std::vector<Quad>& quads) {
   for (auto& quad : quads) {
-    std::pair<uint, uint> mean = std::accumulate(
-        quad.corners.begin(), quad.corners.end(), std::pair<uint, uint>{},
-        [](std::pair<uint, uint> sum,
-           std::pair<uint, uint> value) -> std::pair<uint, uint> {
+    std::pair<int, int> mean = std::accumulate(
+        quad.corners.begin(), quad.corners.end(), std::pair<int, int>{},
+        [](std::pair<int, int> sum,
+           std::pair<int, int> value) -> std::pair<int, int> {
           sum.first += value.first;
           sum.second += value.second;
           return sum;
@@ -554,7 +552,7 @@ void OrderQuads(std::vector<Quad>& quads) {
     mean.second /= 4;
     std::ranges::sort(
         quad.corners,
-        [&mean](std::pair<uint, uint> a, std::pair<uint, uint> b) -> bool {
+        [&mean](std::pair<int, int> a, std::pair<int, int> b) -> bool {
           const int64_t a_row = static_cast<int64_t>(a.first) - mean.first;
           const int64_t a_col = static_cast<int64_t>(a.second) - mean.second;
 
@@ -712,8 +710,8 @@ void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
                                   ImageView32 bit_locations_apriltag) {
   int idx = 0;
   for (const auto& bit_location : bit_locations) {
-    for (uint i = 0; i < 10; i++) {
-      for (uint j = 0; j < 10; j++) {
+    for (int i = 0; i < 10; i++) {
+      for (int j = 0; j < 10; j++) {
         bit_locations_apriltag(bit_location[i][j].first,
                                bit_location[i][j].second) = idx * 2222009;
       }

@@ -11,8 +11,8 @@ auto main() -> int {
   std::string apriltag_path = "/root/apriltag.png";
   cv::Mat apriltag = cv::imread(apriltag_path, cv::IMREAD_GRAYSCALE);
   uint8_t* pixels = apriltag.data;
-  uint height = apriltag.rows;
-  uint width = apriltag.cols;
+  int height = apriltag.rows;
+  int width = apriltag.cols;
   CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
   auto detections = DetectAprilTag(
       apriltag::ImageView{
