@@ -66,9 +66,9 @@ void PrintCode(const apriltag::BitLocation& bit_location,
                apriltag::ImageView binarized_apriltag) {
   for (int i = 1; i <= 8; i++) {
     for (int j = 1; j <= 8; j++) {
-      std::cout << static_cast<int>(
-                       binarized_apriltag(bit_location[i][j].row,
-                                          bit_location[i][j].col) > 255 / 2)
+      std::cout << static_cast<int>(binarized_apriltag(bit_location[i][j].row,
+                                                       bit_location[i][j].col) >
+                                    255 / 2)
                 << " ";
     }
     std::cout << "\n";
@@ -226,12 +226,12 @@ void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
 
 void Segment(int row, int col, ImageView binarized_apriltag,
              ImageView32 segmented_apriltag, int32_t id) {
-  std::queue<Coord> q;
+  std::queue<Coord<int>> q;
   q.emplace(row, col);
   uint8_t color = binarized_apriltag(row, col);
   segmented_apriltag(row, col) = id;
   while (!q.empty()) {
-    Coord coords = q.front();
+    Coord<int> coords = q.front();
     q.pop();
     constexpr std::array<int, 4> dx_array = {0, 0, 1, -1};
     constexpr std::array<int, 4> dy_array = {-1, 1, 0, 0};
@@ -270,9 +270,9 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
 }
 
 auto GetSegments(ImageView32 segmented_apriltag)
-    -> std::vector<std::vector<Coord>> {
+    -> std::vector<std::vector<Coord<int>>> {
   absl::flat_hash_map<std::pair<uint32_t, uint32_t>,
-                      absl::flat_hash_set<Coord>>
+                      absl::flat_hash_set<Coord<int>>>
       segments_set;
   for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
     for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
@@ -306,12 +306,12 @@ auto GetSegments(ImageView32 segmented_apriltag)
       }
     }
   }
-  std::vector<std::vector<Coord>> segments;
+  std::vector<std::vector<Coord<int>>> segments;
   for (const auto& [ids, pixel_coords_set] : segments_set) {
     constexpr size_t min_segment_size = 500;
     if (pixel_coords_set.size() >= min_segment_size) {
-      std::vector<Coord> pixel_coords_vector(
-          pixel_coords_set.begin(), pixel_coords_set.end());
+      std::vector<Coord<int>> pixel_coords_vector(pixel_coords_set.begin(),
+                                                  pixel_coords_set.end());
       segments.push_back(std::move(pixel_coords_vector));
     }
   }
@@ -319,7 +319,7 @@ auto GetSegments(ImageView32 segmented_apriltag)
 }
 
 void PopulateBoundarySegmentedApriltag(
-    std::vector<std::vector<Coord>>& segments,
+    std::vector<std::vector<Coord<int>>>& segments,
     ImageView32 boundary_segmented_apriltag) {
   int id = 1;
   for (const auto& pixel_coords : segments) {
@@ -330,51 +330,50 @@ void PopulateBoundarySegmentedApriltag(
   }
 }
 
-auto SortSegments(std::vector<std::vector<Coord>>& segments) {
+auto SortSegments(std::vector<std::vector<Coord<int>>>& segments) {
   for (auto& segment : segments) {
-    auto sum = std::accumulate(
-        segment.begin(), segment.end(), Coord{0, 0},
-        [](Coord sum, Coord value) -> Coord {
-          sum.row += value.row;
-          sum.col += value.col;
-          return sum;
-        });
-    Coord mean{sum.row / static_cast<int>(segment.size()),
-               sum.col / static_cast<int>(segment.size())};
+    auto sum = std::accumulate(segment.begin(), segment.end(),
+                               Coord<int>{.row = 0, .col = 0},
+                               [](Coord<int> sum, Coord<int> value) -> Coord<int> {
+                                 sum.row += value.row;
+                                 sum.col += value.col;
+                                 return sum;
+                               });
+    Coord<int> mean{.row = sum.row / static_cast<int>(segment.size()),
+                    .col = sum.col / static_cast<int>(segment.size())};
 
-    std::ranges::sort(
-        segment, [&mean](Coord a, Coord b) -> bool {
-          const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
-          const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
+    std::ranges::sort(segment, [&mean](Coord<int> a, Coord<int> b) -> bool {
+      const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
+      const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
 
-          const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
-          const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
+      const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
+      const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
 
-          auto sector = [](int64_t x, int64_t y) -> int {
-            if (x == 0 && y < 0)
-              return 0;  // angle = pi
-            if (x > 0)
-              return 1;  // (0, pi)
-            if (x == 0)
-              return 2;  // angle = 0
-            return 3;    // (-pi, 0)
-          };
+      auto sector = [](int64_t x, int64_t y) -> int {
+        if (x == 0 && y < 0)
+          return 0;  // angle = pi
+        if (x > 0)
+          return 1;  // (0, pi)
+        if (x == 0)
+          return 2;  // angle = 0
+        return 3;    // (-pi, 0)
+      };
 
-          const int sa = sector(a_row, a_col);
-          const int sb = sector(b_row, b_col);
+      const int sa = sector(a_row, a_col);
+      const int sb = sector(b_row, b_col);
 
-          if (sa != sb) {
-            return sa < sb;
-          }
+      if (sa != sb) {
+        return sa < sb;
+      }
 
-          // Equivalent angular ordering without atan2.
-          return a_col * b_row - a_row * b_col < 0;
-        });
+      // Equivalent angular ordering without atan2.
+      return a_col * b_row - a_row * b_col < 0;
+    });
   }
 }
 
 void PopulateSortedBoundarySegmentedApriltag(
-    std::vector<std::vector<Coord>>& segments,
+    std::vector<std::vector<Coord<int>>>& segments,
     ImageView sorted_boundary_segmented_apriltag) {
   for (auto& segment : segments) {
     float size = segment.size();
@@ -386,36 +385,37 @@ void PopulateSortedBoundarySegmentedApriltag(
   }
 }
 
-auto GetMses(std::vector<std::vector<Coord>>& segments)
+auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
     -> std::vector<std::vector<float>> {
   std::vector<std::vector<float>> mses;
   constexpr int window_size = 100;
   constexpr float window_size_float = window_size;
   for (const auto& segment : segments) {
-    Coord first_moment{0, 0};
-    Coord second_moment{0, 0};
-    int xy_moment = 0;
+    Coord<int64_t> first_moment{.row = 0, .col = 0};
+    Coord<int64_t> second_moment{.row = 0, .col = 0};
+    int64_t xy_moment = 0;
     for (int i = 0; i < window_size; i++) {
-      first_moment.row += segment[i].row;
-      first_moment.col += segment[i].col;
+      const Coord<int64_t> point{.row = segment[i].row,
+                                 .col = segment[i].col};
+      first_moment.row += point.row;
+      first_moment.col += point.col;
 
-      second_moment.row += segment[i].row * segment[i].row;
-      second_moment.col += segment[i].col * segment[i].col;
+      second_moment.row += point.row * point.row;
+      second_moment.col += point.col * point.col;
 
-      xy_moment += segment[i].row * segment[i].col;
+      xy_moment += point.row * point.col;
     }
 
     int window_head = window_size;
     int window_tail = 0;
     std::vector<float> mse(segment.size());
-    for (int i = window_size / 2; i < segment.size() + (window_size / 2); i++) {
+    for (size_t i = window_size / 2; i < segment.size() + (window_size / 2);
+         i++) {
       auto mean_x = first_moment.row / window_size_float;
       auto mean_y = first_moment.col / window_size_float;
 
-      const float cxx =
-          second_moment.row / window_size_float - mean_x * mean_x;
-      const float cyy =
-          second_moment.col / window_size_float - mean_y * mean_y;
+      const float cxx = second_moment.row / window_size_float - mean_x * mean_x;
+      const float cyy = second_moment.col / window_size_float - mean_y * mean_y;
       const float cxy = (xy_moment / window_size_float) -
                         ((first_moment.row / window_size_float) *
                          (first_moment.col / window_size_float));
@@ -430,21 +430,21 @@ auto GetMses(std::vector<std::vector<Coord>>& segments)
 
       mse[i % mse.size()] = lambdas.second;
 
-      first_moment.row += segment[window_head].row;
-      first_moment.col += segment[window_head].col;
-      second_moment.row +=
-          segment[window_head].row * segment[window_head].row;
-      second_moment.col +=
-          segment[window_head].col * segment[window_head].col;
-      xy_moment += segment[window_head].row * segment[window_head].col;
+      const Coord<int64_t> head{.row = segment[window_head].row,
+                                .col = segment[window_head].col};
+      first_moment.row += head.row;
+      first_moment.col += head.col;
+      second_moment.row += head.row * head.row;
+      second_moment.col += head.col * head.col;
+      xy_moment += head.row * head.col;
 
-      first_moment.row -= segment[window_tail].row;
-      first_moment.col -= segment[window_tail].col;
-      second_moment.row -=
-          segment[window_tail].row * segment[window_tail].row;
-      second_moment.col -=
-          segment[window_tail].col * segment[window_tail].col;
-      xy_moment -= segment[window_tail].row * segment[window_tail].col;
+      const Coord<int64_t> tail{.row = segment[window_tail].row,
+                                .col = segment[window_tail].col};
+      first_moment.row -= tail.row;
+      first_moment.col -= tail.col;
+      second_moment.row -= tail.row * tail.row;
+      second_moment.col -= tail.col * tail.col;
+      xy_moment -= tail.row * tail.col;
 
       window_head++;
       window_head %= segment.size();
@@ -458,7 +458,7 @@ auto GetMses(std::vector<std::vector<Coord>>& segments)
 }
 
 auto GetCandidatesQuadCorners(
-    const std::vector<std::vector<Coord>>& segments,
+    const std::vector<std::vector<Coord<int>>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad> {
   std::vector<CandidatesQuad> quads;
@@ -538,43 +538,42 @@ auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
 
 void OrderQuads(std::vector<Quad>& quads) {
   for (auto& quad : quads) {
-    Coord mean = std::accumulate(
-        quad.corners.begin(), quad.corners.end(), Coord{},
-        [](Coord sum, Coord value) -> Coord {
-          sum.row += value.row;
-          sum.col += value.col;
-          return sum;
-        });
+    Coord<int> mean =
+        std::accumulate(quad.corners.begin(), quad.corners.end(), Coord<int>{},
+                        [](Coord<int> sum, Coord<int> value) -> Coord<int> {
+                          sum.row += value.row;
+                          sum.col += value.col;
+                          return sum;
+                        });
     mean.row /= 4;
     mean.col /= 4;
-    std::ranges::sort(
-        quad.corners, [&mean](Coord a, Coord b) -> bool {
-          const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
-          const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
+    std::ranges::sort(quad.corners, [&mean](Coord<int> a, Coord<int> b) -> bool {
+      const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
+      const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
 
-          const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
-          const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
+      const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
+      const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
 
-          auto sector = [](int64_t x, int64_t y) -> int {
-            if (x == 0 && y < 0)
-              return 0;  // angle = pi
-            if (x > 0)
-              return 1;  // (0, pi)
-            if (x == 0)
-              return 2;  // angle = 0
-            return 3;    // (-pi, 0)
-          };
+      auto sector = [](int64_t x, int64_t y) -> int {
+        if (x == 0 && y < 0)
+          return 0;  // angle = pi
+        if (x > 0)
+          return 1;  // (0, pi)
+        if (x == 0)
+          return 2;  // angle = 0
+        return 3;    // (-pi, 0)
+      };
 
-          const int sa = sector(a_row, a_col);
-          const int sb = sector(b_row, b_col);
+      const int sa = sector(a_row, a_col);
+      const int sb = sector(b_row, b_col);
 
-          if (sa != sb) {
-            return sa < sb;
-          }
+      if (sa != sb) {
+        return sa < sb;
+      }
 
-          // Equivalent angular ordering without atan2.
-          return a_col * b_row - a_row * b_col < 0;
-        });
+      // Equivalent angular ordering without atan2.
+      return a_col * b_row - a_row * b_col < 0;
+    });
   }
 }
 
@@ -688,11 +687,11 @@ auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
         float numerator = ((x4 - x3) * (y3 - y1) - (y4 - y3) * (x3 - x1));
         float denomenator = ((x4 - x3) * (y2 - y1) - (y4 - y3) * (x2 - x1));
         float alpha = numerator / denomenator;
-        Coord intersection{
-            static_cast<int>(first_row_position.first +
-                             row_vector.first * alpha),
-            static_cast<int>(first_row_position.second +
-                             row_vector.second * alpha)};
+        Coord<int> intersection{
+            .row = static_cast<int>(first_row_position.first +
+                                    row_vector.first * alpha),
+            .col = static_cast<int>(first_row_position.second +
+                                    row_vector.second * alpha)};
         bit_location[i][j] = intersection;
         if (intersection.row < 0 || intersection.col < 0) {
           valid = false;
@@ -710,8 +709,8 @@ void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
   for (const auto& bit_location : bit_locations) {
     for (int i = 0; i < 10; i++) {
       for (int j = 0; j < 10; j++) {
-        bit_locations_apriltag(bit_location[i][j].row,
-                               bit_location[i][j].col) = idx * 2222009;
+        bit_locations_apriltag(bit_location[i][j].row, bit_location[i][j].col) =
+            idx * 2222009;
       }
     }
     idx++;

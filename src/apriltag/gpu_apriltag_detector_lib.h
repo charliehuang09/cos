@@ -8,19 +8,20 @@
 #include <vector>
 namespace apriltag {
 
+template <typename T>
 struct Coord {
-  int row;
-  int col;
+  T row;
+  T col;
 
-  friend bool operator==(const Coord&, const Coord&) = default;
+  friend auto operator==(const Coord&, const Coord&) -> bool = default;
 
   template <typename H>
-  friend H AbslHashValue(H h, const Coord& coord) {
+  friend auto AbslHashValue(H h, const Coord& coord) -> H {
     return H::combine(std::move(h), coord.row, coord.col);
   }
 };
 
-using BitLocation = std::array<std::array<Coord, 10>, 10>;
+using BitLocation = std::array<std::array<Coord<int>, 10>, 10>;
 
 struct ImageView {
   uint8_t* data;
@@ -45,11 +46,11 @@ struct ImageView32 {
 };
 
 struct Quad {
-  std::array<Coord, 4> corners{};
+  std::array<Coord<int>, 4> corners{};
 };
 
 struct CandidatesQuad {
-  std::array<Coord, 4> corners{};
+  std::array<Coord<int>, 4> corners{};
 };
 
 struct ApriltagDetection {
@@ -80,23 +81,23 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
                                ImageView32 segmented_apriltag);
 
 auto GetSegments(ImageView32 segmented_apriltag)
-    -> std::vector<std::vector<Coord>>;
+    -> std::vector<std::vector<Coord<int>>>;
 
 void PopulateBoundarySegmentedApriltag(
-    std::vector<std::vector<Coord>>& segments,
+    std::vector<std::vector<Coord<int>>>& segments,
     ImageView32 boundary_segmented_apriltag);
 
-auto SortSegments(std::vector<std::vector<Coord>>& segments);
+auto SortSegments(std::vector<std::vector<Coord<int>>>& segments);
 
 void PopulateSortedBoundarySegmentedApriltag(
-    std::vector<std::vector<Coord>>& segments,
+    std::vector<std::vector<Coord<int>>>& segments,
     ImageView sorted_boundary_segmented_apriltag);
 
-auto GetMses(std::vector<std::vector<Coord>>& segments)
+auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
     -> std::vector<std::vector<float>>;
 
 auto GetCandidatesQuadCorners(
-    const std::vector<std::vector<Coord>>& segments,
+    const std::vector<std::vector<Coord<int>>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad>;
 
