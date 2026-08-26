@@ -67,8 +67,8 @@ void PrintCode(const apriltag::BitLocation& bit_location,
   for (int i = 1; i <= 8; i++) {
     for (int j = 1; j <= 8; j++) {
       std::cout << static_cast<int>(
-                       binarized_apriltag(bit_location[i][j].first,
-                                          bit_location[i][j].second) > 255 / 2)
+                       binarized_apriltag(bit_location[i][j].row,
+                                          bit_location[i][j].col) > 255 / 2)
                 << " ";
     }
     std::cout << "\n";
@@ -226,20 +226,19 @@ void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
 
 void Segment(int row, int col, ImageView binarized_apriltag,
              ImageView32 segmented_apriltag, int32_t id) {
-  std::queue<std::pair<int, int>> q;
+  std::queue<Coord> q;
   q.emplace(row, col);
   uint8_t color = binarized_apriltag(row, col);
   segmented_apriltag(row, col) = id;
   while (!q.empty()) {
-    std::pair<int, int> coords = q.front();
+    Coord coords = q.front();
     q.pop();
     constexpr std::array<int, 4> dx_array = {0, 0, 1, -1};
     constexpr std::array<int, 4> dy_array = {-1, 1, 0, 0};
     for (int i = 0; i < 4; i++) {
-      int new_row = coords.first + dx_array[i];
-      int new_col = coords.second + dy_array[i];
-      if (new_col < 0 || new_row < 0 ||
-          new_col >= binarized_apriltag.width ||
+      int new_row = coords.row + dx_array[i];
+      int new_col = coords.col + dy_array[i];
+      if (new_col < 0 || new_row < 0 || new_col >= binarized_apriltag.width ||
           new_row >= binarized_apriltag.height) [[unlikely]] {
         continue;
       }
@@ -271,9 +270,9 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
 }
 
 auto GetSegments(ImageView32 segmented_apriltag)
-    -> std::vector<std::vector<std::pair<int, int>>> {
-  absl::flat_hash_map<std::pair<int, int>,
-                      absl::flat_hash_set<std::pair<int, int>>>
+    -> std::vector<std::vector<Coord>> {
+  absl::flat_hash_map<std::pair<uint32_t, uint32_t>,
+                      absl::flat_hash_set<Coord>>
       segments_set;
   for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
     for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
@@ -307,11 +306,11 @@ auto GetSegments(ImageView32 segmented_apriltag)
       }
     }
   }
-  std::vector<std::vector<std::pair<int, int>>> segments;
+  std::vector<std::vector<Coord>> segments;
   for (const auto& [ids, pixel_coords_set] : segments_set) {
     constexpr size_t min_segment_size = 500;
     if (pixel_coords_set.size() >= min_segment_size) {
-      std::vector<std::pair<int, int>> pixel_coords_vector(
+      std::vector<Coord> pixel_coords_vector(
           pixel_coords_set.begin(), pixel_coords_set.end());
       segments.push_back(std::move(pixel_coords_vector));
     }
@@ -320,37 +319,36 @@ auto GetSegments(ImageView32 segmented_apriltag)
 }
 
 void PopulateBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<int, int>>>& segments,
+    std::vector<std::vector<Coord>>& segments,
     ImageView32 boundary_segmented_apriltag) {
   int id = 1;
   for (const auto& pixel_coords : segments) {
     for (const auto& pixel_coord : pixel_coords) {
-      boundary_segmented_apriltag(pixel_coord.first, pixel_coord.second) = id;
+      boundary_segmented_apriltag(pixel_coord.row, pixel_coord.col) = id;
     }
     id++;
   }
 }
 
-auto SortSegments(std::vector<std::vector<std::pair<int, int>>>& segments) {
+auto SortSegments(std::vector<std::vector<Coord>>& segments) {
   for (auto& segment : segments) {
     auto sum = std::accumulate(
-        segment.begin(), segment.end(), std::pair<int, int>{0, 0},
-        [](std::pair<int, int> sum,
-           std::pair<int, int> value) -> std::pair<int, int> {
-          sum.first += value.first;
-          sum.second += value.second;
+        segment.begin(), segment.end(), Coord{0, 0},
+        [](Coord sum, Coord value) -> Coord {
+          sum.row += value.row;
+          sum.col += value.col;
           return sum;
         });
-    std::pair<int, int> mean{sum.first / segment.size(),
-                             sum.second / segment.size()};
+    Coord mean{sum.row / static_cast<int>(segment.size()),
+               sum.col / static_cast<int>(segment.size())};
 
     std::ranges::sort(
-        segment, [&mean](std::pair<int, int> a, std::pair<int, int> b) -> bool {
-          const int64_t a_row = static_cast<int64_t>(a.first) - mean.first;
-          const int64_t a_col = static_cast<int64_t>(a.second) - mean.second;
+        segment, [&mean](Coord a, Coord b) -> bool {
+          const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
+          const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
 
-          const int64_t b_row = static_cast<int64_t>(b.first) - mean.first;
-          const int64_t b_col = static_cast<int64_t>(b.second) - mean.second;
+          const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
+          const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
 
           auto sector = [](int64_t x, int64_t y) -> int {
             if (x == 0 && y < 0)
@@ -376,51 +374,51 @@ auto SortSegments(std::vector<std::vector<std::pair<int, int>>>& segments) {
 }
 
 void PopulateSortedBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<int, int>>>& segments,
+    std::vector<std::vector<Coord>>& segments,
     ImageView sorted_boundary_segmented_apriltag) {
   for (auto& segment : segments) {
     float size = segment.size();
     for (size_t i = 0; i < segment.size(); i++) {
       uint8_t value = (i / size) * 255;
-      sorted_boundary_segmented_apriltag(segment[i].first, segment[i].second) =
+      sorted_boundary_segmented_apriltag(segment[i].row, segment[i].col) =
           value;
     }
   }
 }
 
-auto GetMses(std::vector<std::vector<std::pair<int, int>>>& segments)
+auto GetMses(std::vector<std::vector<Coord>>& segments)
     -> std::vector<std::vector<float>> {
   std::vector<std::vector<float>> mses;
   constexpr int window_size = 100;
   constexpr float window_size_float = window_size;
   for (const auto& segment : segments) {
-    std::pair<int, int> first_moment{0, 0};
-    std::pair<int, int> second_moment{0, 0};
+    Coord first_moment{0, 0};
+    Coord second_moment{0, 0};
     int xy_moment = 0;
     for (int i = 0; i < window_size; i++) {
-      first_moment.first += segment[i].first;
-      first_moment.second += segment[i].second;
+      first_moment.row += segment[i].row;
+      first_moment.col += segment[i].col;
 
-      second_moment.first += segment[i].first * segment[i].first;
-      second_moment.second += segment[i].second * segment[i].second;
+      second_moment.row += segment[i].row * segment[i].row;
+      second_moment.col += segment[i].col * segment[i].col;
 
-      xy_moment += segment[i].first * segment[i].second;
+      xy_moment += segment[i].row * segment[i].col;
     }
 
     int window_head = window_size;
     int window_tail = 0;
     std::vector<float> mse(segment.size());
     for (int i = window_size / 2; i < segment.size() + (window_size / 2); i++) {
-      auto mean_x = first_moment.first / window_size_float;
-      auto mean_y = first_moment.second / window_size_float;
+      auto mean_x = first_moment.row / window_size_float;
+      auto mean_y = first_moment.col / window_size_float;
 
       const float cxx =
-          second_moment.first / window_size_float - mean_x * mean_x;
+          second_moment.row / window_size_float - mean_x * mean_x;
       const float cyy =
-          second_moment.second / window_size_float - mean_y * mean_y;
+          second_moment.col / window_size_float - mean_y * mean_y;
       const float cxy = (xy_moment / window_size_float) -
-                        ((first_moment.first / window_size_float) *
-                         (first_moment.second / window_size_float));
+                        ((first_moment.row / window_size_float) *
+                         (first_moment.col / window_size_float));
 
       const float a = 1;
       const float b = -(cxx + cyy);
@@ -432,21 +430,21 @@ auto GetMses(std::vector<std::vector<std::pair<int, int>>>& segments)
 
       mse[i % mse.size()] = lambdas.second;
 
-      first_moment.first += segment[window_head].first;
-      first_moment.second += segment[window_head].second;
-      second_moment.first +=
-          segment[window_head].first * segment[window_head].first;
-      second_moment.second +=
-          segment[window_head].second * segment[window_head].second;
-      xy_moment += segment[window_head].first * segment[window_head].second;
+      first_moment.row += segment[window_head].row;
+      first_moment.col += segment[window_head].col;
+      second_moment.row +=
+          segment[window_head].row * segment[window_head].row;
+      second_moment.col +=
+          segment[window_head].col * segment[window_head].col;
+      xy_moment += segment[window_head].row * segment[window_head].col;
 
-      first_moment.first -= segment[window_tail].first;
-      first_moment.second -= segment[window_tail].second;
-      second_moment.first -=
-          segment[window_tail].first * segment[window_tail].first;
-      second_moment.second -=
-          segment[window_tail].second * segment[window_tail].second;
-      xy_moment -= segment[window_tail].first * segment[window_tail].second;
+      first_moment.row -= segment[window_tail].row;
+      first_moment.col -= segment[window_tail].col;
+      second_moment.row -=
+          segment[window_tail].row * segment[window_tail].row;
+      second_moment.col -=
+          segment[window_tail].col * segment[window_tail].col;
+      xy_moment -= segment[window_tail].row * segment[window_tail].col;
 
       window_head++;
       window_head %= segment.size();
@@ -460,7 +458,7 @@ auto GetMses(std::vector<std::vector<std::pair<int, int>>>& segments)
 }
 
 auto GetCandidatesQuadCorners(
-    const std::vector<std::vector<std::pair<int, int>>>& segments,
+    const std::vector<std::vector<Coord>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad> {
   std::vector<CandidatesQuad> quads;
@@ -507,13 +505,13 @@ void PopulateCandidateQuadCornersApriltagBuffer(
   for (const auto& quad : quads) {
     int color = 255;
     for (const auto& corner : quad.corners) {
-      if (corner.first == 0 && corner.second == 0) {
+      if (corner.row == 0 && corner.col == 0) {
         continue;
       }
       for (int i = -5; i <= 5; i++) {
         for (int j = -5; j <= 5; j++) {
-          candidates_quad_corners_apriltag(corner.first + i,
-                                           corner.second + j) = color;
+          candidates_quad_corners_apriltag(corner.row + i, corner.col + j) =
+              color;
         }
       }
       color -= 50;
@@ -540,24 +538,22 @@ auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
 
 void OrderQuads(std::vector<Quad>& quads) {
   for (auto& quad : quads) {
-    std::pair<int, int> mean = std::accumulate(
-        quad.corners.begin(), quad.corners.end(), std::pair<int, int>{},
-        [](std::pair<int, int> sum,
-           std::pair<int, int> value) -> std::pair<int, int> {
-          sum.first += value.first;
-          sum.second += value.second;
+    Coord mean = std::accumulate(
+        quad.corners.begin(), quad.corners.end(), Coord{},
+        [](Coord sum, Coord value) -> Coord {
+          sum.row += value.row;
+          sum.col += value.col;
           return sum;
         });
-    mean.first /= 4;
-    mean.second /= 4;
+    mean.row /= 4;
+    mean.col /= 4;
     std::ranges::sort(
-        quad.corners,
-        [&mean](std::pair<int, int> a, std::pair<int, int> b) -> bool {
-          const int64_t a_row = static_cast<int64_t>(a.first) - mean.first;
-          const int64_t a_col = static_cast<int64_t>(a.second) - mean.second;
+        quad.corners, [&mean](Coord a, Coord b) -> bool {
+          const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
+          const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
 
-          const int64_t b_row = static_cast<int64_t>(b.first) - mean.first;
-          const int64_t b_col = static_cast<int64_t>(b.second) - mean.second;
+          const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
+          const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
 
           auto sector = [](int64_t x, int64_t y) -> int {
             if (x == 0 && y < 0)
@@ -588,12 +584,12 @@ void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
     CHECK(quad.corners.size() == 4);
     int color = 255;
     for (const auto& corner : quad.corners) {
-      if (corner.first == 0 && corner.second == 0) {
+      if (corner.row == 0 && corner.col == 0) {
         continue;
       }
       for (int i = -5; i <= 5; i++) {
         for (int j = -5; j <= 5; j++) {
-          quad_apriltag(corner.first + i, corner.second + j) = color;
+          quad_apriltag(corner.row + i, corner.col + j) = color;
         }
       }
       color -= 50;
@@ -604,52 +600,52 @@ void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
 auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
   std::vector<BitLocation> bit_locations;
   for (const auto& quad : quads) {
-    if (quad.corners[3].first == 0) {
+    if (quad.corners[3].row == 0) {
       bit_locations.push_back({});
       continue;
     }
 
     std::pair<float, float> first_row_vector{
-        quad.corners[1].first - quad.corners[0].first,
-        quad.corners[1].second - quad.corners[0].second};
+        quad.corners[1].row - quad.corners[0].row,
+        quad.corners[1].col - quad.corners[0].col};
     first_row_vector.first /= 8;
     first_row_vector.second /= 8;
 
     std::pair<float, float> second_row_vector{
-        quad.corners[2].first - quad.corners[3].first,
-        quad.corners[2].second - quad.corners[3].second};
+        quad.corners[2].row - quad.corners[3].row,
+        quad.corners[2].col - quad.corners[3].col};
     second_row_vector.first /= 8;
     second_row_vector.second /= 8;
 
     std::pair<float, float> first_col_vector{
-        quad.corners[3].first - quad.corners[0].first,
-        quad.corners[3].second - quad.corners[0].second};
+        quad.corners[3].row - quad.corners[0].row,
+        quad.corners[3].col - quad.corners[0].col};
     first_col_vector.first /= 8;
     first_col_vector.second /= 8;
 
     std::pair<float, float> second_col_vector{
-        quad.corners[2].first - quad.corners[1].first,
-        quad.corners[2].second - quad.corners[1].second};
+        quad.corners[2].row - quad.corners[1].row,
+        quad.corners[2].col - quad.corners[1].col};
     second_col_vector.first /= 8;
     second_col_vector.second /= 8;
 
-    std::pair<float, float> first_row_offset{quad.corners[0].first,
-                                             quad.corners[0].second};
+    std::pair<float, float> first_row_offset{quad.corners[0].row,
+                                             quad.corners[0].col};
     first_row_offset.first -= first_row_vector.first / 2;
     first_row_offset.second -= first_row_vector.second / 2;
 
-    std::pair<float, float> second_row_offset{quad.corners[3].first,
-                                              quad.corners[3].second};
+    std::pair<float, float> second_row_offset{quad.corners[3].row,
+                                              quad.corners[3].col};
     second_row_offset.first -= second_row_vector.first / 2;
     second_row_offset.second -= second_row_vector.second / 2;
 
-    std::pair<float, float> first_col_offset{quad.corners[0].first,
-                                             quad.corners[0].second};
+    std::pair<float, float> first_col_offset{quad.corners[0].row,
+                                             quad.corners[0].col};
     first_col_offset.first -= first_col_vector.first / 2;
     first_col_offset.second -= first_col_vector.second / 2;
 
-    std::pair<float, float> second_col_offset{quad.corners[1].first,
-                                              quad.corners[1].second};
+    std::pair<float, float> second_col_offset{quad.corners[1].row,
+                                              quad.corners[1].col};
     second_col_offset.first -= second_col_vector.first / 2;
     second_col_offset.second -= second_col_vector.second / 2;
 
@@ -692,11 +688,13 @@ auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
         float numerator = ((x4 - x3) * (y3 - y1) - (y4 - y3) * (x3 - x1));
         float denomenator = ((x4 - x3) * (y2 - y1) - (y4 - y3) * (x2 - x1));
         float alpha = numerator / denomenator;
-        std::pair<int, int> intersection{
-            first_row_position.first + row_vector.first * alpha,
-            first_row_position.second + row_vector.second * alpha};
+        Coord intersection{
+            static_cast<int>(first_row_position.first +
+                             row_vector.first * alpha),
+            static_cast<int>(first_row_position.second +
+                             row_vector.second * alpha)};
         bit_location[i][j] = intersection;
-        if (intersection.first < 0 || intersection.second < 0) {
+        if (intersection.row < 0 || intersection.col < 0) {
           valid = false;
         }
       }
@@ -712,8 +710,8 @@ void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
   for (const auto& bit_location : bit_locations) {
     for (int i = 0; i < 10; i++) {
       for (int j = 0; j < 10; j++) {
-        bit_locations_apriltag(bit_location[i][j].first,
-                               bit_location[i][j].second) = idx * 2222009;
+        bit_locations_apriltag(bit_location[i][j].row,
+                               bit_location[i][j].col) = idx * 2222009;
       }
     }
     idx++;
@@ -724,19 +722,19 @@ auto GetBlackWhiteThreshold(ImageView apriltag,
                             const BitLocation& bit_location) {
   float white = 0;
   for (int i = 0; i < 10; i++) {
-    white += apriltag(bit_location[0][i].first, bit_location[0][i].second);
-    white += apriltag(bit_location[9][i].first, bit_location[9][i].second);
-    white += apriltag(bit_location[i][0].first, bit_location[i][0].second);
-    white += apriltag(bit_location[i][9].first, bit_location[i][9].second);
+    white += apriltag(bit_location[0][i].row, bit_location[0][i].col);
+    white += apriltag(bit_location[9][i].row, bit_location[9][i].col);
+    white += apriltag(bit_location[i][0].row, bit_location[i][0].col);
+    white += apriltag(bit_location[i][9].row, bit_location[i][9].col);
   }
   white /= 40;
 
   float black = 0;
   for (int i = 1; i < 9; i++) {
-    black += apriltag(bit_location[1][i].first, bit_location[1][i].second);
-    black += apriltag(bit_location[8][i].first, bit_location[8][i].second);
-    black += apriltag(bit_location[i][1].first, bit_location[i][1].second);
-    black += apriltag(bit_location[i][8].first, bit_location[i][8].second);
+    black += apriltag(bit_location[1][i].row, bit_location[1][i].col);
+    black += apriltag(bit_location[8][i].row, bit_location[8][i].col);
+    black += apriltag(bit_location[i][1].row, bit_location[i][1].col);
+    black += apriltag(bit_location[i][8].row, bit_location[i][8].col);
   }
   black /= 40;
 
@@ -758,8 +756,8 @@ auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag,
       const auto y = family->bit_y[j];
 
       code <<= 1;
-      if (apriltag(bit_location[y + 1][x + 1].first,
-                   bit_location[y + 1][x + 1].second) > threshold) {
+      if (apriltag(bit_location[y + 1][x + 1].row,
+                   bit_location[y + 1][x + 1].col) > threshold) {
         code |= 1ULL;
       }
     }
@@ -810,8 +808,8 @@ void DrawTagDetections(cv::Mat& image,
     std::array<cv::Point, 4> points;
 
     for (int j = 0; j < 4; ++j) {
-      points[j] = cv::Point{static_cast<int>(detection.quad.corners[j].second),
-                            static_cast<int>(detection.quad.corners[j].first)};
+      points[j] = cv::Point{static_cast<int>(detection.quad.corners[j].col),
+                            static_cast<int>(detection.quad.corners[j].row)};
     }
 
     for (int j = 0; j < 4; ++j) {

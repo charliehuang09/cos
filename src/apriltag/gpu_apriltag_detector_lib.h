@@ -4,10 +4,23 @@
 #include <cstdint>
 #include <opencv2/core/mat.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 namespace apriltag {
 
-using BitLocation = std::array<std::array<std::pair<int, int>, 10>, 10>;
+struct Coord {
+  int row;
+  int col;
+
+  friend bool operator==(const Coord&, const Coord&) = default;
+
+  template <typename H>
+  friend H AbslHashValue(H h, const Coord& coord) {
+    return H::combine(std::move(h), coord.row, coord.col);
+  }
+};
+
+using BitLocation = std::array<std::array<Coord, 10>, 10>;
 
 struct ImageView {
   uint8_t* data;
@@ -18,11 +31,6 @@ struct ImageView {
   auto operator()(size_t row, size_t col) -> uint8_t& {
     return data[row * stride + col];
   }
-};
-
-struct Coord {
-  int row;
-  int col;
 };
 
 struct ImageView32 {
@@ -37,11 +45,11 @@ struct ImageView32 {
 };
 
 struct Quad {
-  std::array<std::pair<int, int>, 4> corners{};
+  std::array<Coord, 4> corners{};
 };
 
 struct CandidatesQuad {
-  std::array<std::pair<int, int>, 4> corners{};
+  std::array<Coord, 4> corners{};
 };
 
 struct ApriltagDetection {
@@ -72,23 +80,23 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
                                ImageView32 segmented_apriltag);
 
 auto GetSegments(ImageView32 segmented_apriltag)
-    -> std::vector<std::vector<std::pair<int, int>>>;
+    -> std::vector<std::vector<Coord>>;
 
 void PopulateBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<int, int>>>& segments,
+    std::vector<std::vector<Coord>>& segments,
     ImageView32 boundary_segmented_apriltag);
 
-auto SortSegments(std::vector<std::vector<std::pair<int, int>>>& segments);
+auto SortSegments(std::vector<std::vector<Coord>>& segments);
 
 void PopulateSortedBoundarySegmentedApriltag(
-    std::vector<std::vector<std::pair<int, int>>>& segments,
+    std::vector<std::vector<Coord>>& segments,
     ImageView sorted_boundary_segmented_apriltag);
 
-auto GetMses(std::vector<std::vector<std::pair<int, int>>>& segments)
+auto GetMses(std::vector<std::vector<Coord>>& segments)
     -> std::vector<std::vector<float>>;
 
 auto GetCandidatesQuadCorners(
-    const std::vector<std::vector<std::pair<int, int>>>& segments,
+    const std::vector<std::vector<Coord>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad>;
 
