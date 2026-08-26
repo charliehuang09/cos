@@ -332,13 +332,13 @@ void PopulateBoundarySegmentedApriltag(
 
 auto SortSegments(std::vector<std::vector<Coord<int>>>& segments) {
   for (auto& segment : segments) {
-    auto sum = std::accumulate(segment.begin(), segment.end(),
-                               Coord<int>{.row = 0, .col = 0},
-                               [](Coord<int> sum, Coord<int> value) -> Coord<int> {
-                                 sum.row += value.row;
-                                 sum.col += value.col;
-                                 return sum;
-                               });
+    auto sum = std::accumulate(
+        segment.begin(), segment.end(), Coord<int>{.row = 0, .col = 0},
+        [](Coord<int> sum, Coord<int> value) -> Coord<int> {
+          sum.row += value.row;
+          sum.col += value.col;
+          return sum;
+        });
     Coord<int> mean{.row = sum.row / static_cast<int>(segment.size()),
                     .col = sum.col / static_cast<int>(segment.size())};
 
@@ -395,8 +395,7 @@ auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
     Coord<int64_t> second_moment{.row = 0, .col = 0};
     int64_t xy_moment = 0;
     for (int i = 0; i < window_size; i++) {
-      const Coord<int64_t> point{.row = segment[i].row,
-                                 .col = segment[i].col};
+      const Coord<int64_t> point{.row = segment[i].row, .col = segment[i].col};
       first_moment.row += point.row;
       first_moment.col += point.col;
 
@@ -547,33 +546,34 @@ void OrderQuads(std::vector<Quad>& quads) {
                         });
     mean.row /= 4;
     mean.col /= 4;
-    std::ranges::sort(quad.corners, [&mean](Coord<int> a, Coord<int> b) -> bool {
-      const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
-      const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
+    std::ranges::sort(
+        quad.corners, [&mean](Coord<int> a, Coord<int> b) -> bool {
+          const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
+          const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
 
-      const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
-      const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
+          const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
+          const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
 
-      auto sector = [](int64_t x, int64_t y) -> int {
-        if (x == 0 && y < 0)
-          return 0;  // angle = pi
-        if (x > 0)
-          return 1;  // (0, pi)
-        if (x == 0)
-          return 2;  // angle = 0
-        return 3;    // (-pi, 0)
-      };
+          auto sector = [](int64_t x, int64_t y) -> int {
+            if (x == 0 && y < 0)
+              return 0;  // angle = pi
+            if (x > 0)
+              return 1;  // (0, pi)
+            if (x == 0)
+              return 2;  // angle = 0
+            return 3;    // (-pi, 0)
+          };
 
-      const int sa = sector(a_row, a_col);
-      const int sb = sector(b_row, b_col);
+          const int sa = sector(a_row, a_col);
+          const int sb = sector(b_row, b_col);
 
-      if (sa != sb) {
-        return sa < sb;
-      }
+          if (sa != sb) {
+            return sa < sb;
+          }
 
-      // Equivalent angular ordering without atan2.
-      return a_col * b_row - a_row * b_col < 0;
-    });
+          // Equivalent angular ordering without atan2.
+          return a_col * b_row - a_row * b_col < 0;
+        });
   }
 }
 
@@ -822,6 +822,158 @@ void DrawTagDetections(cv::Mat& image,
   }
 }
 
+auto GradientCol(Coord<int> point, ImageView& apriltag) -> float {
+  constexpr std::array<std::array<int, 5>, 5> gradient_x{{
+      {{-1, -2, 0, 2, 1}},
+      {{-4, -8, 0, 8, 4}},
+      {{-6, -12, 0, 12, 6}},
+      {{-4, -8, 0, 8, 4}},
+      {{-1, -2, 0, 2, 1}},
+  }};
+  float output = 0;
+  point.row -= 2;
+  point.col -= 2;
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 5; j++) {
+      output += gradient_x[i][j] * apriltag(point.row + i, point.col + j);
+    }
+  }
+  return output;
+}
+
+auto GradientRow(Coord<int> point, ImageView& apriltag) -> float {
+  constexpr std::array<std::array<int, 5>, 5> gradient_y{{
+      {{-1, -4, -6, -4, -1}},
+      {{-2, -8, -12, -8, -2}},
+      {{0, 0, 0, 0, 0}},
+      {{2, 8, 12, 8, 2}},
+      {{1, 4, 6, 4, 1}},
+  }};
+  float output = 0;
+  point.row -= 2;
+  point.col -= 2;
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 5; j++) {
+      output += gradient_y[i][j] * apriltag(point.row + i, point.col + j);
+    }
+  }
+  return output;
+}
+
+auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
+                      ImageView& apriltag)
+    -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
+
+  constexpr int num_samples = 10;
+  constexpr int search_vector_length = 10;
+  constexpr int quad_size = 4;
+  std::vector<std::array<std::vector<WeightedPoint>, quad_size>> refined_points;
+  for (const auto& apriltag_detection : apriltag_detections) {
+    CHECK(apriltag_detection.quad.corners.size() == quad_size);
+    const auto& quad = apriltag_detection.quad;
+    std::array<std::vector<WeightedPoint>, quad_size> weighted_points;
+    for (size_t i = 0; i < quad.corners.size(); i++) {
+      weighted_points[i].reserve(num_samples);
+      const auto& p1 = quad.corners[i];
+      const auto& p2 = quad.corners[(i + 1) % 4];
+      const auto& p3 = quad.corners[(i + 2) % 4];
+      const std::pair<float, float> v1{
+          static_cast<float>(p2.row - p1.row) / num_samples,
+          static_cast<float>(p2.col - p1.col) / num_samples};
+      const std::pair<float, float> v2{
+          static_cast<float>(p3.row - p2.row) / num_samples,
+          static_cast<float>(p3.col - p2.col) / num_samples};
+      const float v1_cross_v2 = v1.first * v2.second - v1.second * v2.first;
+      const int v1_cross_v2_sign = (v1_cross_v2 < 0.0f) ? -1 : 1;
+
+      std::pair<float, float> search_vector{std::abs(v1.second),
+                                            std::abs(v1.first)};
+      const float magnitude =
+          std::hypot(search_vector.first, search_vector.second);
+      search_vector.first /= magnitude;
+      search_vector.second /= magnitude;
+      search_vector.first *= search_vector_length;
+      search_vector.second *= search_vector_length;
+
+      for (int j = 0; j < num_samples; j++) {
+        const Coord<int> point{.row = static_cast<int>(p1.row + j * v1.first),
+                               .col = static_cast<int>(p1.col + j * v1.second)};
+
+        if (point.row - 2 < 0 || point.col - 2 < 0 ||
+            point.row + 2 >= apriltag.height || point.col + 2 >= apriltag.width)
+            [[unlikely]] {
+          continue;
+        }
+
+        const std::pair<float, float> gradient{GradientRow(point, apriltag),
+                                               GradientCol(point, apriltag)};
+        const float v1_cross_gradient =
+            v1.first * gradient.second - v1.second * gradient.first;
+        if ((v1_cross_gradient < 0) != (v1_cross_v2 < 0)) {
+          const Coord<int> start{
+              .row = std::max(static_cast<int>(point.row - search_vector.first),
+                              2),
+              .col = std::max(
+                  static_cast<int>(point.col - search_vector.second), 2)};
+          const Coord<int> end{
+              .row = std::min(static_cast<int>(point.row + search_vector.first),
+                              apriltag.height - 3),
+              .col =
+                  std::min(static_cast<int>(point.col + search_vector.second),
+                           apriltag.width - 3)};
+          float min_cross = std::numeric_limits<float>::max();
+          Coord<int> best_point{.row = -1, .col = -1};
+          for (int row = start.row; row <= end.row; row++) {
+            for (int col = start.col; col <= end.col; col++) {
+              const Coord<int> point{.row = row, .col = col};
+              const std::pair<float, float> candidate_gradient{
+                  GradientRow(point, apriltag), GradientCol(point, apriltag)};
+
+              const float v1_cross_candidate_gradient =
+                  v1.first * candidate_gradient.second -
+                  v1.second * candidate_gradient.first;
+              if (v1_cross_candidate_gradient * v1_cross_v2_sign < min_cross) {
+                min_cross = v1_cross_candidate_gradient * v1_cross_v2_sign;
+                best_point = point;
+              }
+            }
+          }
+          if (min_cross != std::numeric_limits<float>::max() && min_cross < 0) {
+            weighted_points[i].emplace_back(best_point, -min_cross);
+          }
+        }
+      }
+    }
+    refined_points.push_back(weighted_points);
+  }
+  return refined_points;
+}
+
+void PopulateRefinedPointsApriltag(
+    const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
+        refined_points,
+    ImageView& refined_points_apriltag) {
+  constexpr int marker_half_size = 2;
+  for (const auto& quad : refined_points) {
+    for (const auto& segment : quad) {
+      for (const auto& weighted_point : segment) {
+        Coord start{
+            .row = std::max(weighted_point.coord.row - marker_half_size, 0),
+            .col = std::max(weighted_point.coord.col - marker_half_size, 0)};
+        Coord end{.row = std::min(weighted_point.coord.row + marker_half_size,
+                                  refined_points_apriltag.height - 1),
+                  .col = std::min(weighted_point.coord.col + marker_half_size,
+                                  refined_points_apriltag.width - 1)};
+        for (int row = start.row; row <= end.row; row++) {
+          for (int col = start.col; col <= end.col; col++) {
+            refined_points_apriltag(row, col) = 255;
+          }
+        }
+      }
+    }
+  }
+}
+
 auto DetectAprilTag(ImageView apriltag, bool imwrite)
     -> std::vector<ApriltagDetection> {
   CHECK(apriltag.height % 4 == 0);
@@ -983,6 +1135,23 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
     if (tag_ids[i] != -1) {
       detections.emplace_back(quads[i], tag_ids[i]);
     }
+  }
+
+  if (imwrite) {
+    auto* refined_points_apriltag_buffer = static_cast<uint8_t*>(
+        calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
+    ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer,
+                                      .stride = apriltag.stride,
+                                      .height = apriltag.height,
+                                      .width = apriltag.width};
+    memcpy(refined_points_apriltag_buffer,
+           sorted_boundary_segmented_apriltag_buffer,
+           sizeof(uint8_t) * apriltag.width * apriltag.height);
+
+    auto refined_points = GetRefinedPoints(detections, apriltag);
+    PopulateRefinedPointsApriltag(refined_points, refined_points_apriltag);
+    ImWrite("/root/refined_points_apriltag.png", refined_points_apriltag);
+    free(refined_points_apriltag_buffer);
   }
 
   free(max_buffer);

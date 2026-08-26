@@ -58,6 +58,11 @@ struct ApriltagDetection {
   int id;
 };
 
+struct WeightedPoint {
+  Coord<int> coord;
+  float weight;
+};
+
 void ImWrite(const std::string& path, const ImageView& image);
 
 void ImWrite(const std::string& path, const ImageView& image_r,
