@@ -29,6 +29,7 @@ class UnambiguousSolverNode final : public control_loop::INode {
       -> const std::vector<control_loop::MessageDescriptor>& override;
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
+  void SetRejectFarTags(bool reject_far_tags);
 
   auto Solve(const std::vector<ambiguous_estimate_t*>& estimates,
              bool reject_far_tags = true) -> std::optional<position_estimate_t>;
@@ -68,6 +69,7 @@ class UnambiguousSolverNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   std::optional<position_estimate_t> prev_pose_estimate_;
+  bool reject_far_tags_ = true;
 };
 
 }  // namespace localization

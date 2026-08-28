@@ -38,4 +38,15 @@ struct Extrinsics {
   double rotation_z = 0;
 };
 
+template <>
+[[nodiscard]] auto Extrinsics::ToCameraToRobot<cv::Mat>() const -> cv::Mat;
+
+template <>
+[[nodiscard]] auto Extrinsics::ToCameraToRobot<frc::Transform3d>() const
+    -> frc::Transform3d;
+
+template <>
+[[nodiscard]] auto Extrinsics::ToRobotToCamera<frc::Transform3d>() const
+    -> frc::Transform3d;
+
 }  // namespace camera

@@ -32,6 +32,7 @@ class MultiTagSolverNode final : public control_loop::INode {
       -> const std::vector<control_loop::MessageDescriptor>& override;
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
+  void SetRejectFarTags(bool reject_far_tags);
 
   auto AmbiguousSolve(const std::vector<tag_detection_t>& detections,
                       bool reject_far_tags = true)
@@ -51,6 +52,7 @@ class MultiTagSolverNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
+  bool reject_far_tags_ = true;
 };
 
 }  // namespace localization

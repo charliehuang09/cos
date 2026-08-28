@@ -51,6 +51,7 @@ auto main(int argc, char** argv) -> int {
 
   auto solver_node =
       std::make_shared<localization::UnambiguousSolverNode>("pose");
+  solver_node->SetRejectFarTags(false);
   solver_node->AddCamera("hardware_apriltag_detections",
                          camera::Intrinsics{path}, camera::Extrinsics{path},
                          control_loop);

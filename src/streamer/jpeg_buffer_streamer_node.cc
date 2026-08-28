@@ -1,5 +1,7 @@
 #include "streamer/jpeg_buffer_streamer_node.h"
 
+#include "absl/log/log.h"
+
 namespace streamer {
 
 JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
@@ -8,6 +10,7 @@ JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
       path_(std::move(path)),
       dependencies_({{input_path_, typeid(camera::JpegBuffer)}}) {
   streamer_.start(port);
+  LOG(INFO) << "MJPEG stream available at :" << port << path_;
 }
 
 void JpegBufferStreamerNode::Stream(const camera::JpegBuffer& jpeg_buffer) {

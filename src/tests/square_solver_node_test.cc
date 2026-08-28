@@ -6,9 +6,11 @@
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "apriltag/nvidia_apriltag_detector_node.h"
-#include "camera/jpeg_disk_camera.h"
+#include "camera/get_earliest_timestamp.h"
 #include "camera/nvjpeg_decode_node.h"
+#include "camera/uvc_disk_camera_node.h"
 #include "control_loop/control_loop.h"
+#include "control_loop/rio_clock.h"
 #include "control_loop/thread_pool.h"
 #include "localization/multi_tag_solver_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
@@ -18,6 +20,8 @@ using namespace std::chrono_literals;
 
 ABSL_FLAG(bool, multi_tag_solve, false,                            // NOLINT
           "Use MultiTagSolverNode instead of SquareSolverNode.");  // NOLINT
+ABSL_FLAG(bool, reject_far_tags, true,                            // NOLINT
+          "Reject tags that are too small or too far away.");    // NOLINT
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -31,11 +35,13 @@ auto main(int argc, char** argv) -> int {
   control_loop.EnableLatencyLog();
 
   const std::string path = "/root/constants/dev-orin/camera.json";
+  const std::string log_path = "/cos-logs/log60/left";
 
   {
-    auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-        "/cos-logs/log60/left", "jpeg_buffer");
-    control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
+    control_loop::RioClock::EnableSimulation();
+    auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
+        log_path, "jpeg_buffer", camera::GetEarliestTimestamp(log_path));
+    control_loop.RegisterDependancyNode(disk_camera_node);
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
@@ -55,9 +61,13 @@ auto main(int argc, char** argv) -> int {
 
     std::shared_ptr<control_loop::INode> solver_node;
     if (absl::GetFlag(FLAGS_multi_tag_solve)) {
-      solver_node = std::make_shared<localization::MultiTagSolverNode>(
-          "gpu_apriltag_detections", "pose", camera::Intrinsics{path},
-          camera::Extrinsics{path});
+      auto multi_tag_solver =
+          std::make_shared<localization::MultiTagSolverNode>(
+              "gpu_apriltag_detections", "pose", camera::Intrinsics{path},
+              camera::Extrinsics{path});
+      multi_tag_solver->SetRejectFarTags(
+          absl::GetFlag(FLAGS_reject_far_tags));
+      solver_node = std::move(multi_tag_solver);
     } else {
       solver_node = std::make_shared<localization::SquareSolverNode>(
           "gpu_apriltag_detections", "pose", camera::Intrinsics{path},

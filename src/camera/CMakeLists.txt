@@ -107,19 +107,6 @@ target_link_libraries(cpu_decode_node PUBLIC
   absl::log
 )
 
-add_library(jpeg_disk_camera)
-target_sources(jpeg_disk_camera
-  PRIVATE
-    jpeg_disk_camera.cc
-)
-target_link_libraries(jpeg_disk_camera PRIVATE
-  uvc
-  absl::log
-  nlohmann_json::nlohmann_json
-  wpiutil
-  rio_clock
-)
-
 add_library(camera_config)
 target_sources(camera_config
   PRIVATE
@@ -133,4 +120,20 @@ target_link_libraries(camera_config PUBLIC
 )
 target_link_libraries(camera_config PRIVATE
   nlohmann_json::nlohmann_json
+)
+
+add_library(uvc_disk_camera_node)
+target_sources(uvc_disk_camera_node PRIVATE
+  uvc_disk_camera_node.cc
+)
+target_link_libraries(uvc_disk_camera_node PRIVATE
+  absl::log
+  control_loop
+  rio_clock
+  stop
+)
+
+add_library(get_earliest_timestamp)
+target_sources(get_earliest_timestamp PRIVATE
+  get_earliest_timestamp.cc
 )

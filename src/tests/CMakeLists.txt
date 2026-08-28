@@ -9,6 +9,24 @@ target_link_libraries(test_thread_pool PRIVATE
 )
 add_test(NAME test_thread_pool COMMAND test_thread_pool)
 
+add_executable(test_cv_geometry
+  cv_geometry_test.cc
+)
+target_link_libraries(test_cv_geometry PRIVATE
+  cv_geometry_utils
+  GTest::gtest_main
+)
+add_test(NAME test_cv_geometry COMMAND test_cv_geometry)
+
+add_executable(test_solver_common
+  solver_common_test.cc
+)
+target_link_libraries(test_solver_common PRIVATE
+  localization_solver_common
+  GTest::gtest_main
+)
+add_test(NAME test_solver_common COMMAND test_solver_common)
+
 add_executable(nvidia_apriltag_detector_node_test
   nvidia_apriltag_detector_node_test.cc
 )
@@ -20,7 +38,8 @@ target_link_libraries(nvidia_apriltag_detector_node_test PRIVATE
   control_loop
   thread_pool
   stop
-  jpeg_disk_camera
+  get_earliest_timestamp
+  uvc_disk_camera_node
   absl::flags_parse
   absl::log_initialize
   uvc_camera_node
@@ -47,7 +66,8 @@ target_link_libraries(square_solve_node_test PRIVATE
   wpilibc
   ntcore
   jpeg_buffer_streamer_node
-  jpeg_disk_camera
+  get_earliest_timestamp
+  uvc_disk_camera_node
   camera_config
   absl::flags_parse
 )
@@ -63,7 +83,8 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   wpilibc
   ntcore
   jpeg_buffer_streamer_node
-  jpeg_disk_camera
+  get_earliest_timestamp
+  uvc_disk_camera_node
   camera_config
   absl::flags_parse
   unambiguous_solver_node

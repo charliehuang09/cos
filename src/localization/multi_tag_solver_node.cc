@@ -1,6 +1,8 @@
 #include "localization/multi_tag_solver_node.h"
 
+#include <cmath>
 #include <numbers>
+#include <string>
 #include <utility>
 
 #include <opencv2/calib3d.hpp>
@@ -19,7 +21,8 @@ MultiTagSolverNode::MultiTagSolverNode(
       output_channel_(output_channel),
       camera_matrix_(intrinsics.ToMatrix()),
       distortion_coefficients_(intrinsics.ToDistortionCoefficients()),
-      camera_to_robot_(extrinsics.ToCameraToRobot<cv::Mat>()),
+      camera_to_robot_(utils::Transform3dToCvMat(
+          extrinsics.ToCameraToRobot<frc::Transform3d>())),
       single_tag_solver_(input_channel, output_channel, intrinsics, extrinsics,
                          layout, tag_corners),
       dependencies_({control_loop::MessageDescriptor(
@@ -67,7 +70,8 @@ auto MultiTagSolverNode::CreateCallback()
       return;
     }
 
-    auto estimate = AmbiguousSolve(detections->tag_detections);
+    auto estimate =
+        AmbiguousSolve(detections->tag_detections, reject_far_tags_);
     if (!estimate.has_value()) {
       LOG(WARNING) << "Multi-tag solver produced no pose estimate";
       context->SetMessage(output_channel_, nullptr);
@@ -90,6 +94,10 @@ auto MultiTagSolverNode::GetDependencies() const
 auto MultiTagSolverNode::GetPublications() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return publications_;
+}
+
+void MultiTagSolverNode::SetRejectFarTags(bool reject_far_tags) {
+  reject_far_tags_ = reject_far_tags;
 }
 
 auto MultiTagSolverNode::AmbiguousSolve(
@@ -180,6 +188,29 @@ auto MultiTagSolverNode::AmbiguousSolve(
       Variance(num_tags, avg_distance, kVarianceMin, kVarianceScalar);
   estimate.num_tags = num_tags;
   estimate.avg_tag_dist = avg_distance;
+
+  if (PoseOffField(estimate.pose)) {
+    std::vector<cv::Point2d> projected_points;
+    cv::projectPoints(object_points, rvec, tvec, camera_matrix_,
+                      distortion_coefficients_, projected_points);
+    double squared_error = 0.0;
+    for (std::size_t i = 0; i < image_points.size(); ++i) {
+      const cv::Point2d delta = image_points[i] - projected_points[i];
+      squared_error += delta.dot(delta);
+    }
+    const double reprojection_rmse =
+        std::sqrt(squared_error / static_cast<double>(image_points.size()));
+    std::string tag_list;
+    for (const int tag_id : estimate.tag_ids) {
+      if (!tag_list.empty()) {
+        tag_list += ',';
+      }
+      tag_list += std::to_string(tag_id);
+    }
+    LOG(WARNING) << "SQPnP produced a physically impossible pose from tags ["
+                 << tag_list << "] with reprojection RMSE "
+                 << reprojection_rmse << " px: " << estimate;
+  }
 
   return ambiguous_estimate_t{.pos1 = std::move(estimate),
                               .pos2 = std::nullopt};

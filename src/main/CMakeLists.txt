@@ -23,3 +23,29 @@ target_link_libraries(dev_orin_main PRIVATE
   simulation_position_sender_node
   ${OpenCV_LIBS}
 )
+
+add_executable(second_bot_main)
+target_sources(second_bot_main
+  PRIVATE
+    second_bot_main.cc
+)
+target_link_libraries(second_bot_main PRIVATE
+  jpeg_buffer_streamer_node
+  get_earliest_timestamp
+  uvc_disk_camera_node
+  uvc_camera_node
+  stop
+  absl::flags_parse
+  nvjpeg_decode_node
+  JPEG::JPEG
+  control_loop
+  thread_pool
+  cuda_utils
+  wpilibc
+  nvidia_apriltag_detector_node
+  unambiguous_solver_node
+  position_estimate_sender_node
+  jpeg_buffer_log_node
+  simulation_position_sender_node
+  ${OpenCV_LIBS}
+)

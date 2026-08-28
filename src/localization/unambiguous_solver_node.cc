@@ -8,6 +8,7 @@
 #include <frc/geometry/Quaternion.h>
 #include <frc/geometry/Rotation3d.h>
 
+#include "absl/log/log.h"
 #include "control_loop/control_loop.h"
 
 namespace {
@@ -19,18 +20,28 @@ auto FilterOffFieldCandidates(localization::ambiguous_estimate_t* estimate)
     -> bool {
   const bool first_off_field = localization::PoseOffField(estimate->pos1.pose);
   if (!estimate->pos2.has_value()) {
+    if (first_off_field) {
+      LOG(WARNING) << "Rejecting physically impossible pose: "
+                   << estimate->pos1;
+    }
     return !first_off_field;
   }
 
   const bool second_off_field =
       localization::PoseOffField(estimate->pos2->pose);
   if (first_off_field && second_off_field) {
+    LOG(WARNING) << "Rejecting two physically impossible pose candidates: "
+                 << estimate->pos1 << "; " << *estimate->pos2;
     return false;
   }
   if (first_off_field) {
+    VLOG(1) << "Rejecting physically impossible pose candidate: "
+            << estimate->pos1;
     estimate->pos1 = std::move(*estimate->pos2);
     estimate->pos2.reset();
   } else if (second_off_field) {
+    VLOG(1) << "Rejecting physically impossible pose candidate: "
+            << *estimate->pos2;
     estimate->pos2.reset();
   }
   return true;
@@ -60,6 +71,7 @@ void UnambiguousSolverNode::AddCamera(std::string_view input_channel,
       std::string(input_channel) + ":multitag_solver";
   auto multitag_solver = std::make_shared<MultiTagSolverNode>(
       input_channel, multitag_output_channel, intrinsics, extrinsics, layout_);
+  multitag_solver->SetRejectFarTags(reject_far_tags_);
   multitag_solvers_.push_back(multitag_solver);
   multi_tag_solver_output_channels_.push_back(multitag_output_channel);
   control_loop.RegisterNode(multitag_solver);
@@ -85,7 +97,7 @@ auto UnambiguousSolverNode::CreateCallback()
         estimates.push_back(&estimate);
       }
     }
-    auto result = Solve(estimates);
+    auto result = Solve(estimates, reject_far_tags_);
     if (result.has_value()) {
       context->SetMessage(
           output_channel_,
@@ -108,6 +120,13 @@ auto UnambiguousSolverNode::GetDependencies() const
 auto UnambiguousSolverNode::GetPublications() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return publications_;
+}
+
+void UnambiguousSolverNode::SetRejectFarTags(bool reject_far_tags) {
+  reject_far_tags_ = reject_far_tags;
+  for (const auto& multitag_solver : multitag_solvers_) {
+    multitag_solver->SetRejectFarTags(reject_far_tags);
+  }
 }
 
 auto UnambiguousSolverNode::Cost(const frc::Pose3d& a, const frc::Pose3d& b)
@@ -228,7 +247,7 @@ auto UnambiguousSolverNode::GetAmbiguousEstimates(
       continue;
     }
 
-    if (!FilterOffFieldCandidates(&*estimate)) {
+    if (reject_far_tags && !FilterOffFieldCandidates(&*estimate)) {
       continue;
     }
 
@@ -240,7 +259,6 @@ auto UnambiguousSolverNode::GetAmbiguousEstimates(
 auto UnambiguousSolverNode::Solve(
     const std::vector<ambiguous_estimate_t*>& estimates, bool reject_far_tags)
     -> std::optional<position_estimate_t> {
-  (void)reject_far_tags;  // TODO
   std::vector<ambiguous_estimate_t> filtered_estimates;
   filtered_estimates.reserve(estimates.size());
   for (const ambiguous_estimate_t* estimate : estimates) {
@@ -248,7 +266,8 @@ auto UnambiguousSolverNode::Solve(
       continue;
     }
     filtered_estimates.push_back(*estimate);
-    if (!FilterOffFieldCandidates(&filtered_estimates.back())) {
+    if (reject_far_tags &&
+        !FilterOffFieldCandidates(&filtered_estimates.back())) {
       filtered_estimates.pop_back();
     }
   }
@@ -285,6 +304,11 @@ auto UnambiguousSolverNode::Solve(
   estimate.variance = avg_variance;
   estimate.num_tags = num_tags;
   estimate.loss = cost;
+  if (reject_far_tags && PoseOffField(estimate.pose)) {
+    LOG(WARNING) << "Rejecting physically impossible combined pose: "
+                 << estimate;
+    return std::nullopt;
+  }
   prev_pose_estimate_ = estimate;
   return estimate;
 }

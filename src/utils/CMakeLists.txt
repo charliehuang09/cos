@@ -33,7 +33,8 @@ target_sources(cv_geometry_utils
     cv_geometry.cc
 )
 target_link_libraries(cv_geometry_utils PUBLIC
-  ${OpenCV_LIBS}
+  opencv_calib3d
+  opencv_core
   Eigen3::Eigen
   wpimath
 )

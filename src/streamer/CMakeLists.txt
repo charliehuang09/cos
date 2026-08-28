@@ -5,5 +5,6 @@ target_sources(jpeg_buffer_streamer_node
 )
 target_link_libraries(jpeg_buffer_streamer_node PUBLIC 
   nadjieb_mjpeg_streamer::nadjieb_mjpeg_streamer
+  absl::log
   absl::log_initialize
 )
