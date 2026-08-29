@@ -113,8 +113,6 @@ void PopulateCandidateQuadCornersApriltagBuffer(
 auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
     -> std::vector<Quad>;
 
-void OrderQuads(std::vector<Quad>& quads);
-
 void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
                                 ImageView quad_apriltag);
 

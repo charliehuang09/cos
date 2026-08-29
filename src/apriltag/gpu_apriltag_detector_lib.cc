@@ -76,6 +76,48 @@ void PrintCode(const apriltag::BitLocation& bit_location,
   std::cout << "----------------------------\n";
 }
 
+void OrderQuad(apriltag::Quad& quad) {
+  apriltag::Coord<int> mean = std::accumulate(
+      quad.corners.begin(), quad.corners.end(), apriltag::Coord<int>{},
+      [](apriltag::Coord<int> sum,
+         apriltag::Coord<int> value) -> apriltag::Coord<int> {
+        sum.row += value.row;
+        sum.col += value.col;
+        return sum;
+      });
+  mean.row /= 4;
+  mean.col /= 4;
+  std::ranges::sort(
+      quad.corners,
+      [&mean](apriltag::Coord<int> a, apriltag::Coord<int> b) -> bool {
+        const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
+        const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
+
+        const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
+        const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
+
+        auto sector = [](int64_t x, int64_t y) -> int {
+          if (x == 0 && y < 0)
+            return 0;  // angle = pi
+          if (x > 0)
+            return 1;  // (0, pi)
+          if (x == 0)
+            return 2;  // angle = 0
+          return 3;    // (-pi, 0)
+        };
+
+        const int sa = sector(a_row, a_col);
+        const int sb = sector(b_row, b_col);
+
+        if (sa != sb) {
+          return sa < sb;
+        }
+
+        // Equivalent angular ordering without atan2.
+        return a_col * b_row - a_row * b_col < 0;
+      });
+}
+
 }  // namespace
 
 namespace apriltag {
@@ -539,6 +581,25 @@ void PopulateCandidateQuadCornersApriltagBuffer(
   }
 }
 
+auto IsApproximateSquare(const Quad& quad) -> bool {
+  static_assert(quad.corners.size() == 4);
+  constexpr float threshold = 0.5;
+  for (size_t i = 0; i < quad.corners.size(); i++) {
+    const auto& c1 = quad.corners[i];
+    const auto& c2 = quad.corners[(i + 1) % quad.corners.size()];
+    const auto& c3 = quad.corners[(i + 2) % quad.corners.size()];
+    std::pair<float, float> v1{c2.row - c1.row, c2.col - c1.col};
+    std::pair<float, float> v2{c3.row - c2.row, c3.col - c2.col};
+    float cos_theta =
+        (v1.first * v2.first + v1.second * v2.second) /
+        (std::hypot(v1.first, v1.second) * std::hypot(v2.first, v2.second));
+    if (!isfinite(cos_theta) || std::abs(cos_theta) > threshold) {
+      return false;
+    }
+  }
+  return true;
+}
+
 auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
     -> std::vector<Quad> {
   std::vector<Quad> quads;
@@ -551,51 +612,12 @@ auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
         candidate_quad_corner.corners[candidates - 3],
         candidate_quad_corner.corners[candidates - 4],
     };
-    quads.push_back(quad);
+    OrderQuad(quad);
+    if (IsApproximateSquare(quad)) {
+      quads.push_back(quad);
+    }
   }
   return quads;
-}
-
-void OrderQuads(std::vector<Quad>& quads) {
-  for (auto& quad : quads) {
-    Coord<int> mean =
-        std::accumulate(quad.corners.begin(), quad.corners.end(), Coord<int>{},
-                        [](Coord<int> sum, Coord<int> value) -> Coord<int> {
-                          sum.row += value.row;
-                          sum.col += value.col;
-                          return sum;
-                        });
-    mean.row /= 4;
-    mean.col /= 4;
-    std::ranges::sort(
-        quad.corners, [&mean](Coord<int> a, Coord<int> b) -> bool {
-          const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
-          const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
-
-          const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
-          const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
-
-          auto sector = [](int64_t x, int64_t y) -> int {
-            if (x == 0 && y < 0)
-              return 0;  // angle = pi
-            if (x > 0)
-              return 1;  // (0, pi)
-            if (x == 0)
-              return 2;  // angle = 0
-            return 3;    // (-pi, 0)
-          };
-
-          const int sa = sector(a_row, a_col);
-          const int sb = sector(b_row, b_col);
-
-          if (sa != sb) {
-            return sa < sb;
-          }
-
-          // Equivalent angular ordering without atan2.
-          return a_col * b_row - a_row * b_col < 0;
-        });
-  }
 }
 
 void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
@@ -1209,8 +1231,8 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
                           .height = apriltag.height,
                           .width = apriltag.width};
   auto quads = GetQuads(candidate_quad_corners);
-  OrderQuads(quads);
-  CHECK_EQ(quads.size(), segments.size());
+  // OrderQuads(quads);
+  // CHECK_EQ(quads.size(), segments.size());
   PopulateQuadApriltagBuffer(quads, quad_apriltag);
   if (imwrite) {
     ImWrite("/root/quad_apriltag.png", quad_apriltag);
