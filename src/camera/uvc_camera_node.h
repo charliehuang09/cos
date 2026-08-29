@@ -4,39 +4,17 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "camera/jpeg_buffer.h"
+#include "camera/uvc_camera_config.h"
 #include "control_loop/node.h"
 
 #include "libuvc/libuvc.h"
 
 namespace camera {
-
-struct UVCCameraConfig {
-  UVCCameraConfig(const std::string& path);
-  std::string name;                      // For debugging
-  std::optional<std::string> serial_id;  // Used to find which camera to use
-  int height;
-  int width;
-  int fps;
-  int max_payload_size = 3072;
-  int max_frame_size = 2048589;
-};
-
-// Default
-// bmHint: 0001
-// bFormatIndex: 1
-// bFrameIndex: 1
-// dwFrameInterval: 83333
-// wKeyFrameRate: 0
-// wPFrameRate: 0
-// wCompQuality: 0
-// wCompWindowSize: 0
-// wDelay: 0
-// dwMaxVideoFrameSize: 2048589
-// dwMaxPayloadTransferSize: 3072
-// bInterfaceNumber: 1
 
 class UVCCameraNode final : public control_loop::INode {
  public:
