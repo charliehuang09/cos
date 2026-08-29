@@ -462,35 +462,56 @@ auto GetCandidatesQuadCorners(
     -> std::vector<CandidatesQuad> {
   std::vector<CandidatesQuad> quads;
   CHECK_EQ(mse_map.size(), segments.size());
+  quads.reserve(segments.size());
+
+  constexpr size_t window_size = 100;
   for (size_t idx = 0; idx < mse_map.size(); idx++) {
     const auto& segment = segments[idx];
     const auto& mse = mse_map[idx];
     CHECK_EQ(segment.size(), mse.size());
-    constexpr int window_size = 100;
+
     CandidatesQuad quad{};
-    std::array<float, quad.corners.size()> max_mse{};
+    if (mse.empty()) {
+      quads.push_back(quad);
+      continue;
+    }
+
+    std::array<float, quad.corners.size()> max_mse;
+    max_mse.fill(std::numeric_limits<float>::lowest());
+
+    // MSE is computed over a window centered on each boundary point. Compare
+    // both sides of that point so a rising or falling shoulder is not mistaken
+    // for a corner. Cap the radius for short boundaries so four corners can
+    // still be represented around the segment.
+    const size_t peak_radius =
+        std::min(window_size / 2, mse.size() / (2 * quad.corners.size()));
     for (size_t i = 0; i < mse.size(); i++) {
-      const float middle_mse = mse[(i + (window_size / 2)) % mse.size()];
-      if (middle_mse < max_mse[0]) {
+      const float candidate_mse = mse[i];
+      if (!std::isfinite(candidate_mse) || candidate_mse <= max_mse[0]) {
         continue;
       }
+
       bool peak = true;
-      for (size_t j = i; j < i + window_size; j++) {
-        if (middle_mse < mse[(j + (window_size / 2)) % mse.size()]) {
+      for (size_t offset = 1; offset <= peak_radius; offset++) {
+        const float previous_mse = mse[(i + mse.size() - offset) % mse.size()];
+        const float next_mse = mse[(i + offset) % mse.size()];
+        if (previous_mse > candidate_mse || next_mse >= candidate_mse) {
           peak = false;
           break;
         }
       }
-      if (peak) {
-        max_mse[0] = middle_mse;
-        quad.corners[0] = segment[(i + (window_size / 2)) % segment.size()];
-        for (size_t k = 1; k < max_mse.size(); k++) {
-          if (max_mse[k - 1] > max_mse[k]) {
-            std::swap(max_mse[k - 1], max_mse[k]);
-            std::swap(quad.corners[k - 1], quad.corners[k]);
-          }
+
+      if (!peak) {
+        continue;
+      }
+
+      max_mse[0] = candidate_mse;
+      quad.corners[0] = segment[i];
+      for (size_t k = 1; k < max_mse.size(); k++) {
+        if (max_mse[k - 1] > max_mse[k]) {
+          std::swap(max_mse[k - 1], max_mse[k]);
+          std::swap(quad.corners[k - 1], quad.corners[k]);
         }
-        i += window_size / 2;
       }
     }
     quads.push_back(quad);
@@ -507,8 +528,8 @@ void PopulateCandidateQuadCornersApriltagBuffer(
       if (corner.row == 0 && corner.col == 0) {
         continue;
       }
-      for (int i = -5; i <= 5; i++) {
-        for (int j = -5; j <= 5; j++) {
+      for (int i = -2; i <= 2; i++) {
+        for (int j = -2; j <= 2; j++) {
           candidates_quad_corners_apriltag(corner.row + i, corner.col + j) =
               color;
         }
