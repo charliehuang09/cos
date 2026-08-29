@@ -4,9 +4,17 @@
 #include "camera/uvc_camera_node.h"
 #include "control_loop/rio_clock.h"
 
+#include <cstdint>
+
 #include <wpi/timestamp.h>
 
 namespace camera {
+namespace {
+
+constexpr uint8_t kUvcAeManual = 1U << 0;
+constexpr uint8_t kUvcAeAperturePriority = 1U << 3;
+
+}  // namespace
 
 UVCCameraNode::UVCCameraNode(std::string_view output_path,
                              const UVCCameraConfig& config)
@@ -28,6 +36,18 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
     uvc_error_t code = uvc_open(device_, &device_handle_);
     CHECK(!code) << "UVC failed to open device with error code: " << code
                  << " camera name: " << config.name;
+  }
+  {
+    // UVC AE modes are one-hot bit flags, not V4L2 menu values.
+    uvc_error_t code = uvc_set_ae_mode(
+        device_handle_, config.auto_exposure ? kUvcAeAperturePriority
+                                             : kUvcAeManual);
+    CHECK(!code) << "Failed to set exposure mode: " << code;
+  }
+  if (!config.auto_exposure) {
+    uvc_error_t code =
+        uvc_set_exposure_abs(device_handle_, config.exposure_time_ms * 10);
+    CHECK(!code) << "Failed to set exposure: " << code;
   }
   {
     uvc_error_t code = uvc_get_stream_ctrl_format_size(

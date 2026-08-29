@@ -13,6 +13,8 @@ struct UVCCameraConfig {
   int height;
   int width;
   int fps;
+  double exposure_time_ms = 15.7;
+  bool auto_exposure = true;
   int max_payload_size = 3072;
   int max_frame_size = 2048589;
 };
