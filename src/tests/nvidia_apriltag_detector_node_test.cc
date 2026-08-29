@@ -7,6 +7,7 @@
 #include "camera/get_earliest_timestamp.h"
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/nvjpeg_fd_decode_node.h"
+#include "camera/uvc_camera_node.h"
 #include "camera/uvc_disk_camera_node.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/rio_clock.h"

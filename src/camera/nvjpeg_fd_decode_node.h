@@ -5,7 +5,7 @@
 #include <mutex>
 #include <string>
 
-#include "camera/uvc_camera_node.h"
+#include "camera/jpeg_buffer.h"
 #include "control_loop/message.h"
 #include "control_loop/node.h"
 #include "control_loop/thread_pool.h"

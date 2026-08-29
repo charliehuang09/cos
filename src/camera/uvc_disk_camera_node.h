@@ -6,7 +6,10 @@
 #include <string_view>
 #include <thread>
 #include <vector>
-#include "camera/uvc_camera_node.h"
+
+#include "camera/jpeg_buffer.h"
+#include "control_loop/node.h"
+
 namespace camera {
 
 class UVCDiskCameraNode final : public control_loop::INode {

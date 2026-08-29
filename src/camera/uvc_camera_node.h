@@ -1,12 +1,12 @@
 #pragma once
 
 #include <atomic>
-#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 
+#include "camera/jpeg_buffer.h"
 #include "control_loop/node.h"
 
 #include "libuvc/libuvc.h"
@@ -37,29 +37,6 @@ struct UVCCameraConfig {
 // dwMaxVideoFrameSize: 2048589
 // dwMaxPayloadTransferSize: 3072
 // bInterfaceNumber: 1
-
-class JpegBuffer final : public control_loop::IMessage {
- public:
-  JpegBuffer() : size(0), timestamp(0), ptr(nullptr) {}
-  JpegBuffer(size_t size, double timestamp)
-      : size(size),
-        timestamp(timestamp),
-        ptr(static_cast<unsigned char*>(std::malloc(size))) {}
-  ~JpegBuffer() override { std::free(ptr); }
-  JpegBuffer(const JpegBuffer&) = delete;
-  JpegBuffer(JpegBuffer&& other) noexcept
-      : size(other.size), timestamp(other.timestamp), ptr(other.ptr) {
-    other.ptr = nullptr;
-  }
-
-  size_t size;
-  double timestamp;
-  unsigned char* ptr;
-  auto GetType() -> const std::type_info& override {
-    return typeid(JpegBuffer);
-  }
-  auto GetSize() -> size_t override { return sizeof(*this) + size; }
-};
 
 class UVCCameraNode final : public control_loop::INode {
  public:
