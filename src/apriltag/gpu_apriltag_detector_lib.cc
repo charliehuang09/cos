@@ -243,7 +243,7 @@ void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
           min(i + 1, j + 1),
       });
       threshold(i, j) = (max_value / 2) + (min_value / 2);
-      valid(i, j) = max_value - min_value > 50 ? 255 : 0;
+      valid(i, j) = max_value - min_value > 25 ? 255 : 0;
     }
   }
 }
