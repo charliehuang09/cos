@@ -57,5 +57,7 @@ target_link_libraries(gpu_apriltag PRIVATE
   gpu_apriltag_detector_lib
   absl::log
   absl::check
+  absl::flags_parse
+  absl::log_initialize
   ${OpenCV_LIBS}
 )

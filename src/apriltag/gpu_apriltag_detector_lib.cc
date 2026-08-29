@@ -308,7 +308,7 @@ auto GetSegments(ImageView32 segmented_apriltag)
   }
   std::vector<std::vector<Coord<int>>> segments;
   for (const auto& [ids, pixel_coords_set] : segments_set) {
-    constexpr size_t min_segment_size = 500;
+    constexpr size_t min_segment_size = 100;
     if (pixel_coords_set.size() >= min_segment_size) {
       std::vector<Coord<int>> pixel_coords_vector(pixel_coords_set.begin(),
                                                   pixel_coords_set.end());
@@ -974,6 +974,93 @@ void PopulateRefinedPointsApriltag(
   }
 }
 
+auto Cross(const Coord<float>& a, const Coord<float>& b) -> float {
+  return a.row * b.col - a.col * b.row;
+}
+
+auto GetIntersection(const Coord<float>& centroid_a,
+                     const std::pair<float, float>& vector_a,
+                     const Coord<float>& centroid_b,
+                     const std::pair<float, float>& vector_b) -> Coord<int> {
+  const float denominator =
+      vector_a.first * vector_b.second - vector_a.second * vector_b.first;
+
+  const std::pair<float, float> difference{
+      centroid_b.row - centroid_a.row,
+      centroid_b.col - centroid_a.col,
+  };
+
+  const float t = (difference.first * vector_b.second -
+                   difference.second * vector_b.first) /
+                  denominator;
+
+  return Coord<int>{
+      .row = static_cast<int>(centroid_a.row + t * vector_a.first),
+      .col = static_cast<int>(centroid_a.col + t * vector_a.second),
+  };
+}
+
+auto GetRefinedQuads(
+    const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
+        refined_points) -> std::vector<Quad> {
+  std::vector<Quad> refined_quads;
+  refined_quads.reserve(refined_points.size());
+  std::vector<std::pair<float, float>> vectors;
+  std::vector<Coord<float>> centroids;
+  vectors.reserve(4);
+  centroids.reserve(4);
+  for (const auto& tag : refined_points) {
+    vectors.clear();
+    centroids.clear();
+    for (const auto& segment : tag) {
+      Coord<float> first_moment{.row = 0, .col = 0};
+      Coord<float> second_moment{.row = 0, .col = 0};
+      float xy_moment = 0;
+      float weight_sum = 0;
+      for (const auto& point : segment) {
+        first_moment.row += point.coord.row * point.weight;
+        first_moment.col += point.coord.col * point.weight;
+
+        second_moment.row += point.coord.row * point.coord.row * point.weight;
+        second_moment.col += point.coord.col * point.coord.col * point.weight;
+
+        xy_moment += point.coord.col * point.coord.row * point.weight;
+
+        weight_sum += point.weight;
+      }
+
+      float mean_x = first_moment.row / weight_sum;
+      float mean_y = first_moment.col / weight_sum;
+
+      const float cxx = second_moment.row / weight_sum - mean_x * mean_x;
+      const float cyy = second_moment.col / weight_sum - mean_y * mean_y;
+      const float cxy =
+          (xy_moment / weight_sum) -
+          ((first_moment.row / weight_sum) * (first_moment.col / weight_sum));
+
+      const float angle = 0.5f * std::atan2(2.0f * cxy, cxx - cyy);
+      const std::pair<float, float> vector{
+          std::cos(angle),
+          std::sin(angle),
+      };
+      const Coord<float> centroid{
+          .row = first_moment.row / weight_sum,
+          .col = first_moment.col / weight_sum,
+      };
+      vectors.push_back(vector);
+      centroids.push_back(centroid);
+    }
+    Quad quad;
+    for (size_t i = 0; i < quad.corners.size(); i++) {
+      quad.corners[(i + 1) % quad.corners.size()] = GetIntersection(
+          centroids[i], vectors[i], centroids[(i + 1) % quad.corners.size()],
+          vectors[(i + 1) % quad.corners.size()]);
+    }
+    refined_quads.push_back(quad);
+  }
+  return refined_quads;
+}
+
 auto DetectAprilTag(ImageView apriltag, bool imwrite)
     -> std::vector<ApriltagDetection> {
   CHECK(apriltag.height % 4 == 0);
@@ -1137,21 +1224,31 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
     }
   }
 
-  if (imwrite) {
-    auto* refined_points_apriltag_buffer = static_cast<uint8_t*>(
-        calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
-    ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer,
-                                      .stride = apriltag.stride,
-                                      .height = apriltag.height,
-                                      .width = apriltag.width};
-    memcpy(refined_points_apriltag_buffer,
-           sorted_boundary_segmented_apriltag_buffer,
-           sizeof(uint8_t) * apriltag.width * apriltag.height);
+  auto* refined_points_apriltag_buffer = static_cast<uint8_t*>(
+      calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
+  ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer,
+                                    .stride = apriltag.stride,
+                                    .height = apriltag.height,
+                                    .width = apriltag.width};
+  memcpy(refined_points_apriltag_buffer,
+         sorted_boundary_segmented_apriltag_buffer,
+         sizeof(uint8_t) * apriltag.width * apriltag.height);
+  auto refined_points = GetRefinedPoints(detections, apriltag);
 
-    auto refined_points = GetRefinedPoints(detections, apriltag);
+  if (imwrite) {
     PopulateRefinedPointsApriltag(refined_points, refined_points_apriltag);
     ImWrite("/root/refined_points_apriltag.png", refined_points_apriltag);
-    free(refined_points_apriltag_buffer);
+  }
+
+  auto refined_quads = GetRefinedQuads(refined_points);
+
+  std::vector<ApriltagDetection> refined_detections;
+  size_t refined_index = 0;
+  for (int& i : tag_ids) {
+    if (i != -1) {
+      refined_detections.emplace_back(refined_quads[refined_index], i);
+      ++refined_index;
+    }
   }
 
   free(max_buffer);
@@ -1165,8 +1262,9 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
   free(candidate_quad_corners_apriltag_buffer);
   free(quad_apriltag_buffer);
   free(bit_locations_apriltag_buffer);
+  free(refined_points_apriltag_buffer);
 
-  return detections;
+  return refined_detections;
 }
 
 }  // namespace apriltag
