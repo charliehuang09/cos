@@ -4,6 +4,13 @@ target_sources(cos.uvc_camera_node
   PRIVATE
     uvc_camera_config.cc
     uvc_camera_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      uvc_camera_config.h
+      uvc_camera_node.h
 )
 target_link_libraries(cos.uvc_camera_node PRIVATE
   uvc
@@ -72,6 +79,12 @@ add_library(cos::nvjpeg_decode_node ALIAS cos.nvjpeg_decode_node)
 target_sources(cos.nvjpeg_decode_node
   PRIVATE
     nvjpeg_decode_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      nvjpeg_decode_node.h
 )
 target_compile_options(cos.nvjpeg_decode_node PRIVATE
   $<$<CXX_COMPILER_ID:GNU>:-Wno-array-bounds>
@@ -91,6 +104,12 @@ add_library(cos::nvjpeg_fd_decode_node ALIAS cos.nvjpeg_fd_decode_node)
 target_sources(cos.nvjpeg_fd_decode_node
   PRIVATE
     nvjpeg_fd_decode_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      nvjpeg_fd_decode_node.h
 )
 target_include_directories(cos.nvjpeg_fd_decode_node PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/nvjpeg-headers"
@@ -105,8 +124,15 @@ target_link_libraries(cos.nvjpeg_fd_decode_node
 
 add_library(cos.cpu_decode_node)
 add_library(cos::cpu_decode_node ALIAS cos.cpu_decode_node)
-target_sources(cos.cpu_decode_node PRIVATE
-  cpu_decode_node.cc
+target_sources(cos.cpu_decode_node
+  PRIVATE
+    cpu_decode_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      cpu_decode_node.h
+      jpeg_buffer.h
 )
 target_link_libraries(cos.cpu_decode_node PUBLIC
   JPEG::JPEG
@@ -118,6 +144,11 @@ add_library(cos::camera_config ALIAS cos.camera_config)
 target_sources(cos.camera_config
   PRIVATE
     camera_config.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      camera_config.h
 )
 target_link_libraries(cos.camera_config PUBLIC
   ${OpenCV_LIBS}
@@ -131,8 +162,15 @@ target_link_libraries(cos.camera_config PRIVATE
 
 add_library(cos.uvc_disk_camera_node)
 add_library(cos::uvc_disk_camera_node ALIAS cos.uvc_disk_camera_node)
-target_sources(cos.uvc_disk_camera_node PRIVATE
-  uvc_disk_camera_node.cc
+target_sources(cos.uvc_disk_camera_node
+  PRIVATE
+    uvc_disk_camera_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      uvc_disk_camera_node.h
 )
 target_link_libraries(cos.uvc_disk_camera_node PRIVATE
   absl::log
@@ -143,6 +181,12 @@ target_link_libraries(cos.uvc_disk_camera_node PRIVATE
 
 add_library(cos.get_earliest_timestamp)
 add_library(cos::get_earliest_timestamp ALIAS cos.get_earliest_timestamp)
-target_sources(cos.get_earliest_timestamp PRIVATE
-  get_earliest_timestamp.cc
+target_sources(cos.get_earliest_timestamp
+  PRIVATE
+    get_earliest_timestamp.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      get_earliest_timestamp.h
 )

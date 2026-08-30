@@ -1,5 +1,3 @@
-include_directories(.)
-
 add_subdirectory(utils)
 add_subdirectory(control_loop)
 add_subdirectory(apriltag)
@@ -12,4 +10,3 @@ add_subdirectory(simulation)
 add_subdirectory(tests)
 add_subdirectory(main)
 add_subdirectory(examples)
-

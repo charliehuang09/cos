@@ -3,6 +3,12 @@ add_library(cos::localization_solver_common ALIAS cos.localization_solver_common
 target_sources(cos.localization_solver_common
   PRIVATE
     solver_common.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      position.h
+      solver_common.h
 )
 target_link_libraries(cos.localization_solver_common PUBLIC
   ${OpenCV_LIBS}
@@ -16,6 +22,11 @@ add_library(cos::square_solver_node ALIAS cos.square_solver_node)
 target_sources(cos.square_solver_node
   PRIVATE
     square_solver_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      square_solver_node.h
 )
 target_link_libraries(cos.square_solver_node PUBLIC
   cos::localization_solver_common
@@ -29,6 +40,11 @@ add_library(cos::multi_tag_solver_node ALIAS cos.multi_tag_solver_node)
 target_sources(cos.multi_tag_solver_node
   PRIVATE
     multi_tag_solver_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      multi_tag_solver_node.h
 )
 target_link_libraries(cos.multi_tag_solver_node PUBLIC
   cos::localization_solver_common
@@ -43,6 +59,11 @@ add_library(cos::unambiguous_solver_node ALIAS cos.unambiguous_solver_node)
 target_sources(cos.unambiguous_solver_node
   PRIVATE
     unambiguous_solver_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      unambiguous_solver_node.h
 )
 target_link_libraries(cos.unambiguous_solver_node PUBLIC
   cos::localization_solver_common
@@ -57,6 +78,12 @@ add_library(cos::position_estimate_sender_node ALIAS cos.position_estimate_sende
 target_sources(cos.position_estimate_sender_node
   PRIVATE
     position_estimate_sender_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      position.h
+      position_estimate_sender_node.h
 )
 target_link_libraries(cos.position_estimate_sender_node
   PUBLIC

@@ -3,6 +3,11 @@ add_library(cos::simulation_position_sender_node ALIAS cos.simulation_position_s
 target_sources(cos.simulation_position_sender_node
   PRIVATE
     simulation_position_sender_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      simulation_position_sender_node.h
 )
 target_link_libraries(cos.simulation_position_sender_node
   PRIVATE
