@@ -1,9 +1,10 @@
-add_library(simulation_position_sender_node)
-target_sources(simulation_position_sender_node
+add_library(cos.simulation_position_sender_node)
+add_library(cos::simulation_position_sender_node ALIAS cos.simulation_position_sender_node)
+target_sources(cos.simulation_position_sender_node
   PRIVATE
     simulation_position_sender_node.cc
 )
-target_link_libraries(simulation_position_sender_node 
+target_link_libraries(cos.simulation_position_sender_node
   PRIVATE
     absl::log
     wpilibc
@@ -11,7 +12,6 @@ target_link_libraries(simulation_position_sender_node
   PUBLIC
     ixwebsocket
 )
-target_compile_options(simulation_position_sender_node PRIVATE
+target_compile_options(cos.simulation_position_sender_node PRIVATE
   $<$<CXX_COMPILER_ID:GNU>:-Wno-array-bounds>
 )
-

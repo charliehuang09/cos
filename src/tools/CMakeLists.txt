@@ -6,17 +6,17 @@ target_sources(uvc_logger
     uvc_logger.cc
 )
 target_link_libraries(uvc_logger PRIVATE
-  jpeg_buffer_streamer_node
-  uvc_camera_node
-  stop
+  cos::jpeg_buffer_streamer_node
+  cos::uvc_camera_node
+  cos::stop
   absl::flags_parse
-  nvjpeg_decode_node
+  cos::nvjpeg_decode_node
   JPEG::JPEG
-  control_loop
-  thread_pool
-  cuda_utils
+  cos::control_loop
+  cos::thread_pool
+  cos::cuda_utils
   wpilibc
-  jpeg_buffer_log_node
+  cos::jpeg_buffer_log_node
   ${OpenCV_LIBS}
 )
 
@@ -37,13 +37,13 @@ target_sources(jpeg_disk_replay
     jpeg_disk_replay.cc
 )
 target_link_libraries(jpeg_disk_replay PRIVATE
-  get_earliest_timestamp
-  uvc_disk_camera_node
-  jpeg_buffer_streamer_node
-  stop
+  cos::get_earliest_timestamp
+  cos::uvc_disk_camera_node
+  cos::jpeg_buffer_streamer_node
+  cos::stop
   absl::flags_parse
-  control_loop
-  thread_pool
+  cos::control_loop
+  cos::thread_pool
 )
 
 add_executable(intrinsics_calibrate)
@@ -52,9 +52,9 @@ target_sources(intrinsics_calibrate
     intrinsics_calibrate.cc
 )
 target_link_libraries(intrinsics_calibrate PRIVATE
-  uvc_camera_node
-  control_loop
-  stop
+  cos::uvc_camera_node
+  cos::control_loop
+  cos::stop
   absl::check
   absl::flags_parse
   absl::log_initialize
