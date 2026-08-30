@@ -39,6 +39,8 @@ ABSL_FLAG(uint, max_context, 1, "");                                // NOLINT
 ABSL_FLAG(uint, instances, 1,                                       // NOLINT
           "Number of concurrent decode and detection pipelines.");  // NOLINT
 ABSL_FLAG(std::optional<std::string>, log_path, std::nullopt, "");  // NOLINT
+ABSL_FLAG(bool, pva_detection, true,                                // NOLINT
+          "Use PVA detection, will use cpu if set to false");       // NOLINT
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -108,7 +110,8 @@ auto main(int argc, char** argv) -> int {
         auto gpu_apriltag_detector_node =
             std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
                 decoded_image_channel, detections_channel,
-                "/root/constants/dev-orin/camera.json", thread_pool);
+                "/root/constants/dev-orin/camera.json", thread_pool,
+                absl::GetFlag(FLAGS_pva_detection));
         control_loop.RegisterNode(gpu_apriltag_detector_node);
         gpu_apriltag_detector_node->EnableTiming(detection_latency_channel);
         gpu_apriltag_detector_node->RegisterCallback(
@@ -161,7 +164,8 @@ auto main(int argc, char** argv) -> int {
         auto hardware_apriltag_detector_node =
             std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
                 decoded_image_channel, detections_channel,
-                "/root/constants/dev-orin/camera.json", thread_pool);
+                "/root/constants/dev-orin/camera.json", thread_pool,
+                absl::GetFlag(FLAGS_pva_detection));
         control_loop.RegisterNode(hardware_apriltag_detector_node);
         hardware_apriltag_detector_node->EnableTiming(
             detection_latency_channel);
