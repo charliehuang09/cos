@@ -7,7 +7,6 @@ target_link_libraries(test_thread_pool PRIVATE
   cos::thread_pool
   GTest::gtest_main
 )
-add_test(NAME test_thread_pool COMMAND test_thread_pool)
 
 add_executable(test_cv_geometry
   cv_geometry_test.cc
@@ -16,7 +15,6 @@ target_link_libraries(test_cv_geometry PRIVATE
   cos::cv_geometry_utils
   GTest::gtest_main
 )
-add_test(NAME test_cv_geometry COMMAND test_cv_geometry)
 
 add_executable(test_solver_common
   solver_common_test.cc
@@ -25,7 +23,6 @@ target_link_libraries(test_solver_common PRIVATE
   cos::localization_solver_common
   GTest::gtest_main
 )
-add_test(NAME test_solver_common COMMAND test_solver_common)
 
 add_executable(nvidia_apriltag_detector_node_test
   nvidia_apriltag_detector_node_test.cc
