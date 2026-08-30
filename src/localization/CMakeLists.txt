@@ -1,59 +1,91 @@
-add_library(localization_solver_common)
-target_sources(localization_solver_common
+add_library(cos.localization_solver_common)
+add_library(cos::localization_solver_common ALIAS cos.localization_solver_common)
+target_sources(cos.localization_solver_common
   PRIVATE
     solver_common.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      position.h
+      solver_common.h
 )
-target_link_libraries(localization_solver_common PUBLIC
+target_link_libraries(cos.localization_solver_common PUBLIC
   ${OpenCV_LIBS}
   wpimath
   apriltag
-  nvidia_apriltag_detector_node
+  cos::nvidia_apriltag_detector_node
 )
 
-add_library(square_solver_node)
-target_sources(square_solver_node
+add_library(cos.square_solver_node)
+add_library(cos::square_solver_node ALIAS cos.square_solver_node)
+target_sources(cos.square_solver_node
   PRIVATE
     square_solver_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      square_solver_node.h
 )
-target_link_libraries(square_solver_node PUBLIC
-  localization_solver_common
-  camera_config
-  cv_geometry_utils
-  json_utils
+target_link_libraries(cos.square_solver_node PUBLIC
+  cos::localization_solver_common
+  cos::camera_config
+  cos::cv_geometry_utils
+  cos::json_utils
 )
 
-add_library(multi_tag_solver_node)
-target_sources(multi_tag_solver_node
+add_library(cos.multi_tag_solver_node)
+add_library(cos::multi_tag_solver_node ALIAS cos.multi_tag_solver_node)
+target_sources(cos.multi_tag_solver_node
   PRIVATE
     multi_tag_solver_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      multi_tag_solver_node.h
 )
-target_link_libraries(multi_tag_solver_node PUBLIC
-  localization_solver_common
-  square_solver_node
-  cv_geometry_utils
-  json_utils
+target_link_libraries(cos.multi_tag_solver_node PUBLIC
+  cos::localization_solver_common
+  cos::square_solver_node
+  cos::cv_geometry_utils
+  cos::json_utils
   absl::log
 )
 
-add_library(unambiguous_solver_node)
-target_sources(unambiguous_solver_node
+add_library(cos.unambiguous_solver_node)
+add_library(cos::unambiguous_solver_node ALIAS cos.unambiguous_solver_node)
+target_sources(cos.unambiguous_solver_node
   PRIVATE
     unambiguous_solver_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      unambiguous_solver_node.h
 )
-target_link_libraries(unambiguous_solver_node PUBLIC
-  localization_solver_common
-  multi_tag_solver_node
+target_link_libraries(cos.unambiguous_solver_node PUBLIC
+  cos::localization_solver_common
+  cos::multi_tag_solver_node
 )
-target_link_libraries(unambiguous_solver_node PRIVATE
+target_link_libraries(cos.unambiguous_solver_node PRIVATE
   absl::log
 )
 
-add_library(position_estimate_sender_node)
-target_sources(position_estimate_sender_node
+add_library(cos.position_estimate_sender_node)
+add_library(cos::position_estimate_sender_node ALIAS cos.position_estimate_sender_node)
+target_sources(cos.position_estimate_sender_node
   PRIVATE
     position_estimate_sender_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      position.h
+      position_estimate_sender_node.h
 )
-target_link_libraries(position_estimate_sender_node 
+target_link_libraries(cos.position_estimate_sender_node
   PUBLIC
     wpilibc
     ntcore

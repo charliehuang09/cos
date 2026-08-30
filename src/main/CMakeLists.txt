@@ -6,21 +6,21 @@ target_sources(dev_orin_main
     dev_orin_main.cc
 )
 target_link_libraries(dev_orin_main PRIVATE
-  jpeg_buffer_streamer_node
-  uvc_camera_node
-  stop
+  cos::jpeg_buffer_streamer_node
+  cos::uvc_camera_node
+  cos::stop
   absl::flags_parse
-  nvjpeg_decode_node
+  cos::nvjpeg_decode_node
   JPEG::JPEG
-  control_loop
-  thread_pool
-  cuda_utils
+  cos::control_loop
+  cos::thread_pool
+  cos::cuda_utils
   wpilibc
-  nvidia_apriltag_detector_node
-  unambiguous_solver_node
-  position_estimate_sender_node
-  jpeg_buffer_log_node
-  simulation_position_sender_node
+  cos::nvidia_apriltag_detector_node
+  cos::unambiguous_solver_node
+  cos::position_estimate_sender_node
+  cos::jpeg_buffer_log_node
+  cos::simulation_position_sender_node
   ${OpenCV_LIBS}
 )
 
@@ -30,22 +30,22 @@ target_sources(second_bot_main
     second_bot_main.cc
 )
 target_link_libraries(second_bot_main PRIVATE
-  jpeg_buffer_streamer_node
-  get_earliest_timestamp
-  uvc_disk_camera_node
-  uvc_camera_node
-  stop
+  cos::jpeg_buffer_streamer_node
+  cos::get_earliest_timestamp
+  cos::uvc_disk_camera_node
+  cos::uvc_camera_node
+  cos::stop
   absl::flags_parse
-  nvjpeg_decode_node
+  cos::nvjpeg_decode_node
   JPEG::JPEG
-  control_loop
-  thread_pool
-  cuda_utils
+  cos::control_loop
+  cos::thread_pool
+  cos::cuda_utils
   wpilibc
-  nvidia_apriltag_detector_node
-  unambiguous_solver_node
-  position_estimate_sender_node
-  jpeg_buffer_log_node
-  simulation_position_sender_node
+  cos::nvidia_apriltag_detector_node
+  cos::unambiguous_solver_node
+  cos::position_estimate_sender_node
+  cos::jpeg_buffer_log_node
+  cos::simulation_position_sender_node
   ${OpenCV_LIBS}
 )

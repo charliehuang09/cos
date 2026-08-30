@@ -1,15 +1,23 @@
-add_library(uvc_camera_node)
-target_sources(uvc_camera_node
+add_library(cos.uvc_camera_node)
+add_library(cos::uvc_camera_node ALIAS cos.uvc_camera_node)
+target_sources(cos.uvc_camera_node
   PRIVATE
     uvc_camera_config.cc
     uvc_camera_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      uvc_camera_config.h
+      uvc_camera_node.h
 )
-target_link_libraries(uvc_camera_node PRIVATE
+target_link_libraries(cos.uvc_camera_node PRIVATE
   uvc
   absl::log
   nlohmann_json::nlohmann_json
   wpilibc
-  rio_clock
+  cos::rio_clock
 )
 
 set(TEGRA_MMAPI_ROOT
@@ -39,8 +47,9 @@ find_library(NVMM_JPEG_LIBRARY NAMES nvmm_jpeg REQUIRED)
 find_library(NVBUF_SURFACE_LIBRARY NAMES nvbufsurface REQUIRED)
 find_library(NVBUF_TRANSFORM_LIBRARY NAMES nvbufsurftransform REQUIRED)
 
-add_library(jetson_mmjpeg STATIC)
-target_sources(jetson_mmjpeg PRIVATE
+add_library(cos.jetson_mmjpeg STATIC)
+add_library(cos::jetson_mmjpeg ALIAS cos.jetson_mmjpeg)
+target_sources(cos.jetson_mmjpeg PRIVATE
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvJpegDecoder.cpp"
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvElement.cpp"
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvElementProfiler.cpp"
@@ -48,15 +57,15 @@ target_sources(jetson_mmjpeg PRIVATE
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvBuffer.cpp"
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvLogging.cpp"
 )
-target_include_directories(jetson_mmjpeg
+target_include_directories(cos.jetson_mmjpeg
   PUBLIC
     "${TEGRA_MMAPI_ROOT}/include"
   PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/nvjpeg-headers"
 )
-target_compile_definitions(jetson_mmjpeg PRIVATE TEGRA_ACCELERATE)
-target_compile_options(jetson_mmjpeg PRIVATE -Wno-unused-parameter -Wno-extra)
-target_link_libraries(jetson_mmjpeg
+target_compile_definitions(cos.jetson_mmjpeg PRIVATE TEGRA_ACCELERATE)
+target_compile_options(cos.jetson_mmjpeg PRIVATE -Wno-unused-parameter -Wno-extra)
+target_link_libraries(cos.jetson_mmjpeg
   PUBLIC
     ${NVMM_JPEG_LIBRARY}
     ${NVBUF_SURFACE_LIBRARY}
@@ -65,76 +74,119 @@ target_link_libraries(jetson_mmjpeg
     Threads::Threads
 )
 
-add_library(nvjpeg_decode_node)
-target_sources(nvjpeg_decode_node
+add_library(cos.nvjpeg_decode_node)
+add_library(cos::nvjpeg_decode_node ALIAS cos.nvjpeg_decode_node)
+target_sources(cos.nvjpeg_decode_node
   PRIVATE
     nvjpeg_decode_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      nvjpeg_decode_node.h
 )
-target_compile_options(nvjpeg_decode_node PRIVATE
+target_compile_options(cos.nvjpeg_decode_node PRIVATE
   $<$<CXX_COMPILER_ID:GNU>:-Wno-array-bounds>
 )
-target_link_libraries(nvjpeg_decode_node
+target_link_libraries(cos.nvjpeg_decode_node
   PUBLIC
     CUDA::cudart
     CUDA::nvjpeg
-    cuda_utils
+    cos::cuda_utils
     absl::log
   PRIVATE
-    timer
+    cos::timer
 )
 
-add_library(nvjpeg_fd_decode_node)
-target_sources(nvjpeg_fd_decode_node
+add_library(cos.nvjpeg_fd_decode_node)
+add_library(cos::nvjpeg_fd_decode_node ALIAS cos.nvjpeg_fd_decode_node)
+target_sources(cos.nvjpeg_fd_decode_node
   PRIVATE
     nvjpeg_fd_decode_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      nvjpeg_fd_decode_node.h
 )
-target_include_directories(nvjpeg_fd_decode_node PRIVATE
+target_include_directories(cos.nvjpeg_fd_decode_node PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/nvjpeg-headers"
 )
-target_link_libraries(nvjpeg_fd_decode_node
+target_link_libraries(cos.nvjpeg_fd_decode_node
   PUBLIC
-    jetson_mmjpeg
+    cos::jetson_mmjpeg
     absl::log
   PRIVATE
-    timer
+    cos::timer
 )
 
-add_library(cpu_decode_node)
-target_sources(cpu_decode_node PRIVATE
-  cpu_decode_node.cc
+add_library(cos.cpu_decode_node)
+add_library(cos::cpu_decode_node ALIAS cos.cpu_decode_node)
+target_sources(cos.cpu_decode_node
+  PRIVATE
+    cpu_decode_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      cpu_decode_node.h
+      jpeg_buffer.h
 )
-target_link_libraries(cpu_decode_node PUBLIC
+target_link_libraries(cos.cpu_decode_node PUBLIC
   JPEG::JPEG
   absl::log
 )
 
-add_library(camera_config)
-target_sources(camera_config
+add_library(cos.camera_config)
+add_library(cos::camera_config ALIAS cos.camera_config)
+target_sources(cos.camera_config
   PRIVATE
     camera_config.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      camera_config.h
 )
-target_link_libraries(camera_config PUBLIC
+target_link_libraries(cos.camera_config PUBLIC
   ${OpenCV_LIBS}
   wpimath
-  cv_geometry_utils
+  cos::cv_geometry_utils
   absl::check
 )
-target_link_libraries(camera_config PRIVATE
+target_link_libraries(cos.camera_config PRIVATE
   nlohmann_json::nlohmann_json
 )
 
-add_library(uvc_disk_camera_node)
-target_sources(uvc_disk_camera_node PRIVATE
-  uvc_disk_camera_node.cc
+add_library(cos.uvc_disk_camera_node)
+add_library(cos::uvc_disk_camera_node ALIAS cos.uvc_disk_camera_node)
+target_sources(cos.uvc_disk_camera_node
+  PRIVATE
+    uvc_disk_camera_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer.h
+      uvc_disk_camera_node.h
 )
-target_link_libraries(uvc_disk_camera_node PRIVATE
+target_link_libraries(cos.uvc_disk_camera_node PRIVATE
   absl::log
-  control_loop
-  rio_clock
-  stop
+  cos::control_loop
+  cos::rio_clock
+  cos::stop
 )
 
-add_library(get_earliest_timestamp)
-target_sources(get_earliest_timestamp PRIVATE
-  get_earliest_timestamp.cc
+add_library(cos.get_earliest_timestamp)
+add_library(cos::get_earliest_timestamp ALIAS cos.get_earliest_timestamp)
+target_sources(cos.get_earliest_timestamp
+  PRIVATE
+    get_earliest_timestamp.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      get_earliest_timestamp.h
 )
