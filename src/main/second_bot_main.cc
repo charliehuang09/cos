@@ -21,10 +21,11 @@
 
 using namespace std::chrono_literals;
 
-ABSL_FLAG(std::string, log_path, "/cos-logs/second_bot/pmatch2",
-          "Directory containing the left and right camera log directories");
-ABSL_FLAG(bool, reject_far_tags, true,
-          "Reject AprilTags that are too small or too far away");
+ABSL_FLAG(                                                // NOLINT
+    std::string, log_path, "/cos-logs/second_bot/log16",  // NOLINT
+    "Directory containing the left and right camera log directories");  // NOLINT
+ABSL_FLAG(bool, reject_far_tags, true,                             // NOLINT
+          "Reject AprilTags that are too small or too far away");  // NOLINT
 
 namespace {
 
@@ -85,17 +86,21 @@ auto main(int argc, char** argv) -> int {
 
   const std::filesystem::path log_path = absl::GetFlag(FLAGS_log_path);
   const std::vector<std::string> camera_log_paths = {
+      (log_path / "front").string(),
       (log_path / "left").string(),
       (log_path / "right").string(),
   };
   const double replay_offset = camera::GetEarliestTimestamp(camera_log_paths);
 
   LOG(INFO) << replay_offset;
-  AddCameraPipeline("/root/constants/second_bot/left_camera.json",
+  AddCameraPipeline("/root/constants/second_bot/front_camera.json",
                     camera_log_paths[0], replay_offset, 4971, control_loop,
                     thread_pool, *solver_node);
-  AddCameraPipeline("/root/constants/second_bot/right_camera.json",
+  AddCameraPipeline("/root/constants/second_bot/left_camera.json",
                     camera_log_paths[1], replay_offset, 4972, control_loop,
+                    thread_pool, *solver_node);
+  AddCameraPipeline("/root/constants/second_bot/right_camera.json",
+                    camera_log_paths[2], replay_offset, 4973, control_loop,
                     thread_pool, *solver_node);
 
   auto networktables_instance = nt::NetworkTableInstance::Create();
