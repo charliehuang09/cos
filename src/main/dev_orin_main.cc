@@ -1,3 +1,4 @@
+#include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -15,12 +16,18 @@
 
 using namespace std::chrono_literals;
 
+ABSL_FLAG(bool, pva_detection, true,                         // NOLINT
+          "Use PVA for AprilTag detection instead of CPU");  // NOLINT
+ABSL_FLAG(uint, max_context, 1,                              // NOLINT
+          "Maximum number of concurrent control-loop contexts");  // NOLINT
+
 namespace {
 
 void AddCameraPipeline(const std::string& config_path, int stream_port,
                        control_loop::ControlLoop& control_loop,
                        control_loop::ThreadPool& thread_pool,
-                       localization::UnambiguousSolverNode& solver_node) {
+                       localization::UnambiguousSolverNode& solver_node,
+                       bool pva_detection) {
   const camera::UVCCameraConfig config{config_path};
   const std::string jpeg_channel = "jpeg_buffer:" + config.name;
   const std::string decoded_channel = "hardware_decoded_image:" + config.name;
@@ -45,7 +52,8 @@ void AddCameraPipeline(const std::string& config_path, int stream_port,
 
   auto hardware_apriltag_detector_node =
       std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
-          decoded_channel, detections_channel, config_path, thread_pool);
+          decoded_channel, detections_channel, config_path, thread_pool,
+          pva_detection);
   control_loop.RegisterNode(hardware_apriltag_detector_node);
   hardware_apriltag_detector_node->EnableTiming(
       "hardware_apriltag_detections:latency:" + config.name);
@@ -63,6 +71,7 @@ auto main(int argc, char** argv) -> int {
   stop::RegisterHandler();
 
   control_loop::ControlLoop control_loop(1ms);
+  control_loop.SetMaxContext(absl::GetFlag(FLAGS_max_context));
   control_loop::ThreadPool thread_pool;
 
   const std::vector<std::string> paths{"/root/constants/dev-orin/first.json",
@@ -75,8 +84,10 @@ auto main(int argc, char** argv) -> int {
   control_loop.RegisterNode(solver_node);
 
   int port = 4971;
+  const bool pva_detection = absl::GetFlag(FLAGS_pva_detection);
   for (const auto& path : paths) {
-    AddCameraPipeline(path, port++, control_loop, thread_pool, *solver_node);
+    AddCameraPipeline(path, port++, control_loop, thread_pool, *solver_node,
+                      pva_detection);
   }
 
   auto networktables_instance = nt::NetworkTableInstance::Create();
@@ -90,6 +101,7 @@ auto main(int argc, char** argv) -> int {
   auto simulation_position_sender_node =
       std::make_shared<simulation::SimulationPositionSenderNode>("pose");
   control_loop.RegisterNode(simulation_position_sender_node);
+  control_loop.EnableLatencyLog();
 
   control_loop.Start();
 
