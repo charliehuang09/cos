@@ -20,8 +20,8 @@ using namespace std::chrono_literals;
 
 ABSL_FLAG(bool, multi_tag_solve, false,                            // NOLINT
           "Use MultiTagSolverNode instead of SquareSolverNode.");  // NOLINT
-ABSL_FLAG(bool, reject_far_tags, true,                            // NOLINT
-          "Reject tags that are too small or too far away.");    // NOLINT
+ABSL_FLAG(bool, reject_far_tags, true,                             // NOLINT
+          "Reject tags that are too small or too far away.");      // NOLINT
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -34,7 +34,7 @@ auto main(int argc, char** argv) -> int {
   control_loop.SetMaxContext(1);
   control_loop.EnableLatencyLog();
 
-  const std::string path = "/root/constants/dev-orin/camera.json";
+  const std::string path = "/root/constants/dev-orin/first.json";
   const std::string log_path = "/cos-logs/log60/left";
 
   {
@@ -65,8 +65,7 @@ auto main(int argc, char** argv) -> int {
           std::make_shared<localization::MultiTagSolverNode>(
               "gpu_apriltag_detections", "pose", camera::Intrinsics{path},
               camera::Extrinsics{path});
-      multi_tag_solver->SetRejectFarTags(
-          absl::GetFlag(FLAGS_reject_far_tags));
+      multi_tag_solver->SetRejectFarTags(absl::GetFlag(FLAGS_reject_far_tags));
       solver_node = std::move(multi_tag_solver);
     } else {
       solver_node = std::make_shared<localization::SquareSolverNode>(

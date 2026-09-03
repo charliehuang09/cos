@@ -15,6 +15,47 @@
 
 using namespace std::chrono_literals;
 
+namespace {
+
+void AddCameraPipeline(const std::string& config_path, int stream_port,
+                       control_loop::ControlLoop& control_loop,
+                       control_loop::ThreadPool& thread_pool,
+                       localization::UnambiguousSolverNode& solver_node) {
+  const camera::UVCCameraConfig config{config_path};
+  const std::string jpeg_channel = "jpeg_buffer:" + config.name;
+  const std::string decoded_channel = "hardware_decoded_image:" + config.name;
+  const std::string detections_channel =
+      "hardware_apriltag_detections:" + config.name;
+
+  auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
+      jpeg_channel, camera::UVCCameraConfig{config_path});
+  uvc_camera_node->Start();
+  control_loop.RegisterDependancyNode(uvc_camera_node);
+
+  auto jpeg_buffer_streamer_node =
+      std::make_shared<streamer::JpegBufferStreamerNode>(
+          jpeg_channel, "/stream", stream_port);
+  control_loop.RegisterNode(jpeg_buffer_streamer_node);
+
+  auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
+      jpeg_channel, decoded_channel, thread_pool);
+  control_loop.RegisterNode(hardware_decode_node);
+  hardware_decode_node->EnableTiming("hardware_decoded_image:latency:" +
+                                     config.name);
+
+  auto hardware_apriltag_detector_node =
+      std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
+          decoded_channel, detections_channel, config_path, thread_pool);
+  control_loop.RegisterNode(hardware_apriltag_detector_node);
+  hardware_apriltag_detector_node->EnableTiming(
+      "hardware_apriltag_detections:latency:" + config.name);
+
+  solver_node.AddCamera(detections_channel, camera::Intrinsics{config_path},
+                        camera::Extrinsics{config_path}, control_loop);
+}
+
+}  // namespace
+
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
@@ -23,39 +64,20 @@ auto main(int argc, char** argv) -> int {
 
   control_loop::ControlLoop control_loop(1ms);
   control_loop::ThreadPool thread_pool;
-  const std::string path = "/root/constants/dev-orin/camera.json";
 
-  auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
-      "jpeg_buffer",
-      camera::UVCCameraConfig{"/root/constants/dev-orin/camera.json"});
-  uvc_camera_node->Start();
-  control_loop.RegisterDependancyNode(uvc_camera_node);
-
-  auto jpeg_buffer_streamer_node =
-      std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
-                                                         "/stream", 4971);
-  control_loop.RegisterNode(jpeg_buffer_streamer_node);
-
-  auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
-      "jpeg_buffer", "hardware_decoded_image", thread_pool);
-  control_loop.RegisterNode(hardware_decode_node);
-  hardware_decode_node->EnableTiming("hardware_decoded_image:latency");
-
-  auto hardware_apriltag_detector_node =
-      std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
-          "hardware_decoded_image", "hardware_apriltag_detections",
-          "/root/constants/dev-orin/camera.json", thread_pool);
-  control_loop.RegisterNode(hardware_apriltag_detector_node);
-  hardware_apriltag_detector_node->EnableTiming(
-      "hardware_apriltag_detections:latency");
+  const std::vector<std::string> paths{"/root/constants/dev-orin/first.json",
+                                       "/root/constants/dev-orin/second.json",
+                                       "/root/constants/dev-orin/third.json"};
 
   auto solver_node =
       std::make_shared<localization::UnambiguousSolverNode>("pose");
   solver_node->SetRejectFarTags(false);
-  solver_node->AddCamera("hardware_apriltag_detections",
-                         camera::Intrinsics{path}, camera::Extrinsics{path},
-                         control_loop);
   control_loop.RegisterNode(solver_node);
+
+  int port = 4971;
+  for (const auto& path : paths) {
+    AddCameraPipeline(path, port++, control_loop, thread_pool, *solver_node);
+  }
 
   auto networktables_instance = nt::NetworkTableInstance::Create();
   networktables_instance.StartServer();
