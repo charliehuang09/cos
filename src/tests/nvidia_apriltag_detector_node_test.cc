@@ -69,7 +69,7 @@ auto main(int argc, char** argv) -> int {
     } else {
       auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
           "jpeg_buffer",
-          camera::UVCCameraConfig{"/root/constants/dev-orin/camera.json"});
+          camera::UVCCameraConfig{"/root/constants/dev-orin/first.json"});
       uvc_camera_node->Start();
       control_loop.RegisterDependancyNode(uvc_camera_node);
     }
@@ -110,7 +110,7 @@ auto main(int argc, char** argv) -> int {
         auto gpu_apriltag_detector_node =
             std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
                 decoded_image_channel, detections_channel,
-                "/root/constants/dev-orin/camera.json", thread_pool,
+                "/root/constants/dev-orin/first.json", thread_pool,
                 absl::GetFlag(FLAGS_pva_detection));
         control_loop.RegisterNode(gpu_apriltag_detector_node);
         gpu_apriltag_detector_node->EnableTiming(detection_latency_channel);
@@ -164,7 +164,7 @@ auto main(int argc, char** argv) -> int {
         auto hardware_apriltag_detector_node =
             std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
                 decoded_image_channel, detections_channel,
-                "/root/constants/dev-orin/camera.json", thread_pool,
+                "/root/constants/dev-orin/first.json", thread_pool,
                 absl::GetFlag(FLAGS_pva_detection));
         control_loop.RegisterNode(hardware_apriltag_detector_node);
         hardware_apriltag_detector_node->EnableTiming(

@@ -5,7 +5,7 @@ Description=dev-orin
 Type=simple
 User=root
 WorkingDirectory=/root
-ExecStart=/root/main/dev_orin_main
+ExecStart=/root/main/dev_orin_main --nopva_detection --max_context=2
 Restart=on-failure
 RestartSec=2
 
