@@ -66,3 +66,20 @@ target_link_libraries(cos.rio_clock PRIVATE
   wpilibc
   ntcore
 )
+
+add_library(cos.connect_to_rio)
+add_library(cos::connect_to_rio ALIAS cos.connect_to_rio)
+target_sources(cos.connect_to_rio
+  PRIVATE
+    connect_to_rio.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      connect_to_rio.h
+)
+target_link_libraries(cos.connect_to_rio PRIVATE
+  absl::log
+  wpilibc
+  ntcore
+)

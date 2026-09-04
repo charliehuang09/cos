@@ -5,6 +5,7 @@
 #include "apriltag/nvidia_apriltag_detector_node.h"
 #include "camera/nvjpeg_fd_decode_node.h"
 #include "camera/uvc_camera_node.h"
+#include "control_loop/connect_to_rio.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
 #include "localization/position_estimate_sender_node.h"
@@ -16,9 +17,9 @@
 
 using namespace std::chrono_literals;
 
-ABSL_FLAG(bool, pva_detection, true,                         // NOLINT
-          "Use PVA for AprilTag detection instead of CPU");  // NOLINT
-ABSL_FLAG(uint, max_context, 1,                              // NOLINT
+ABSL_FLAG(bool, pva_detection, true,                              // NOLINT
+          "Use PVA for AprilTag detection instead of CPU");       // NOLINT
+ABSL_FLAG(uint, max_context, 1,                                   // NOLINT
           "Maximum number of concurrent control-loop contexts");  // NOLINT
 
 namespace {
@@ -69,6 +70,7 @@ auto main(int argc, char** argv) -> int {
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   stop::RegisterHandler();
+  control_loop::StartNetworktables();
 
   control_loop::ControlLoop control_loop(1ms);
   control_loop.SetMaxContext(absl::GetFlag(FLAGS_max_context));
