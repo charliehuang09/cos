@@ -100,9 +100,7 @@ void OrderQuad(apriltag::Quad& quad) {
           if (x == 0 && y < 0)
             return 0;  // angle = pi
           if (x > 0)
-            return 1;  // (0, pi)
-          if (x == 0)
-            return 2;  // angle = 0
+            return 1;  // (0, pi) if (x == 0) return 2;  // angle = 0
           return 3;    // (-pi, 0)
         };
 
@@ -582,7 +580,7 @@ void PopulateCandidateQuadCornersApriltagBuffer(
 }
 
 auto IsApproximateSquare(const Quad& quad) -> bool {
-  static_assert(quad.corners.size() == 4);
+  static_assert(std::tuple_size_v<decltype(Quad::corners)> == 4);
   constexpr float threshold = 0.5;
   for (size_t i = 0; i < quad.corners.size(); i++) {
     const auto& c1 = quad.corners[i];
@@ -605,7 +603,8 @@ auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
   std::vector<Quad> quads;
   quads.reserve(candidate_quad_corners.size());
   for (const auto& candidate_quad_corner : candidate_quad_corners) {
-    constexpr auto candidates = candidate_quad_corner.corners.size();
+    constexpr auto candidates =
+        std::tuple_size_v<decltype(CandidatesQuad::corners)>;
     Quad quad{
         candidate_quad_corner.corners[candidates - 1],
         candidate_quad_corner.corners[candidates - 2],
