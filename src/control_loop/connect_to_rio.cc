@@ -1,0 +1,103 @@
+#include "control_loop/connect_to_rio.h"
+
+#include "utils/stop.h"
+
+#include "absl/log/log.h"
+
+#include <networktables/NetworkTableInstance.h>
+#include <networktables/StringTopic.h>
+#include <ntcore/networktables/NetworkTableInstance.h>
+#include <wpi/DataLogBackgroundWriter.h>
+#include <chrono>
+#include <filesystem>
+#include <memory>
+#include <thread>
+
+namespace control_loop {
+namespace {
+class NetworkTablesDataLogger {
+ public:
+  NetworkTablesDataLogger(nt::NetworkTableInstance instance,
+                          const std::string& log_path)
+      : instance_(instance), log_(log_path, "networktables.wpilog") {
+    entry_logger_ = instance_.StartEntryDataLog(log_, "", "NT:");
+    connection_logger_ =
+        instance_.StartConnectionDataLog(log_, "NTConnection");
+  }
+
+  ~NetworkTablesDataLogger() {
+    nt::NetworkTableInstance::StopEntryDataLog(entry_logger_);
+    nt::NetworkTableInstance::StopConnectionDataLog(connection_logger_);
+  }
+
+ private:
+  nt::NetworkTableInstance instance_;
+  wpi::log::DataLogBackgroundWriter log_;
+  NT_DataLogger entry_logger_;
+  NT_ConnectionDataLogger connection_logger_;
+};
+
+void StartLogging(nt::NetworkTableInstance instance,
+                  const std::string& log_path) {
+  static std::unique_ptr<NetworkTablesDataLogger> logger;
+  if (!logger) {
+    logger = std::make_unique<NetworkTablesDataLogger>(instance, log_path);
+  }
+}
+
+// Publishes logname such as log32 to networktables so we can easily find match logs
+void PublishLogName(const std::string& path) {
+  static auto log_name_publisher = nt::NetworkTableInstance::GetDefault()
+                                       .GetTable("Orin")
+                                       ->GetStringTopic("LogName")
+                                       .Publish();
+  log_name_publisher.Set(path);
+}
+}  // namespace
+
+void StartNetworktables(int team_number) {
+  nt::NetworkTableInstance inst = nt::NetworkTableInstance::GetDefault();
+  inst.StopServer();
+  inst.StopClient();
+  inst.StartClient4("orin_localization");
+  inst.SetServerTeam(team_number);
+  inst.StartDSClient();
+  std::string log_path = GetNewLogPath();
+  LOG(INFO) << "Log path: " << log_path;
+  StartLogging(inst, log_path);
+
+  LOG(INFO) << "Team number: " << team_number;
+  LOG(INFO) << "Waiting for connection";
+  while (!inst.IsConnected() && !stop::StopRequested()) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+  if (stop::StopRequested()) {
+    LOG(INFO) << "Stopped while waiting for connection to rio";
+    return;
+  }
+
+  PublishLogName(log_path);
+  LOG(INFO) << "Connected to rio!";
+}
+
+void StartNetworktablesAsHost() {
+  nt::NetworkTableInstance inst = nt::NetworkTableInstance::GetDefault();
+  inst.StopLocal();
+  inst.StopClient();
+  inst.StartServer("orin_localization");
+  std::string log_path = GetNewLogPath();
+  LOG(INFO) << "Log path: " << log_path;
+  StartLogging(inst, log_path);
+}
+
+auto GetNewLogPath(const std::string& log_dir) -> std::string {
+  int id = 0;
+  std::filesystem::path log_path;
+  do {
+    log_path = std::filesystem::path(log_dir) / ("log" + std::to_string(id));
+    id++;
+  } while (std::filesystem::exists(log_path));
+  std::filesystem::create_directories(log_path);
+  return log_path.string();
+}
+}  // namespace control_loop

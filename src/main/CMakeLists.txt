@@ -22,6 +22,7 @@ target_link_libraries(dev_orin_main PRIVATE
   cos::position_estimate_sender_node
   cos::jpeg_buffer_log_node
   cos::simulation_position_sender_node
+  cos::connect_to_rio
   ${OpenCV_LIBS}
 )
 
