@@ -18,6 +18,7 @@ target_link_libraries(dev_orin_main PRIVATE
   wpilibc
   cos::nvidia_apriltag_detector_node
   cos::unambiguous_solver_node
+  cos::variance_calculator_node
   cos::position_estimate_sender_node
   cos::jpeg_buffer_log_node
   cos::simulation_position_sender_node
@@ -45,6 +46,7 @@ target_link_libraries(second_bot_main PRIVATE
   wpilibc
   cos::nvidia_apriltag_detector_node
   cos::unambiguous_solver_node
+  cos::variance_calculator_node
   cos::position_estimate_sender_node
   cos::jpeg_buffer_log_node
   cos::simulation_position_sender_node

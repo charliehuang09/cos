@@ -73,6 +73,21 @@ target_link_libraries(cos.unambiguous_solver_node PRIVATE
   absl::log
 )
 
+add_library(cos.variance_calculator_node)
+add_library(cos::variance_calculator_node ALIAS cos.variance_calculator_node)
+target_sources(cos.variance_calculator_node
+  PRIVATE
+    variance_calculator_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      variance_calculator_node.h
+)
+target_link_libraries(cos.variance_calculator_node PUBLIC
+  cos::localization_solver_common
+)
+
 add_library(cos.position_estimate_sender_node)
 add_library(cos::position_estimate_sender_node ALIAS cos.position_estimate_sender_node)
 target_sources(cos.position_estimate_sender_node

@@ -24,6 +24,16 @@ target_link_libraries(test_solver_common PRIVATE
   GTest::gtest_main
 )
 
+add_executable(variance_calculator_node_test
+  variance_calculator_node_test.cc
+)
+target_link_libraries(variance_calculator_node_test PRIVATE
+  GTest::gtest_main
+  GTest::gtest
+  cos::variance_calculator_node
+  cos::control_loop
+)
+
 add_executable(nvidia_apriltag_detector_node_test
   nvidia_apriltag_detector_node_test.cc
 )
