@@ -92,22 +92,22 @@ auto SquareSolverNode::AmbiguousSolve(
     }
 
     auto build_estimate = [&](const cv::Mat& rvec,
-                              const cv::Mat& tvec) -> position_estimate_t {
+                              const cv::Mat& tvec) -> solver_estimate_t {
       const double distance = cv::norm(tvec);
-      position_estimate_t estimate;
+      solver_estimate_t estimate;
       estimate.tag_ids = {detection.tag_id};
+      estimate.distances = {distance};
       estimate.pose = utils::ComputeRobotPose(tvec, rvec, detection.tag_id,
                                               layout_, camera_to_robot_);
       estimate.variance = Variance(1, distance, kVarianceMin, kVarianceScalar);
-      estimate.num_tags = 1;
-      estimate.avg_tag_dist = distance;
+      estimate.distance = distance;
       return estimate;
     };
 
     auto est1 = build_estimate(rvecs[0], tvecs[0]);
     auto est2 = build_estimate(rvecs[1], tvecs[1]);
-    if (reject_far_tags && est1.avg_tag_dist > kMaxTagDistance &&
-        est2.avg_tag_dist > kMaxTagDistance) {
+    if (reject_far_tags && est1.distance > kMaxTagDistance &&
+        est2.distance > kMaxTagDistance) {
       continue;
     }
 

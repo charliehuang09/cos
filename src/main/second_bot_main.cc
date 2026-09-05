@@ -14,6 +14,7 @@
 #include "control_loop/thread_pool.h"
 #include "localization/position_estimate_sender_node.h"
 #include "localization/unambiguous_solver_node.h"
+#include "localization/variance_calculator_node.h"
 #include "networktables/NetworkTableInstance.h"
 #include "simulation/simulation_position_sender_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
@@ -105,9 +106,13 @@ auto main(int argc, char** argv) -> int {
 
   auto networktables_instance = nt::NetworkTableInstance::Create();
   networktables_instance.StartServer();
+  auto variance_calculator_node =
+      std::make_shared<localization::VarianceCalculatorNode>(
+          "pose", "pose_with_variance");
+  control_loop.RegisterNode(variance_calculator_node);
   auto position_estimate_sender_node =
       std::make_shared<localization::PositionEstimateSenderNode>(
-          "pose", "Orin/localization", networktables_instance);
+          "pose_with_variance", "Orin/localization", networktables_instance);
   position_estimate_sender_node->SetLogEstimates(true);
   control_loop.RegisterNode(position_estimate_sender_node);
 

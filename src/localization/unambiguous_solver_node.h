@@ -40,13 +40,13 @@ class UnambiguousSolverNode final : public control_loop::INode {
 
  private:
   static auto Cost(const frc::Pose3d& a, const frc::Pose3d& b) -> double;
-  auto ComputeCost(const std::vector<position_estimate_t>& poses) -> double;
+  auto ComputeCost(const std::vector<solver_estimate_t>& poses) -> double;
   static auto WeightedAveragePose(
-      const std::vector<position_estimate_t>& solutions) -> frc::Pose3d;
+      const std::vector<solver_estimate_t>& solutions) -> frc::Pose3d;
   auto SearchSolutions(
       const std::vector<ambiguous_estimate_t*>& all_pose_estimates,
-      size_t index, std::vector<position_estimate_t>& current_solution,
-      std::vector<position_estimate_t>& best_solution, double& best_cost)
+      size_t index, std::vector<solver_estimate_t>& current_solution,
+      std::vector<solver_estimate_t>& best_solution, double& best_cost)
       -> double;
   auto GetAmbiguousEstimates(
       const std::vector<std::vector<tag_detection_t>>& detection_batches,

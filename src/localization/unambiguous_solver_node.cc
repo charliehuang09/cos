@@ -138,12 +138,9 @@ auto UnambiguousSolverNode::Cost(const frc::Pose3d& a, const frc::Pose3d& b)
 }
 
 auto UnambiguousSolverNode::ComputeCost(
-    const std::vector<position_estimate_t>& poses) -> double {
+    const std::vector<solver_estimate_t>& poses) -> double {
   double cost = 0.0;
   for (size_t i = 0; i < poses.size(); ++i) {
-    if (poses[i].invalid) {
-      return 1000.0;
-    }
     for (size_t j = i + 1; j < poses.size(); ++j) {
       cost += Cost(poses[i].pose, poses[j].pose);
     }
@@ -155,7 +152,7 @@ auto UnambiguousSolverNode::ComputeCost(
 }
 
 auto UnambiguousSolverNode::WeightedAveragePose(
-    const std::vector<position_estimate_t>& solutions) -> frc::Pose3d {
+    const std::vector<solver_estimate_t>& solutions) -> frc::Pose3d {
   if (solutions.empty()) {
     return frc::Pose3d{};
   }
@@ -204,8 +201,8 @@ auto UnambiguousSolverNode::WeightedAveragePose(
 
 auto UnambiguousSolverNode::SearchSolutions(
     const std::vector<ambiguous_estimate_t*>& all_pose_estimates, size_t index,
-    std::vector<position_estimate_t>& current_solution,
-    std::vector<position_estimate_t>& best_solution, double& best_cost)
+    std::vector<solver_estimate_t>& current_solution,
+    std::vector<solver_estimate_t>& best_solution, double& best_cost)
     -> double {
   if (index == all_pose_estimates.size()) {
     const double cost = ComputeCost(current_solution);
@@ -278,32 +275,28 @@ auto UnambiguousSolverNode::Solve(
     filtered_estimate_ptrs.push_back(&estimate);
   }
 
-  std::vector<position_estimate_t> best_solution;
-  std::vector<position_estimate_t> current_solution;
+  std::vector<solver_estimate_t> best_solution;
+  std::vector<solver_estimate_t> current_solution;
   double best_cost = std::numeric_limits<double>::infinity();
-  const double cost = SearchSolutions(
-      filtered_estimate_ptrs, 0, current_solution, best_solution, best_cost);
+  SearchSolutions(filtered_estimate_ptrs, 0, current_solution, best_solution,
+                  best_cost);
 
   if (best_solution.empty()) {
     return std::nullopt;
   }
   //
-  double avg_variance = 0.0;
   std::vector<int> tag_ids;
-  for (const position_estimate_t& estimate : best_solution) {
-    avg_variance += estimate.variance;
+  std::vector<double> distances;
+  for (const solver_estimate_t& estimate : best_solution) {
     tag_ids.insert(tag_ids.end(), estimate.tag_ids.begin(),
                    estimate.tag_ids.end());
+    distances.insert(distances.end(), estimate.distances.begin(),
+                     estimate.distances.end());
   }
-  avg_variance /= static_cast<double>(best_solution.size());
-  const int num_tags = static_cast<int>(tag_ids.size());
-
   position_estimate_t estimate;
   estimate.tag_ids = std::move(tag_ids);
   estimate.pose = WeightedAveragePose(best_solution);
-  estimate.variance = avg_variance;
-  estimate.num_tags = num_tags;
-  estimate.loss = cost;
+  estimate.distances = std::move(distances);
   if (reject_far_tags && PoseOffField(estimate.pose)) {
     LOG(WARNING) << "Rejecting physically impossible combined pose: "
                  << estimate;

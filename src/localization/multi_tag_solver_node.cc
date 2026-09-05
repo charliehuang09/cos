@@ -106,7 +106,7 @@ auto MultiTagSolverNode::AmbiguousSolve(
   std::vector<cv::Point3d> object_points;
   std::vector<cv::Point2d> image_points;
   std::vector<int> tag_ids;
-  std::vector<int> rejected_tag_ids;
+  std::vector<double> distances;
   std::vector<tag_detection_t> accepted_detections;
   double avg_distance = 0.0;
 
@@ -118,7 +118,6 @@ auto MultiTagSolverNode::AmbiguousSolve(
     }
     if (reject_far_tags &&
         utils::QuadAreaPixels(detection.corners) < kMinTagAreaPixels) {
-      rejected_tag_ids.push_back(detection.tag_id);
       continue;
     }
 
@@ -136,12 +135,13 @@ auto MultiTagSolverNode::AmbiguousSolve(
     }
 
     if (reject_far_tags && cv::norm(tvec_tag) > kMaxTagDistance) {
-      rejected_tag_ids.push_back(detection.tag_id);
       continue;
     }
 
-    avg_distance += cv::norm(tvec_tag);
+    const double distance = cv::norm(tvec_tag);
+    avg_distance += distance;
     tag_ids.push_back(detection.tag_id);
+    distances.push_back(distance);
     accepted_detections.push_back(detection);
     image_points.insert(image_points.end(), detection.corners.begin(),
                         detection.corners.end());
@@ -179,15 +179,14 @@ auto MultiTagSolverNode::AmbiguousSolve(
   cv::Mat field_to_robot = field_to_camera * camera_to_robot_;
   const int num_tags = static_cast<int>(tag_ids.size());
 
-  position_estimate_t estimate;
+  solver_estimate_t estimate;
   estimate.tag_ids = std::move(tag_ids);
-  estimate.rejected_tag_ids = std::move(rejected_tag_ids);
+  estimate.distances = std::move(distances);
   estimate.pose =
       utils::ConvertOpencvTransformationMatrixToWpilibPose(field_to_robot);
   estimate.variance =
       Variance(num_tags, avg_distance, kVarianceMin, kVarianceScalar);
-  estimate.num_tags = num_tags;
-  estimate.avg_tag_dist = avg_distance;
+  estimate.distance = avg_distance;
 
   if (PoseOffField(estimate.pose)) {
     std::vector<cv::Point2d> projected_points;
