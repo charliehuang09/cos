@@ -80,6 +80,7 @@ target_sources(cos.connect_to_rio
 )
 target_link_libraries(cos.connect_to_rio PRIVATE
   absl::log
-  wpilibc
+  cos::stop
   ntcore
+  wpiutil
 )
