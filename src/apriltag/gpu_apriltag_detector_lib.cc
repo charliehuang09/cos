@@ -1287,34 +1287,34 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
 
   auto* candidate_quad_corners_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
-  memcpy(candidate_quad_corners_apriltag_buffer,
-         sorted_boundary_segmented_apriltag_buffer,
-         sizeof(uint8_t) * apriltag.width * apriltag.height);
-  ImageView candidate_quad_corners_apriltag{
-      .data = candidate_quad_corners_apriltag_buffer,
-      .stride = apriltag.stride,
-      .height = apriltag.height,
-      .width = apriltag.width};
-  PopulateCandidateQuadCornersApriltagBuffer(candidate_quad_corners,
-                                             candidate_quad_corners_apriltag);
   if (imwrite) {
+    memcpy(candidate_quad_corners_apriltag_buffer,
+           sorted_boundary_segmented_apriltag_buffer,
+           sizeof(uint8_t) * apriltag.width * apriltag.height);
+    ImageView candidate_quad_corners_apriltag{
+        .data = candidate_quad_corners_apriltag_buffer,
+        .stride = apriltag.stride,
+        .height = apriltag.height,
+        .width = apriltag.width};
+    PopulateCandidateQuadCornersApriltagBuffer(candidate_quad_corners,
+                                               candidate_quad_corners_apriltag);
     ImWrite("/root/candidate_quad_corners_apriltag.png",
             candidate_quad_corners_apriltag);
   }
 
+  auto quads = GetQuads(candidate_quad_corners);
+
   auto* quad_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
-  memcpy(quad_apriltag_buffer, sorted_boundary_segmented_apriltag_buffer,
-         sizeof(uint8_t) * apriltag.width * apriltag.height);
-  ImageView quad_apriltag{.data = quad_apriltag_buffer,
-                          .stride = apriltag.stride,
-                          .height = apriltag.height,
-                          .width = apriltag.width};
-  auto quads = GetQuads(candidate_quad_corners);
-  // OrderQuads(quads);
-  // CHECK_EQ(quads.size(), segments.size());
-  PopulateQuadApriltagBuffer(quads, quad_apriltag);
   if (imwrite) {
+    memcpy(quad_apriltag_buffer, sorted_boundary_segmented_apriltag_buffer,
+           sizeof(uint8_t) * apriltag.width * apriltag.height);
+    ImageView quad_apriltag{.data = quad_apriltag_buffer,
+                            .stride = apriltag.stride,
+                            .height = apriltag.height,
+                            .width = apriltag.width};
+
+    PopulateQuadApriltagBuffer(quads, quad_apriltag);
     ImWrite("/root/quad_apriltag.png", quad_apriltag);
   }
 
@@ -1322,16 +1322,16 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
 
   auto* bit_locations_apriltag_buffer = static_cast<uint32_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint32_t)));
-  memcpy(bit_locations_apriltag_buffer, boundary_segmented_apriltag_buffer,
-         sizeof(uint32_t) * apriltag.width * apriltag.height);
-  ImageView32 bit_locations_apriltag{
-      .data = bit_locations_apriltag_buffer,
-      .stride = apriltag.stride,
-      .height = apriltag.height,
-      .width = apriltag.width,
-  };
-  PopulateBitLocationsApriltag(bit_locations, bit_locations_apriltag);
   if (imwrite) {
+    memcpy(bit_locations_apriltag_buffer, boundary_segmented_apriltag_buffer,
+           sizeof(uint32_t) * apriltag.width * apriltag.height);
+    ImageView32 bit_locations_apriltag{
+        .data = bit_locations_apriltag_buffer,
+        .stride = apriltag.stride,
+        .height = apriltag.height,
+        .width = apriltag.width,
+    };
+    PopulateBitLocationsApriltag(bit_locations, bit_locations_apriltag);
     ImWrite("/root/bit_locations_apriltag.png", bit_locations_apriltag);
   }
 
@@ -1347,18 +1347,19 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
     }
   }
 
-  auto* refined_points_apriltag_buffer = static_cast<uint8_t*>(
-      calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
-  ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer,
-                                    .stride = apriltag.stride,
-                                    .height = apriltag.height,
-                                    .width = apriltag.width};
-  memcpy(refined_points_apriltag_buffer,
-         sorted_boundary_segmented_apriltag_buffer,
-         sizeof(uint8_t) * apriltag.width * apriltag.height);
   auto refined_points = GetRefinedPoints(detections, apriltag);
 
+  auto* refined_points_apriltag_buffer = static_cast<uint8_t*>(
+      calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
   if (imwrite) {
+    ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer,
+                                      .stride = apriltag.stride,
+                                      .height = apriltag.height,
+                                      .width = apriltag.width};
+    memcpy(refined_points_apriltag_buffer,
+           sorted_boundary_segmented_apriltag_buffer,
+           sizeof(uint8_t) * apriltag.width * apriltag.height);
+
     PopulateRefinedPointsApriltag(refined_points, refined_points_apriltag);
     ImWrite("/root/refined_points_apriltag.png", refined_points_apriltag);
   }
