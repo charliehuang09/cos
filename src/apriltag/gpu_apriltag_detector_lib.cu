@@ -480,8 +480,9 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
 auto GetSegments(ImageView32 segmented_apriltag)
     -> std::vector<std::vector<Coord<int>>> {
   absl::flat_hash_map<std::pair<uint32_t, uint32_t>,
-                      absl::flat_hash_set<Coord<int>>>
+                      std::vector<Coord<int>>>
       segments_set;
+  segments_set.reserve(1024);
   for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
     for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
       if (segmented_apriltag(i, j) != 0) {
@@ -490,10 +491,11 @@ auto GetSegments(ImageView32 segmented_apriltag)
         auto id = segmented_apriltag(i, j);
         auto neighbor_id = segmented_apriltag(i + dx, j + dy);
         if (neighbor_id != 0 && neighbor_id != id) {
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i + dx, j + dy);
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i, j);
+          auto& set = segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}];
+          set.emplace_back(i + dx, j + dy);
+          set.emplace_back(i, j);
+          segmented_apriltag(i, j) = 0;
+          segmented_apriltag(i + dx, j + dy) = 0;
         }
       }
     }
@@ -506,10 +508,11 @@ auto GetSegments(ImageView32 segmented_apriltag)
         auto id = segmented_apriltag(i, j);
         auto neighbor_id = segmented_apriltag(i + dx, j + dy);
         if (neighbor_id != 0 && neighbor_id != id) {
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i + dx, j + dy);
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i, j);
+          auto& set = segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}];
+          set.emplace_back(i + dx, j + dy);
+          set.emplace_back(i, j);
+          segmented_apriltag(i, j) = 0;
+          segmented_apriltag(i + dx, j + dy) = 0;
         }
       }
     }
