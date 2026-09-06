@@ -40,3 +40,28 @@ target_link_libraries(cos.nvidia_apriltag_detector_node
     nlohmann_json::nlohmann_json
 
 )
+
+add_library(gpu_apriltag_detector_lib)
+target_sources(gpu_apriltag_detector_lib
+  PRIVATE
+    gpu_apriltag_detector_lib.cc
+    gpu_apriltag_detector_lib.cu
+)
+target_compile_options(gpu_apriltag_detector_lib PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+    $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+    $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=68,970,186>
+)
+target_link_libraries(gpu_apriltag_detector_lib 
+  PUBLIC
+    apriltag
+    opencv_core
+    opencv_imgcodecs
+    opencv_imgproc
+    timer
+  PRIVATE
+    CUDA::cudart
+    absl::check
+    absl::flat_hash_map
+    absl::flat_hash_set
+)
