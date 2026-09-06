@@ -32,7 +32,9 @@ target_sources(gpu_apriltag_detector_lib
     gpu_apriltag_detector_lib.cu
 )
 target_compile_options(gpu_apriltag_detector_lib PRIVATE
-  $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+    $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+    $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+    $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=68,970,186>
 )
 target_link_libraries(gpu_apriltag_detector_lib 
   PUBLIC

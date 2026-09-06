@@ -25,10 +25,11 @@ using BitLocation = std::array<std::array<Coord<int>, 10>, 10>;
 
 struct ImageView {
   uint8_t* data;
+  uint8_t* data_gpu = nullptr;
   int stride;
   int height;
   int width;
-
+  void EnableGpu();
   auto operator()(size_t row, size_t col) -> uint8_t& {
     return data[row * stride + col];
   }
@@ -74,6 +75,8 @@ void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max);
 
 void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
                             ImageView valid);
+void PopulateThresholdValidGPU(ImageView min, ImageView max,
+                               ImageView threshold, ImageView valid);
 
 void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
                                ImageView apriltag,

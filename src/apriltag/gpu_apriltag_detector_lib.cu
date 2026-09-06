@@ -8,7 +8,54 @@
 
 #include <opencv2/opencv.hpp>
 
+#include <cuda/std/algorithm>
+
+#define CUDA_CHECK(call)                                                   \
+  do {                                                                     \
+    const cudaError_t cuda_check_error = (call);                           \
+    if (cuda_check_error != cudaSuccess) {                                 \
+      std::cerr << cudaGetErrorString(cuda_check_error) << '\n';            \
+      std::exit(EXIT_FAILURE);                                             \
+    }                                                                      \
+  } while (0)
+
 namespace {
+class ScopedHostRegistration {
+ public:
+  ScopedHostRegistration(void* data, size_t size) : data_(data) {
+    const cudaError_t error =
+        cudaHostRegister(data_, size, cudaHostRegisterMapped);
+    if (error == cudaSuccess) {
+      owns_registration_ = true;
+    } else if (error == cudaErrorHostMemoryAlreadyRegistered) {
+      // cudaHostRegister also records this otherwise acceptable result as the
+      // thread's last CUDA error. Clear it so a later launch check does not
+      // report this registration attempt as a kernel failure.
+      cudaGetLastError();
+    } else {
+      CUDA_CHECK(error);
+    }
+  }
+
+  ScopedHostRegistration(const ScopedHostRegistration&) = delete;
+  auto operator=(const ScopedHostRegistration&)
+      -> ScopedHostRegistration& = delete;
+
+  ~ScopedHostRegistration() {
+    if (!owns_registration_) {
+      return;
+    }
+    const cudaError_t error = cudaHostUnregister(data_);
+    if (error != cudaSuccess) {
+      std::cerr << cudaGetErrorString(error) << '\n';
+    }
+  }
+
+ private:
+  void* data_;
+  bool owns_registration_ = false;
+};
+
 [[gnu::always_inline]]
 void inline PopulateColor(int id, uint8_t& r, uint8_t& g, uint8_t& b) {
   r = (id * 2222009) % 256;
@@ -36,6 +83,85 @@ void inline GetMinMax(apriltag::ImageView apriltag, int row, int col,
       max = std::max(min, (apriltag(row + i, col + j)));
     }
   }
+}
+
+__device__ auto Get(uint8_t* data_gpu, int stride, size_t row, size_t col)
+    -> uint8_t& {
+  return data_gpu[row * stride + col];
+}
+
+__global__ void MinMaxKernel(apriltag::ImageView apriltag,
+                             apriltag::ImageView min_image_view,
+                             apriltag::ImageView max_image_view, int rows,
+                             int cols) {
+  const uint col = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint row = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if (row >= rows || col >= cols) {
+    return;
+  }
+
+  const uint apriltag_row = row * 4;
+  const uint apriltag_col = col * 4;
+
+  uint8_t min = 255;
+  uint8_t max = 0;
+#pragma unroll
+  for (int i = 0; i < 4; i++) {
+#pragma unroll
+    for (int j = 0; j < 4; j++) {
+      const uint8_t pixel = Get(apriltag.data_gpu, apriltag.stride,
+                                apriltag_row + i, apriltag_col + j);
+      min = cuda::std::min(min, pixel);
+      max = cuda::std::max(max, pixel);
+    }
+  }
+  Get(min_image_view.data_gpu, min_image_view.stride, row, col) = min;
+  Get(max_image_view.data_gpu, max_image_view.stride, row, col) = max;
+}
+
+__global__ void ThresholdValidKernel(apriltag::ImageView min_image_view,
+                                     apriltag::ImageView max_image_view,
+                                     apriltag::ImageView threshold_image_view,
+                                     apriltag::ImageView valid_image_view) {
+  const uint col = blockIdx.x * blockDim.x + threadIdx.x;
+  const uint row = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if (row >= min_image_view.height || col >= min_image_view.width) {
+    return;
+  }
+
+  uint8_t& threshold = Get(threshold_image_view.data_gpu,
+                           threshold_image_view.stride, row, col);
+  uint8_t& valid =
+      Get(valid_image_view.data_gpu, valid_image_view.stride, row, col);
+  if (row == 0 || col == 0 || row == min_image_view.height - 1 ||
+      col == min_image_view.width - 1) {
+    const uint8_t min =
+        Get(min_image_view.data_gpu, min_image_view.stride, row, col);
+    const uint8_t max =
+        Get(max_image_view.data_gpu, max_image_view.stride, row, col);
+    threshold = (min / 2) + (max / 2);
+    valid = 0;
+    return;
+  }
+
+  uint8_t min = 255;
+  uint8_t max = 0;
+#pragma unroll
+  for (int row_offset = -1; row_offset <= 1; ++row_offset) {
+#pragma unroll
+    for (int col_offset = -1; col_offset <= 1; ++col_offset) {
+      min = cuda::std::min(
+          min, Get(min_image_view.data_gpu, min_image_view.stride,
+                   row + row_offset, col + col_offset));
+      max = cuda::std::max(
+          max, Get(max_image_view.data_gpu, max_image_view.stride,
+                   row + row_offset, col + col_offset));
+    }
+  }
+  threshold = (max / 2) + (min / 2);
+  valid = max - min > 25 ? 255 : 0;
 }
 
 [[gnu::always_inline]]
@@ -120,6 +246,13 @@ void OrderQuad(apriltag::Quad& quad) {
 
 namespace apriltag {
 
+void ImageView::EnableGpu() {
+  CUDA_CHECK(cudaHostGetDevicePointer(
+      reinterpret_cast<void**>(&data_gpu),
+      data,
+      0));
+}
+
 void ImWrite(const std::string& path, const ImageView& image) {
   cv::Mat mat(image.height, image.width, CV_8UC1, image.data, image.stride);
   cv::imwrite(path, mat);
@@ -194,6 +327,20 @@ void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max) {
   }
 }
 
+void PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max) {
+  CHECK(apriltag.data_gpu != nullptr);
+  CHECK(min.data_gpu != nullptr);
+  CHECK(max.data_gpu != nullptr);
+  constexpr dim3 block(32, 8);
+  const dim3 grid(
+      (min.width + block.x - 1) / block.x,
+      (min.height + block.y - 1) / block.y);
+
+  MinMaxKernel<<<grid, block, 0>>>(apriltag, min, max, min.height, min.width);
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
+}
+
 void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
                             ImageView valid) {
   CHECK_EQ(min.width, threshold.width);
@@ -244,6 +391,27 @@ void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
       valid(i, j) = max_value - min_value > 25 ? 255 : 0;
     }
   }
+}
+
+void PopulateThresholdValidGPU(ImageView min, ImageView max,
+                               ImageView threshold, ImageView valid) {
+  CHECK_EQ(min.width, threshold.width);
+  CHECK_EQ(min.height, threshold.height);
+  CHECK_EQ(max.width, threshold.width);
+  CHECK_EQ(max.height, threshold.height);
+  CHECK_EQ(valid.width, threshold.width);
+  CHECK_EQ(valid.height, threshold.height);
+  CHECK(min.data_gpu != nullptr);
+  CHECK(max.data_gpu != nullptr);
+  CHECK(threshold.data_gpu != nullptr);
+  CHECK(valid.data_gpu != nullptr);
+
+  constexpr dim3 block(32, 8);
+  const dim3 grid((min.width + block.x - 1) / block.x,
+                  (min.height + block.y - 1) / block.y);
+  ThresholdValidKernel<<<grid, block>>>(min, max, threshold, valid);
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
@@ -1105,12 +1273,19 @@ auto GetRefinedQuads(
 
 auto DetectAprilTag(ImageView apriltag, bool imwrite)
     -> std::vector<ApriltagDetection> {
+  CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceMapHost));
+
+  const ScopedHostRegistration apriltag_registration(
+      apriltag.data,
+      static_cast<size_t>(apriltag.stride) * apriltag.height);
+  apriltag.EnableGpu();
+
   CHECK(apriltag.height % 4 == 0);
   CHECK(apriltag.width % 4 == 0);
-  auto* max_buffer = static_cast<uint8_t*>(
-      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
-  auto* min_buffer = static_cast<uint8_t*>(
-      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
+  uint8_t* max_buffer;
+  CUDA_CHECK(cudaHostAlloc<uint8_t>(&max_buffer, apriltag.width * apriltag.height / 16, cudaHostAllocMapped));
+  uint8_t* min_buffer;
+  CUDA_CHECK(cudaHostAlloc<uint8_t>(&min_buffer, apriltag.width * apriltag.height / 16, cudaHostAllocMapped));
   ImageView max{.data = max_buffer,
                 .stride = apriltag.stride / 4,
                 .height = apriltag.height / 4,
@@ -1119,26 +1294,35 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
                 .stride = apriltag.stride / 4,
                 .height = apriltag.height / 4,
                 .width = apriltag.width / 4};
-  PopulateMinMax(apriltag, min, max);
+  max.EnableGpu();
+  min.EnableGpu();
+
+  PopulateMinMaxGPU(apriltag, min, max);
   if (imwrite) {
     ImWrite("/root/max.png", max);
     ImWrite("/root/min.png", min);
   }
 
-  auto* threshold_buffer = static_cast<uint8_t*>(
-      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
+  uint8_t* threshold_buffer;
+  CUDA_CHECK(cudaHostAlloc<uint8_t>(&threshold_buffer,
+                                    apriltag.width * apriltag.height / 16,
+                                    cudaHostAllocMapped));
   ImageView threshold{.data = threshold_buffer,
                       .stride = apriltag.stride / 4,
                       .height = apriltag.height / 4,
                       .width = apriltag.width / 4};
 
-  auto* valid_buffer = static_cast<uint8_t*>(
-      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
+  uint8_t* valid_buffer;
+  CUDA_CHECK(cudaHostAlloc<uint8_t>(&valid_buffer,
+                                    apriltag.width * apriltag.height / 16,
+                                    cudaHostAllocMapped));
   ImageView valid{.data = valid_buffer,
                   .stride = apriltag.stride / 4,
                   .height = apriltag.height / 4,
                   .width = apriltag.width / 4};
-  PopulateThresholdValid(min, max, threshold, valid);
+  threshold.EnableGpu();
+  valid.EnableGpu();
+  PopulateThresholdValidGPU(min, max, threshold, valid);
   if (imwrite) {
     ImWrite("/root/threshold.png", threshold);
     ImWrite("/root/valid.png", valid);
@@ -1293,10 +1477,10 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
     }
   }
 
-  free(max_buffer);
-  free(min_buffer);
-  free(threshold_buffer);
-  free(valid_buffer);
+  cudaFreeHost(max_buffer);
+  cudaFreeHost(min_buffer);
+  cudaFreeHost(threshold_buffer);
+  cudaFreeHost(valid_buffer);
   free(binarized_apriltag_buffer);
   free(segmented_apriltag_buffer);
   free(boundary_segmented_apriltag_buffer);

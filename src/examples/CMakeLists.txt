@@ -61,3 +61,8 @@ target_link_libraries(gpu_apriltag PRIVATE
   absl::log_initialize
   ${OpenCV_LIBS}
 )
+
+add_executable(cpu_gpu_shared_memory)
+target_sources(cpu_gpu_shared_memory PRIVATE
+        cpu_gpu_shared_memory.cu
+)
