@@ -1243,7 +1243,7 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite)
                                  .stride = apriltag.stride,
                                  .height = apriltag.height,
                                  .width = apriltag.width};
-  PopulateSegmentedApriltag(binarized_apriltag, segmented_apriltag);
+  PopulateSegmentedApriltagGPU(binarized_apriltag, segmented_apriltag);
   if (imwrite) {
     ImWrite("/root/segmented_apriltag.png", segmented_apriltag);
   }

@@ -89,6 +89,9 @@ void Segment(int row, int col, ImageView binarized_apriltag,
 void PopulateSegmentedApriltag(ImageView binarized_apriltag,
                                ImageView32 segmented_apriltag);
 
+void PopulateSegmentedApriltagGPU(ImageView binarized_apriltag,
+                                  ImageView32 segmented_apriltag);
+
 auto GetSegments(ImageView32 segmented_apriltag)
     -> std::vector<std::vector<Coord<int>>>;
 

@@ -3,7 +3,9 @@
 #include "absl/log/check.h"
 
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
+#include <limits>
 
 #include <cuda/std/algorithm>
 
@@ -17,6 +19,8 @@
   } while (0)
 
 namespace {
+
+constexpr uint32_t kInvalidLabel = std::numeric_limits<uint32_t>::max();
 
 __device__ auto Get(uint8_t* data_gpu, int stride, size_t row, size_t col)
     -> uint8_t& {
@@ -97,6 +101,116 @@ __global__ void ThresholdValidKernel(apriltag::ImageView min_image_view,
   valid = max - min > 25 ? 255 : 0;
 }
 
+__device__ __forceinline__ auto FindRoot(uint32_t* labels, uint32_t label)
+    -> uint32_t {
+  uint32_t next = labels[label];
+  while (label != next) {
+    label = next;
+    next = labels[label];
+  }
+  return label;
+}
+
+// Merge two label trees by always attaching the larger root to the smaller
+// root. Another thread may update either tree while it is being traversed, so
+// the root update must be atomic.
+__device__ __forceinline__ auto ReduceLabels(uint32_t* labels,
+                                             uint32_t label_1,
+                                             uint32_t label_2) -> uint32_t {
+  uint32_t next_1 = label_1 != label_2 ? labels[label_1] : 0;
+  uint32_t next_2 = label_1 != label_2 ? labels[label_2] : 0;
+
+  while (label_1 != label_2 && label_1 != next_1) {
+    label_1 = next_1;
+    next_1 = labels[label_1];
+  }
+  while (label_1 != label_2 && label_2 != next_2) {
+    label_2 = next_2;
+    next_2 = labels[label_2];
+  }
+
+  while (label_1 != label_2) {
+    if (label_1 < label_2) {
+      const uint32_t temporary = label_1;
+      label_1 = label_2;
+      label_2 = temporary;
+    }
+
+    const uint32_t previous = atomicMin(&labels[label_1], label_2);
+    label_1 = label_1 == previous ? label_2 : previous;
+  }
+  return label_1;
+}
+
+__global__ void InitializeLabelsKernel(const uint8_t* image, uint32_t* labels,
+                                       int width, int height) {
+  const int col = blockIdx.x * blockDim.x + threadIdx.x;
+  const int row = blockIdx.y * blockDim.y + threadIdx.y;
+  if (row >= height || col >= width) {
+    return;
+  }
+
+  const uint32_t index = row * width + col;
+  const uint8_t pixel = image[index];
+  if (pixel != 0 && pixel != 255) {
+    labels[index] = kInvalidLabel;
+    return;
+  }
+
+  const bool connected_left = col > 0 && pixel == image[index - 1];
+  const bool connected_up = row > 0 && pixel == image[index - width];
+
+  uint32_t label = connected_left ? index - 1 : index;
+  // The upper pixel always has a smaller linear index than the left pixel.
+  label = connected_up ? index - width : label;
+  labels[index] = label;
+}
+
+__global__ void ResolveLabelsKernel(uint32_t* labels, int pixel_count) {
+  const int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= pixel_count || labels[index] == kInvalidLabel) {
+    return;
+  }
+  labels[index] = FindRoot(labels, labels[index]);
+}
+
+__global__ void ReduceCriticalLabelsKernel(const uint8_t* image,
+                                           uint32_t* labels, int width,
+                                           int height) {
+  const int col = blockIdx.x * blockDim.x + threadIdx.x;
+  const int row = blockIdx.y * blockDim.y + threadIdx.y;
+  if (row <= 0 || row >= height || col <= 0 || col >= width) {
+    return;
+  }
+
+  const uint32_t index = row * width + col;
+  const uint8_t pixel = image[index];
+  if (pixel != 0 && pixel != 255) {
+    return;
+  }
+
+  const bool connected_left = pixel == image[index - 1];
+  const bool connected_up = pixel == image[index - width];
+  const bool connected_upper_left = pixel == image[index - width - 1];
+  if (connected_left && connected_up && !connected_upper_left) {
+    ReduceLabels(labels, labels[index], labels[index - 1]);
+  }
+}
+
+__global__ void EncodeResolvedLabelsKernel(uint32_t* labels,
+                                           uint32_t* output,
+                                           int pixel_count) {
+  const int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index >= pixel_count) {
+    return;
+  }
+
+  const uint32_t label = labels[index];
+  // The CPU pipeline reserves zero for invalid/unlabeled pixels. Internally,
+  // Playne labels are zero-based pixel indices, so encode roots as index + 1.
+  output[index] = label == kInvalidLabel ? 0 : label + uint32_t{1};
+}
+
 }  // namespace
 
 namespace apriltag {
@@ -138,6 +252,70 @@ void PopulateThresholdValidGPU(ImageView min, ImageView max,
   ThresholdValidKernel<<<grid, block>>>(min, max, threshold, valid);
   CUDA_CHECK(cudaGetLastError());
   CUDA_CHECK(cudaDeviceSynchronize());
+}
+
+void PopulateSegmentedApriltagGPU(ImageView binarized_apriltag,
+                                  ImageView32 segmented_apriltag) {
+  CHECK_EQ(binarized_apriltag.width, segmented_apriltag.width);
+  CHECK_EQ(binarized_apriltag.height, segmented_apriltag.height);
+  CHECK_GE(binarized_apriltag.stride, binarized_apriltag.width);
+  CHECK_GE(segmented_apriltag.stride, segmented_apriltag.width);
+
+  const int width = binarized_apriltag.width;
+  const int height = binarized_apriltag.height;
+  if (width == 0 || height == 0) {
+    return;
+  }
+
+  const size_t pixel_count = static_cast<size_t>(width) * height;
+  CHECK_LE(pixel_count,
+           static_cast<size_t>(std::numeric_limits<int>::max()));
+  uint8_t* device_image = nullptr;
+  uint32_t* device_labels = nullptr;
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&device_image), pixel_count));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&device_labels),
+                        pixel_count * sizeof(uint32_t)));
+
+  CUDA_CHECK(cudaMemcpy2D(device_image, width, binarized_apriltag.data,
+                          binarized_apriltag.stride, width, height,
+                          cudaMemcpyHostToDevice));
+
+  constexpr dim3 block(32, 8);
+  const dim3 grid((width + block.x - 1) / block.x,
+                  (height + block.y - 1) / block.y);
+  InitializeLabelsKernel<<<grid, block>>>(device_image, device_labels, width,
+                                          height);
+  CUDA_CHECK(cudaGetLastError());
+
+  constexpr int resolve_block_size = 256;
+  const int resolve_grid_size =
+      (static_cast<int>(pixel_count) + resolve_block_size - 1) /
+      resolve_block_size;
+  ResolveLabelsKernel<<<resolve_grid_size, resolve_block_size>>>(
+      device_labels, static_cast<int>(pixel_count));
+  CUDA_CHECK(cudaGetLastError());
+
+  ReduceCriticalLabelsKernel<<<grid, block>>>(device_image, device_labels,
+                                               width, height);
+  CUDA_CHECK(cudaGetLastError());
+
+  ResolveLabelsKernel<<<resolve_grid_size, resolve_block_size>>>(
+      device_labels, static_cast<int>(pixel_count));
+  CUDA_CHECK(cudaGetLastError());
+
+  EncodeResolvedLabelsKernel<<<resolve_grid_size, resolve_block_size>>>(
+      device_labels, device_labels, static_cast<int>(pixel_count));
+  CUDA_CHECK(cudaGetLastError());
+
+  CUDA_CHECK(cudaMemcpy2D(segmented_apriltag.data,
+                          static_cast<size_t>(segmented_apriltag.stride) *
+                              sizeof(uint32_t),
+                          device_labels, width * sizeof(uint32_t),
+                          width * sizeof(uint32_t), height,
+                          cudaMemcpyDeviceToHost));
+
+  CUDA_CHECK(cudaFree(device_labels));
+  CUDA_CHECK(cudaFree(device_image));
 }
 
 }  // namespace apriltag
