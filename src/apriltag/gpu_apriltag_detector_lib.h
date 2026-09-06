@@ -72,6 +72,7 @@ void ImWrite(const std::string& path, const ImageView& image_r,
 void ImWrite(const std::string& path, ImageView32 segmented_apriltag);
 
 void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max);
+void PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max);
 
 void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
                             ImageView valid);

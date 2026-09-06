@@ -29,6 +29,7 @@ target_link_libraries(nvidia_apriltag_detector_node
 add_library(gpu_apriltag_detector_lib)
 target_sources(gpu_apriltag_detector_lib
   PRIVATE
+    gpu_apriltag_detector_lib.cc
     gpu_apriltag_detector_lib.cu
 )
 target_compile_options(gpu_apriltag_detector_lib PRIVATE
