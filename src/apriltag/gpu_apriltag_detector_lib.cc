@@ -91,7 +91,7 @@ void inline GetMinMax(apriltag::ImageView apriltag, int row, int col,
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 4; j++) {
       min = std::min(min, (apriltag(row + i, col + j)));
-      max = std::max(min, (apriltag(row + i, col + j)));
+      max = std::max(max, (apriltag(row + i, col + j)));
     }
   }
 }
