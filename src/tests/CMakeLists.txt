@@ -70,6 +70,20 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   simulation_position_sender_node
 )
 
+add_executable(gpu_segment_extractor_test gpu_segment_extractor_test.cc)
+target_link_libraries(gpu_segment_extractor_test PRIVATE
+  gpu_apriltag_detector_lib CUDA::cudart GTest::gtest_main)
+add_test(NAME gpu_segment_extractor_test COMMAND gpu_segment_extractor_test)
+
+add_executable(gpu_apriltag_pipeline_test gpu_apriltag_pipeline_test.cc)
+target_link_libraries(gpu_apriltag_pipeline_test PRIVATE
+  gpu_apriltag_detector CUDA::cudart GTest::gtest_main)
+add_test(NAME gpu_apriltag_pipeline_test COMMAND gpu_apriltag_pipeline_test)
+
+add_executable(gpu_segment_extractor_benchmark gpu_segment_extractor_benchmark.cc)
+target_link_libraries(gpu_segment_extractor_benchmark PRIVATE
+  gpu_apriltag_detector CUDA::cudart absl::check ${OpenCV_LIBS})
+
 add_executable(gpu_apriltag_benchmark
   gpu_apriltag_benchmark.cc
 )

@@ -1,6 +1,9 @@
 #include "apriltag/gpu_apriltag_detector.h"
+#include "control_loop/timer.h"
 
 #include <tag36h11.h>
+#include <cstring>
+#include <limits>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -16,12 +19,26 @@
   } while (0)
 
 namespace apriltag {
-GPUApriltagDetector::GPUApriltagDetector(int width, int height)
-    : width_(width), height_(height), family_(tag36h11_create()) {
+GPUApriltagDetector::GPUApriltagDetector(int width, int height,
+                                         std::vector<int> target_tag_ids)
+    : width_(width),
+      height_(height),
+      target_tag_ids_(std::move(target_tag_ids)),
+      family_(tag36h11_create()) {
   CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceMapHost));
   const int stride = width;
   CHECK(width % 4 == 0);
   CHECK(height % 4 == 0);
+  CHECK_GT(width, 0);
+  CHECK_GT(height, 0);
+  CHECK_LE(static_cast<size_t>(width) * height,
+           static_cast<size_t>(std::numeric_limits<int>::max() - 255));
+  uint8_t* input_buffer = nullptr;
+  CUDA_CHECK(cudaHostAlloc(&input_buffer, static_cast<size_t>(width) * height,
+                           cudaHostAllocMapped));
+  input_view_ = ImageView{.data = input_buffer, .stride = width,
+                          .height = height, .width = width};
+  input_view_.EnableGpu();
 
   uint8_t* max_buffer;
   CUDA_CHECK(cudaHostAlloc(reinterpret_cast<void**>(&max_buffer),
@@ -118,8 +135,17 @@ GPUApriltagDetector::GPUApriltagDetector(int width, int height)
                 .stride = stride,
                 .height = height,
                 .width = width};
+
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&device_image_),
+                        width * height * sizeof(uint8_t)));
+  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&device_labels_),
+                        width * height * sizeof(uint32_t)));
+  tag_decoder_.SetTargetCodes(family_, target_tag_ids_);
 }
 GPUApriltagDetector::~GPUApriltagDetector() {
+  cudaFreeHost(input_view_.data);
+  cudaFree(device_image_);
+  cudaFree(device_labels_);
   cudaFreeHost(max_view_.data);
   cudaFreeHost(min_view_.data);
   cudaFreeHost(threshold_view_.data);
@@ -141,30 +167,38 @@ auto GPUApriltagDetector::Detect(ImageView apriltag, bool generate_debug_image)
   CHECK(apriltag.height % 4 == 0);
   CHECK(apriltag.width % 4 == 0);
 
-  CUDA_CHECK(cudaHostRegister(apriltag.data, apriltag.stride * apriltag.height,
-                              cudaHostRegisterMapped));
-  apriltag.EnableGpu();
+  CHECK_GE(apriltag.stride, width_);
+  CHECK(apriltag.data != nullptr);
+  ImageView gpu_image = apriltag;
+  if (gpu_image.data_gpu == nullptr) {
+    if (apriltag.stride == width_) {
+      std::memcpy(input_view_.data, apriltag.data, static_cast<size_t>(width_) * height_);
+    } else {
+      for (int row = 0; row < height_; ++row) {
+        std::memcpy(input_view_.data + static_cast<size_t>(row) * width_,
+                    apriltag.data + static_cast<size_t>(row) * apriltag.stride, width_);
+      }
+    }
+    gpu_image = input_view_;
+  }
+  PopulatePreprocessedApriltagGPU(gpu_image, min_view_, max_view_,
+                                   threshold_view_, valid_view_, device_image_);
+  PopulateSegmentedApriltagDevice(device_image_, device_labels_, width_, height_);
+  has_frame_ = true;
+  segmented_host_dirty_ = true;
 
-
-  PopulateMinMaxGPU(apriltag, min_view_, max_view_);
-
-  PopulateThresholdValidGPU(min_view_, max_view_, threshold_view_, valid_view_);
-
-  PopulateBinarizedApriltag(threshold_view_, valid_view_, apriltag,
-                            binarized_apriltag_view_);
-
-  PopulateSegmentedApriltagGPU(binarized_apriltag_view_,
-                               segmented_apriltag_view_);
-
-
-  auto segments = GetSegments(segmented_apriltag_view_);
+  auto segments = segment_extractor_.ExtractDevice(
+      device_labels_, width_, height_, width_);
   if (generate_debug_image) {
+    GetSegmentedApriltagView();
+    CUDA_CHECK(cudaMemcpy(binarized_apriltag_view_.data, device_image_,
+                          static_cast<size_t>(width_) * height_, cudaMemcpyDeviceToHost));
     std::memset(boundary_segmented_apriltag_view_.data, 0,boundary_segmented_apriltag_view_.height * boundary_segmented_apriltag_view_.width * sizeof(uint32_t));
     PopulateBoundarySegmentedApriltag(segments,
                                       boundary_segmented_apriltag_view_);
   }
 
-  SortSegments(segments);
+  segment_sorter_.Sort(segments);
 
   if (generate_debug_image) {
     std::memset(sorted_boundary_segmented_apriltag_view_.data, 0,sorted_boundary_segmented_apriltag_view_.height * sorted_boundary_segmented_apriltag_view_.width * sizeof(uint8_t));
@@ -172,10 +206,7 @@ auto GPUApriltagDetector::Detect(ImageView apriltag, bool generate_debug_image)
         segments, sorted_boundary_segmented_apriltag_view_);
   }
 
-  auto mses = GetMses(segments);
-  CHECK_EQ(mses.size(), segments.size());
-
-  auto candidate_quad_corners = GetCandidatesQuadCorners(segments, mses);
+  auto candidate_quad_corners = GetCandidatesQuadCornersParallel(segments);
   CHECK_EQ(candidate_quad_corners.size(), segments.size());
 
   auto quads = GetQuads(candidate_quad_corners);
@@ -199,7 +230,8 @@ auto GPUApriltagDetector::Detect(ImageView apriltag, bool generate_debug_image)
     PopulateBitLocationsApriltag(bit_locations, bit_locations_apriltag_view_);
   }
 
-  auto [tag_ids, rotations] = GetTagIds(bit_locations, apriltag, family_);
+  auto [tag_ids, rotations] = tag_decoder_.Decode(bit_locations, gpu_image);
+
   RotateQuads(quads, rotations);
 
   std::vector<ApriltagDetection> detections;
@@ -231,12 +263,24 @@ auto GPUApriltagDetector::Detect(ImageView apriltag, bool generate_debug_image)
     }
   }
 
-  CUDA_CHECK(cudaHostUnregister(apriltag.data));
-
   return refined_detections;
 }
 
+auto GPUApriltagDetector::GetSegmentedApriltagView() const -> ImageView32 {
+  if (segmented_host_dirty_) {
+    CUDA_CHECK(cudaMemcpy(segmented_apriltag_view_.data, device_labels_,
+        static_cast<size_t>(width_) * height_ * sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    segmented_host_dirty_ = false;
+  }
+  return segmented_apriltag_view_;
+}
+
 void GPUApriltagDetector::WriteLogImages(const std::filesystem::path& log_path) const {
+  GetSegmentedApriltagView();
+  if (has_frame_) {
+    CUDA_CHECK(cudaMemcpy(binarized_apriltag_view_.data, device_image_,
+                          static_cast<size_t>(width_) * height_, cudaMemcpyDeviceToHost));
+  }
   ImWrite(log_path / "max.png", max_view_);
   ImWrite(log_path / "min.png", min_view_);
   ImWrite(log_path / "threshold.png", threshold_view_);

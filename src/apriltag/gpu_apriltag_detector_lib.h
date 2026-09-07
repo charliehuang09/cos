@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <opencv2/core/mat.hpp>
 #include <string>
 #include <utility>
@@ -87,16 +88,68 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
                                ImageView32 segmented_apriltag);
 
 void PopulateSegmentedApriltagGPU(ImageView binarized_apriltag,
-                                  ImageView32 segmented_apriltag);
+                                  ImageView32 segmented_apriltag,
+                                  uint8_t* device_image,
+                                  uint32_t* device_labels);
+
+// Enqueue preprocessing and labeling on the default CUDA stream. Buffers are
+// owned by the caller and must remain valid until the stream finishes.
+void PopulatePreprocessedApriltagGPU(ImageView image, ImageView min, ImageView max,
+                                    ImageView threshold, ImageView valid,
+                                    uint8_t* device_binarized);
+void PopulateSegmentedApriltagDevice(const uint8_t* device_image,
+                                     uint32_t* device_labels, int width, int height);
 
 auto GetSegments(ImageView32 segmented_apriltag)
     -> std::vector<std::vector<Coord<int>>>;
+
+auto GetSegmentsCPU(ImageView32 segmented_apriltag)
+    -> std::vector<std::vector<Coord<int>>>;
+
+class GpuSegmentExtractor {
+ public:
+  GpuSegmentExtractor();
+  ~GpuSegmentExtractor();
+  GpuSegmentExtractor(const GpuSegmentExtractor&) = delete;
+  auto operator=(const GpuSegmentExtractor&) -> GpuSegmentExtractor& = delete;
+  GpuSegmentExtractor(GpuSegmentExtractor&&) noexcept;
+  auto operator=(GpuSegmentExtractor&&) noexcept -> GpuSegmentExtractor&;
+
+  auto Extract(ImageView32 labels) -> std::vector<std::vector<Coord<int>>>;
+  // labels is device memory; stride is measured in uint32_t elements.
+  auto ExtractDevice(const uint32_t* labels, int width, int height, int stride)
+      -> std::vector<std::vector<Coord<int>>>;
+  // Retained device allocations, excluding CUDA runtime overhead.
+  auto DeviceWorkspaceBytes() const -> size_t;
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
 
 void PopulateBoundarySegmentedApriltag(
     std::vector<std::vector<Coord<int>>>& segments,
     ImageView32 boundary_segmented_apriltag);
 
+class GpuSegmentSorter {
+ public:
+  GpuSegmentSorter();
+  ~GpuSegmentSorter();
+  GpuSegmentSorter(const GpuSegmentSorter&) = delete;
+  auto operator=(const GpuSegmentSorter&) -> GpuSegmentSorter& = delete;
+  GpuSegmentSorter(GpuSegmentSorter&&) noexcept;
+  auto operator=(GpuSegmentSorter&&) noexcept -> GpuSegmentSorter&;
+
+  void Sort(std::vector<std::vector<Coord<int>>>& segments);
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
 void SortSegments(std::vector<std::vector<Coord<int>>>& segments);
+void SortSegmentsGPU(std::vector<std::vector<Coord<int>>>& segments);
+void SortSegmentsCPU(std::vector<std::vector<Coord<int>>>& segments);
 
 void PopulateSortedBoundarySegmentedApriltag(
     std::vector<std::vector<Coord<int>>>& segments,
@@ -108,6 +161,10 @@ auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
 auto GetCandidatesQuadCorners(
     const std::vector<std::vector<Coord<int>>>& segments,
     const std::vector<std::vector<float>>& mse_map)
+    -> std::vector<CandidatesQuad>;
+
+auto GetCandidatesQuadCornersParallel(
+    const std::vector<std::vector<Coord<int>>>& segments)
     -> std::vector<CandidatesQuad>;
 
 void PopulateCandidateQuadCornersApriltagBuffer(
@@ -128,8 +185,40 @@ void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
 auto GetBlackWhiteThreshold(ImageView apriltag,
                             const BitLocation& bit_location);
 
+class GpuTagIdDecoder {
+ public:
+  GpuTagIdDecoder();
+  ~GpuTagIdDecoder();
+  GpuTagIdDecoder(const GpuTagIdDecoder&) = delete;
+  auto operator=(const GpuTagIdDecoder&) -> GpuTagIdDecoder& = delete;
+  GpuTagIdDecoder(GpuTagIdDecoder&&) noexcept;
+  auto operator=(GpuTagIdDecoder&&) noexcept -> GpuTagIdDecoder&;
+
+  void SetTargetCodes(apriltag_family_t* family,
+                      const std::vector<int>& target_tag_ids);
+  auto Decode(const std::vector<BitLocation>& bit_locations,
+              ImageView apriltag)
+      -> std::pair<std::vector<int>, std::vector<int>>;
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
 auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag,
-               apriltag_family_t* family)
+               apriltag_family_t* family,
+               const std::vector<int>& target_tag_ids = {})
+    -> std::pair<std::vector<int>, std::vector<int>>;
+
+auto GetTagIdsGPU(const std::vector<BitLocation>& bit_locations,
+                  ImageView apriltag,
+                  apriltag_family_t* family,
+                  const std::vector<int>& target_tag_ids = {})
+    -> std::pair<std::vector<int>, std::vector<int>>;
+
+auto GetTagIdsCPU(std::vector<BitLocation>& bit_locations, ImageView apriltag,
+                  apriltag_family_t* family,
+                  const std::vector<int>& target_tag_ids = {})
     -> std::pair<std::vector<int>, std::vector<int>>;
 
 void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations);
@@ -137,7 +226,8 @@ void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations);
 void DrawTagDetections(cv::Mat& image,
                        const std::vector<ApriltagDetection>& detections);
 
-auto DetectAprilTag(ImageView apriltag, bool imwrite = true)
+auto DetectAprilTag(ImageView apriltag, bool imwrite = true,
+                    const std::vector<int>& target_tag_ids = {})
     -> std::vector<ApriltagDetection>;
 
 auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,

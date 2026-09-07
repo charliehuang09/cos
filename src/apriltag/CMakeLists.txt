@@ -48,6 +48,8 @@ target_link_libraries(gpu_apriltag_detector_lib
     absl::check
     absl::flat_hash_map
     absl::flat_hash_set
+    absl::cleanup
+    thread_pool
 )
 
 add_library(gpu_apriltag_detector)
@@ -68,4 +70,3 @@ target_link_libraries(gpu_apriltag_detector
         absl::check
         absl::log
 )
-
