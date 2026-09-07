@@ -14,6 +14,8 @@
 
 ABSL_FLAG(std::string, image_path, "/root/apriltag.png",               // NOLINT
           "Apriltag image, width and height must be divisible by 4");  // NOLINT
+ABSL_FLAG(int, decimate, 1,
+          "Integer image reduction factor; dimensions must be divisible by 4 * factor");
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -22,14 +24,41 @@ auto main(int argc, char** argv) -> int {
 
   std::string apriltag_path = absl::GetFlag(FLAGS_image_path);
   cv::Mat apriltag = cv::imread(apriltag_path, cv::IMREAD_GRAYSCALE);
-  uint8_t* pixels = apriltag.data;
-  int height = apriltag.rows;
-  int width = apriltag.cols;
-  apriltag::ImageView apriltag_view{
-      .data = pixels, .stride = width, .height = height, .width = width};
+  CHECK(!apriltag.empty()) << "Failed to read " << apriltag_path;
+  const int factor = absl::GetFlag(FLAGS_decimate);
+  CHECK_GE(factor, 1);
+  CHECK_EQ(apriltag.cols % (4LL * factor), 0);
+  CHECK_EQ(apriltag.rows % (4LL * factor), 0);
+  const int width = apriltag.cols / factor;
+  const int height = apriltag.rows / factor;
 
   auto detector = apriltag::GPUApriltagDetector(width, height);
-  auto detections = detector.Detect(apriltag_view, true);
+  cv::Mat reduced;
+  auto detect = [&](bool debug = false) {
+    if (factor > 1) {
+      cv::resize(apriltag, reduced, cv::Size(width, height),
+                 0, 0, cv::INTER_AREA);
+    } else {
+      reduced = apriltag;
+    }
+    apriltag::ImageView view{
+        .data = reduced.data, .stride = static_cast<int>(reduced.step),
+        .height = height, .width = width};
+    auto detections = detector.Detect(view, debug);
+    // Draw detections in the original image's pixel-center coordinates.
+    if (factor > 1) {
+      for (auto& detection : detections) {
+        for (auto& point : detection.quad.corners) {
+          point.row = (point.row + 0.5f) * factor - 0.5f;
+          point.col = (point.col + 0.5f) * factor - 0.5f;
+        }
+      }
+    }
+    return detections;
+  };
+  auto detections = detect(true);
+  LOG(INFO) << "Decimation factor: " << factor << "; detector image: "
+            << width << "x" << height << "; detected tags: " << detections.size();
   auto annotated_apriltag = apriltag.clone();
   DrawTagDetections(annotated_apriltag, detections);
   const std::filesystem::path log_path = "/root/apriltag_logs";
@@ -46,8 +75,9 @@ auto main(int argc, char** argv) -> int {
   double average_run_time = 0.0;
   for (int i = 0; i < runs; i++) {
     control_loop::Timer timer;
-    detections = detector.Detect(apriltag_view);
+    detections = detect();
     average_run_time += timer.Stop().count();
   }
-  LOG(INFO) << average_run_time / runs;
+  LOG(INFO) << "Average time (ms, including resize): "
+            << 1000 * average_run_time / runs;
 }
