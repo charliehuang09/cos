@@ -69,3 +69,15 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   unambiguous_solver_node
   simulation_position_sender_node
 )
+
+add_executable(gpu_apriltag_benchmark
+  gpu_apriltag_benchmark.cc
+)
+target_link_libraries(gpu_apriltag_benchmark PRIVATE
+  gpu_apriltag_detector
+  absl::log
+  absl::log_initialize
+  absl::flags_parse
+  timer
+  ${OpenCV_LIBS}
+)

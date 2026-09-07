@@ -61,8 +61,9 @@ target_compile_options(gpu_apriltag_detector PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=970>
 )
 target_link_libraries(gpu_apriltag_detector
-        PRIVATE
+        PUBLIC
         gpu_apriltag_detector_lib
+        PRIVATE
         CUDA::cudart
         absl::check
         absl::log
