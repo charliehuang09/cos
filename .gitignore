@@ -9,3 +9,5 @@ bos-logs/
 .cache
 .idea/
 .vscode/
+apriltag/
+apriltag.pdf
