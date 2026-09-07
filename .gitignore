@@ -8,3 +8,6 @@ bos-logs/
 **/*.png
 .cache
 .idea/
+.vscode/
+apriltag/
+apriltag.pdf
