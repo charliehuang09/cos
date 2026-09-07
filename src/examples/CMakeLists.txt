@@ -53,13 +53,14 @@ target_sources(gpu_apriltag PRIVATE
   gpu_apriltag.cc
 )
 target_link_libraries(gpu_apriltag PRIVATE
-  timer
-  gpu_apriltag_detector_lib
-  absl::log
-  absl::check
-  absl::flags_parse
-  absl::log_initialize
-  ${OpenCV_LIBS}
+    timer
+    gpu_apriltag_detector_lib
+    gpu_apriltag_detector
+    absl::log
+    absl::check
+    absl::flags_parse
+    absl::log_initialize
+    ${OpenCV_LIBS}
 )
 
 add_executable(cpu_gpu_shared_memory)

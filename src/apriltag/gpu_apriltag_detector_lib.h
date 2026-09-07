@@ -1,3 +1,5 @@
+#pragma once
+
 #include <apriltag.h>
 #include <array>
 #include <cstddef>
@@ -52,12 +54,7 @@ struct Quad {
 
 struct CandidatesQuad {
   std::array<Coord<int>, 4> corners{};
-};
-
-struct ApriltagDetection {
-  Quad quad;
-  int id;
-};
+}; struct ApriltagDetection { Quad quad; int id; };
 
 struct WeightedPoint {
   Coord<int> coord;
@@ -99,7 +96,7 @@ void PopulateBoundarySegmentedApriltag(
     std::vector<std::vector<Coord<int>>>& segments,
     ImageView32 boundary_segmented_apriltag);
 
-auto SortSegments(std::vector<std::vector<Coord<int>>>& segments);
+void SortSegments(std::vector<std::vector<Coord<int>>>& segments);
 
 void PopulateSortedBoundarySegmentedApriltag(
     std::vector<std::vector<Coord<int>>>& segments,
@@ -142,4 +139,17 @@ void DrawTagDetections(cv::Mat& image,
 
 auto DetectAprilTag(ImageView apriltag, bool imwrite = true)
     -> std::vector<ApriltagDetection>;
+
+auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
+                      ImageView& apriltag)
+    -> std::vector<std::array<std::vector<WeightedPoint>, 4>>;
+
+auto GetRefinedQuads(
+    const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
+        refined_points) -> std::vector<Quad>;
+
+void PopulateRefinedPointsApriltag(
+    const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
+        refined_points,
+    ImageView& refined_points_apriltag);
 }  // namespace apriltag

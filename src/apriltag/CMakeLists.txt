@@ -34,7 +34,6 @@ target_sources(gpu_apriltag_detector_lib
 )
 target_compile_options(gpu_apriltag_detector_lib PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:-O3>
-    $<$<COMPILE_LANGUAGE:CUDA>:-O3>
     $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=68,970,186>
 )
 target_link_libraries(gpu_apriltag_detector_lib 
@@ -50,3 +49,22 @@ target_link_libraries(gpu_apriltag_detector_lib
     absl::flat_hash_map
     absl::flat_hash_set
 )
+
+add_library(gpu_apriltag_detector)
+target_sources(gpu_apriltag_detector
+        PRIVATE
+        gpu_apriltag_detector.cu
+)
+
+target_compile_options(gpu_apriltag_detector PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+        $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=970>
+)
+target_link_libraries(gpu_apriltag_detector
+        PRIVATE
+        gpu_apriltag_detector_lib
+        CUDA::cudart
+        absl::check
+        absl::log
+)
+

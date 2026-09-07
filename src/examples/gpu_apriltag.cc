@@ -6,6 +6,7 @@
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
+#include "apriltag/gpu_apriltag_detector.h"
 
 #include "control_loop/timer.h"
 
@@ -24,22 +25,28 @@ auto main(int argc, char** argv) -> int {
   uint8_t* pixels = apriltag.data;
   int height = apriltag.rows;
   int width = apriltag.cols;
-  CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
-  auto detections = DetectAprilTag(
-      apriltag::ImageView{
-          .data = pixels, .stride = width, .height = height, .width = width},
-      true);
+  apriltag::ImageView apriltag_view{
+      .data = pixels, .stride = width, .height = height, .width = width};
+
+  auto detector = apriltag::GPUApriltagDetector(width, height);
+  auto detections = detector.Detect(apriltag_view, true);
   auto annotated_apriltag = apriltag.clone();
   DrawTagDetections(annotated_apriltag, detections);
-  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
-  constexpr int runs = 100;
+  const std::filesystem::path log_path = "/root/apriltag_logs";
+  std::error_code create_directory_error;
+  std::filesystem::create_directories(log_path, create_directory_error);
+  CHECK(!create_directory_error)
+      << "Failed to create " << log_path << ": "
+      << create_directory_error.message();
+  CHECK(cv::imwrite((log_path / "annotated_apriltag.png").string(),
+                    annotated_apriltag));
+  detector.WriteLogImages(log_path);
+
+  constexpr int runs = 250;
   double average_run_time = 0.0;
   for (int i = 0; i < runs; i++) {
     control_loop::Timer timer;
-    auto detections = DetectAprilTag(
-        apriltag::ImageView{
-            .data = pixels, .stride = width, .height = height, .width = width},
-        false);
+    detections = detector.Detect(apriltag_view);
     average_run_time += timer.Stop().count();
   }
   LOG(INFO) << average_run_time / runs;

@@ -21,13 +21,13 @@
 
 #include <cuda_runtime_api.h>
 
-#define CUDA_CHECK(call)                                                   \
-  do {                                                                     \
-    const cudaError_t cuda_check_error = (call);                           \
-    if (cuda_check_error != cudaSuccess) {                                 \
-      std::cerr << cudaGetErrorString(cuda_check_error) << '\n';            \
-      std::exit(EXIT_FAILURE);                                             \
-    }                                                                      \
+#define CUDA_CHECK(call)                                         \
+  do {                                                           \
+    const cudaError_t cuda_check_error = (call);                 \
+    if (cuda_check_error != cudaSuccess) {                       \
+      std::cerr << cudaGetErrorString(cuda_check_error) << '\n'; \
+      std::exit(EXIT_FAILURE);                                   \
+    }                                                            \
   } while (0)
 
 namespace {
@@ -304,6 +304,7 @@ void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
   }
 }
 
+// TODO GPU
 void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
                                ImageView apriltag,
                                ImageView binarized_apriltag) {
@@ -369,8 +370,7 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
 
 auto GetSegments(ImageView32 segmented_apriltag)
     -> std::vector<std::vector<Coord<int>>> {
-  absl::flat_hash_map<std::pair<uint32_t, uint32_t>,
-                      std::vector<Coord<int>>>
+  absl::flat_hash_map<std::pair<uint32_t, uint32_t>, std::vector<Coord<int>>>
       segments_set;
   segments_set.reserve(1024);
   for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
@@ -381,7 +381,8 @@ auto GetSegments(ImageView32 segmented_apriltag)
         auto id = segmented_apriltag(i, j);
         auto neighbor_id = segmented_apriltag(i + dx, j + dy);
         if (neighbor_id != 0 && neighbor_id != id) {
-          auto& set = segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}];
+          auto& set = segments_set[{std::max(id, neighbor_id),
+                                    std::min(id, neighbor_id)}];
           set.emplace_back(i + dx, j + dy);
           set.emplace_back(i, j);
           segmented_apriltag(i, j) = 0;
@@ -398,7 +399,8 @@ auto GetSegments(ImageView32 segmented_apriltag)
         auto id = segmented_apriltag(i, j);
         auto neighbor_id = segmented_apriltag(i + dx, j + dy);
         if (neighbor_id != 0 && neighbor_id != id) {
-          auto& set = segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}];
+          auto& set = segments_set[{std::max(id, neighbor_id),
+                                    std::min(id, neighbor_id)}];
           set.emplace_back(i + dx, j + dy);
           set.emplace_back(i, j);
           segmented_apriltag(i, j) = 0;
@@ -431,7 +433,7 @@ void PopulateBoundarySegmentedApriltag(
   }
 }
 
-auto SortSegments(std::vector<std::vector<Coord<int>>>& segments) {
+void SortSegments(std::vector<std::vector<Coord<int>>>& segments) {
   for (auto& segment : segments) {
     auto sum = std::accumulate(
         segment.begin(), segment.end(), Coord<int>{.row = 0, .col = 0},
@@ -1164,13 +1166,13 @@ auto GetRefinedQuads(
   return refined_quads;
 }
 
+[[deprecated]]
 auto DetectAprilTag(ImageView apriltag, bool imwrite)
     -> std::vector<ApriltagDetection> {
   CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceMapHost));
 
   const ScopedHostRegistration apriltag_registration(
-      apriltag.data,
-      static_cast<size_t>(apriltag.stride) * apriltag.height);
+      apriltag.data, static_cast<size_t>(apriltag.stride) * apriltag.height);
   apriltag.EnableGpu();
 
   CHECK(apriltag.height % 4 == 0);
