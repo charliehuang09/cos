@@ -115,9 +115,11 @@ class GpuSegmentExtractor {
   GpuSegmentExtractor(GpuSegmentExtractor&&) noexcept;
   auto operator=(GpuSegmentExtractor&&) noexcept -> GpuSegmentExtractor&;
 
-  auto Extract(ImageView32 labels) -> std::vector<std::vector<Coord<int>>>;
+  auto Extract(ImageView32 labels, int min_boundary_count = 40)
+      -> std::vector<std::vector<Coord<int>>>;
   // labels is device memory; stride is measured in uint32_t elements.
-  auto ExtractDevice(const uint32_t* labels, int width, int height, int stride)
+  auto ExtractDevice(const uint32_t* labels, int width, int height, int stride,
+                     int min_boundary_count = 40)
       -> std::vector<std::vector<Coord<int>>>;
   // Retained device allocations, excluding CUDA runtime overhead.
   auto DeviceWorkspaceBytes() const -> size_t;
@@ -197,7 +199,8 @@ class GpuTagIdDecoder {
   void SetTargetCodes(apriltag_family_t* family,
                       const std::vector<int>& target_tag_ids);
   auto Decode(const std::vector<BitLocation>& bit_locations,
-              ImageView apriltag)
+              ImageView apriltag,
+              std::vector<int>* out_hammings = nullptr)
       -> std::pair<std::vector<int>, std::vector<int>>;
 
  private:
@@ -234,9 +237,14 @@ auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
                       ImageView& apriltag)
     -> std::vector<std::array<std::vector<WeightedPoint>, 4>>;
 
+auto GetRefinedPoints(const std::vector<Quad>& quads,
+                      ImageView& apriltag)
+    -> std::vector<std::array<std::vector<WeightedPoint>, 4>>;
+
 auto GetRefinedQuads(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
-        refined_points) -> std::vector<Quad>;
+        refined_points,
+    const std::vector<Quad>& fallback_quads = {}) -> std::vector<Quad>;
 
 void PopulateRefinedPointsApriltag(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&

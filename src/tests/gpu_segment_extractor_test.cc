@@ -11,6 +11,14 @@
 namespace {
 using Segments = std::vector<std::vector<apriltag::Coord<int>>>;
 
+TEST(ExtractorDeathTest, RejectsNonpositiveThresholds) {
+  apriltag::GpuSegmentExtractor extractor;
+  for (int threshold : {0, -1}) {
+    EXPECT_DEATH(extractor.Extract({nullptr, 0, 0, 0}, threshold), "min_boundary_count");
+    EXPECT_DEATH(extractor.ExtractDevice(nullptr, 0, 0, 0, threshold), "min_boundary_count");
+  }
+}
+
 void Canonicalize(Segments& segments) {
   std::sort(segments.begin(), segments.end(), [](const auto& a, const auto& b) {
     return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end(),

@@ -95,3 +95,7 @@ target_link_libraries(gpu_apriltag_benchmark PRIVATE
   timer
   ${OpenCV_LIBS}
 )
+
+add_executable(gpu_apriltag_concurrency_benchmark gpu_apriltag_concurrency_benchmark.cc)
+target_link_libraries(gpu_apriltag_concurrency_benchmark PRIVATE
+  gpu_apriltag_detector absl::log_initialize absl::flags_parse ${OpenCV_LIBS})

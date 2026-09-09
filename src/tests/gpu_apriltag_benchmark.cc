@@ -22,6 +22,7 @@ ABSL_FLAG(std::string, detections_output, "", "Optional per-image detection TSV"
 
 ABSL_FLAG(int, decimate, 1, "Integer image reduction factor; >1 compares against full resolution");
 ABSL_FLAG(int, iterations, 3, "Timed repetitions per image (after warmup)");
+ABSL_FLAG(bool, profile, false, "Report wall time by pipeline stage");
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -63,6 +64,7 @@ auto main(int argc, char** argv) -> int {
   int detected_tags_sum = 0;
   double total_time = 0;
   double baseline_time = 0;
+  apriltag::GPUApriltagDetector::Profile profile, profile_sum;
   size_t baseline_tags = 0, matched_ids = 0, same_count_images = 0;
   size_t same_ids_images = 0;
   for (size_t index = 0; index < images.size();
@@ -78,7 +80,7 @@ auto main(int argc, char** argv) -> int {
       CHECK_EQ(input_size.width % (4LL * factor), 0);
       CHECK_EQ(input_size.height % (4LL * factor), 0);
       detector = std::make_unique<apriltag::GPUApriltagDetector>(
-          input_size.width / factor, input_size.height / factor, target_ids);
+          input_size.width, input_size.height, target_ids, factor);
       if (factor > 1) baseline = std::make_unique<apriltag::GPUApriltagDetector>(
           input_size.width, input_size.height, target_ids);
     }
@@ -88,17 +90,10 @@ auto main(int argc, char** argv) -> int {
           .stride = static_cast<int>(image.step),
           .height = image.rows, .width = image.cols};
     };
-    cv::Mat reduced;
     std::vector<apriltag::ApriltagDetection> detections, original;
     auto run_reduced = [&] {
-      if (factor > 1) {
-        cv::resize(apriltag, reduced,
-            cv::Size(input_size.width / factor, input_size.height / factor),
-            0, 0, cv::INTER_AREA);
-      } else {
-        reduced = apriltag;
-      }
-      detections = detector->Detect(view(reduced));
+      detections = detector->Detect(view(apriltag), false,
+          absl::GetFlag(FLAGS_profile) ? &profile : nullptr);
     };
     auto run_original = [&] { original = baseline->Detect(view(apriltag)); };
     // Warm each image before timing; exclude image loading and detector setup.
@@ -109,6 +104,11 @@ auto main(int argc, char** argv) -> int {
       auto time_reduced = [&] {
         control_loop::Timer timer;
         run_reduced();
+        profile_sum.extract_ms += profile.extract_ms;
+        profile_sum.sort_ms += profile.sort_ms;
+        profile_sum.quads_ms += profile.quads_ms;
+        profile_sum.decode_ms += profile.decode_ms;
+        profile_sum.refine_ms += profile.refine_ms;
         reduced_seconds += timer.Stop().count();
       };
       auto time_original = [&] {
@@ -143,13 +143,6 @@ auto main(int argc, char** argv) -> int {
       matched_ids += common.size();
       same_ids_images += original_ids == reduced_ids;
     }
-    // Return exported coordinates to the original image's pixel-center space.
-    for (auto& detection : detections) {
-      for (auto& point : detection.quad.corners) {
-        point.row = (point.row + 0.5f) * factor - 0.5f;
-        point.col = (point.col + 0.5f) * factor - 0.5f;
-      }
-    }
     if (output.is_open()) {
       std::sort(detections.begin(), detections.end(), [](const auto& a, const auto& b) {
         if (a.id != b.id) return a.id < b.id;
@@ -179,6 +172,14 @@ auto main(int argc, char** argv) -> int {
   LOG(INFO) << "Processed images: " << valid_images;
   LOG(INFO) << "Detected tags sum: " << detected_tags_sum;
   LOG(INFO) << "Decimation factor: " << factor;
+  if (absl::GetFlag(FLAGS_profile)) {
+    const double runs = double(valid_images) * iterations;
+    LOG(INFO) << "Stage ms: extract=" << profile_sum.extract_ms / runs
+              << " sort=" << profile_sum.sort_ms / runs
+              << " quads=" << profile_sum.quads_ms / runs
+              << " decode=" << profile_sum.decode_ms / runs
+              << " refine=" << profile_sum.refine_ms / runs;
+  }
   LOG(INFO) << "Average time (ms, including resize): " << 1000 * total_time / valid_images;
   if (baseline) {
     LOG(INFO) << "Full-resolution tags: " << baseline_tags;

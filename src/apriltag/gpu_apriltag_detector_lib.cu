@@ -396,7 +396,8 @@ struct ValidBoundary {
 };
 
 struct RetainedBoundaryCount {
-  __host__ __device__ bool operator()(int count) const { return count >= 40; }
+  int min_count = 40;
+  __host__ __device__ bool operator()(int count) const { return count >= min_count; }
 };
 
 __global__ void GatherBoundaryKeys(const uint64_t* keys, const int* edges,
@@ -406,10 +407,10 @@ __global__ void GatherBoundaryKeys(const uint64_t* keys, const int* edges,
 }
 
 __global__ void MarkRetainedBoundaries(const int* offsets, const int* counts,
-                                       uint8_t* flags) {
+                                       uint8_t* flags, int min_count) {
   const int run = blockIdx.x;
   for (int i = threadIdx.x; i < counts[run]; i += blockDim.x) {
-    flags[offsets[run] + i] = counts[run] >= 40;
+    flags[offsets[run] + i] = counts[run] >= min_count;
   }
 }
 
@@ -438,8 +439,10 @@ struct GpuSegmentExtractor::Impl {
     return count;
   }
 
-  auto Extract(const uint32_t* input, int width, int height, int stride)
+  auto Extract(const uint32_t* input, int width, int height, int stride,
+               int min_boundary_count = 40)
       -> std::vector<std::vector<Coord<int>>> {
+    CHECK_GT(min_boundary_count, 0);
     CHECK_GE(width, 0);
     CHECK_GE(height, 0);
     CHECK_GE(stride, width);
@@ -461,7 +464,7 @@ struct GpuSegmentExtractor::Impl {
           n, ValidBoundary{keys.data});
     });
     const int valid = ReadCount();
-    if (valid < 40) return {};
+    if (valid < min_boundary_count) return {};
     compact_keys.Reserve(valid);
     sorted_keys.Reserve(valid);
     sorted_edges.Reserve(valid);
@@ -488,7 +491,7 @@ struct GpuSegmentExtractor::Impl {
       return cub::DeviceScan::ExclusiveSum(temp, bytes, counts.data,
                                             offsets.data, runs);
     });
-    MarkRetainedBoundaries<<<runs, 256>>>(offsets.data, counts.data, flags.data);
+    MarkRetainedBoundaries<<<runs, 256>>>(offsets.data, counts.data, flags.data, min_boundary_count);
     CUDA_CHECK(cudaGetLastError());
     Run([&](void* temp, size_t& bytes) {
       return cub::DeviceSelect::Flagged(temp, bytes, sorted_edges.data,
@@ -498,7 +501,7 @@ struct GpuSegmentExtractor::Impl {
     if (retained == 0) return {};
     Run([&](void* temp, size_t& bytes) {
       return cub::DeviceSelect::If(temp, bytes, counts.data,
-          retained_counts.data, result_count.data, runs, RetainedBoundaryCount{});
+          retained_counts.data, result_count.data, runs, RetainedBoundaryCount{min_boundary_count});
     });
     const int segments_count = ReadCount();
     host_edges.resize(retained);
@@ -531,9 +534,10 @@ auto GpuSegmentExtractor::operator=(GpuSegmentExtractor&&) noexcept
     -> GpuSegmentExtractor& = default;
 
 auto GpuSegmentExtractor::ExtractDevice(const uint32_t* labels, int width,
-                                        int height, int stride)
+                                        int height, int stride,
+                                        int min_boundary_count)
     -> std::vector<std::vector<Coord<int>>> {
-  return impl_->Extract(labels, width, height, stride);
+  return impl_->Extract(labels, width, height, stride, min_boundary_count);
 }
 
 auto GpuSegmentExtractor::DeviceWorkspaceBytes() const -> size_t {
@@ -547,8 +551,9 @@ auto GpuSegmentExtractor::DeviceWorkspaceBytes() const -> size_t {
       impl_->flags.capacity + impl_->scratch.capacity;
 }
 
-auto GpuSegmentExtractor::Extract(ImageView32 labels)
+auto GpuSegmentExtractor::Extract(ImageView32 labels, int min_boundary_count)
     -> std::vector<std::vector<Coord<int>>> {
+  CHECK_GT(min_boundary_count, 0);
   CHECK_GE(labels.width, 0);
   CHECK_GE(labels.height, 0);
   CHECK_GE(labels.stride, labels.width);
@@ -560,7 +565,7 @@ auto GpuSegmentExtractor::Extract(ImageView32 labels)
   CUDA_CHECK(cudaMemcpy2D(impl_->labels.data, size_t(labels.width) * sizeof(uint32_t),
       labels.data, size_t(labels.stride) * sizeof(uint32_t),
       size_t(labels.width) * sizeof(uint32_t), labels.height, cudaMemcpyHostToDevice));
-  return ExtractDevice(impl_->labels.data, labels.width, labels.height, labels.width);
+  return ExtractDevice(impl_->labels.data, labels.width, labels.height, labels.width, min_boundary_count);
 }
 
 auto GetSegments(ImageView32 labels) -> std::vector<std::vector<Coord<int>>> {
@@ -578,7 +583,7 @@ struct SegmentSortInfo {
 __global__ void ComputeSortKeysKernel(const Coord<int>* points,
                                       const SegmentSortInfo* segments_info,
                                       double* keys,
-                                      int num_segments) {
+                                      int num_segments, bool packed) {
   const int seg_idx = blockIdx.x;
   if (seg_idx >= num_segments) {
     return;
@@ -592,8 +597,22 @@ __global__ void ComputeSortKeysKernel(const Coord<int>* points,
 
   for (int i = threadIdx.x; i < count; i += blockDim.x) {
     const Coord<int> pt = points[offset + i];
-    keys[offset + i] = -atan2(static_cast<double>(pt.row) - m_row,
-                              static_cast<double>(pt.col) - m_col);
+    const double y = static_cast<double>(pt.row) - m_row;
+    const double x = static_cast<double>(pt.col) - m_col;
+    // A monotonic angular key has the same ordering as -atan2(y, x),
+    // without the expensive double-precision transcendental on Jetson.
+    const double norm = fabs(x) + fabs(y);
+    double angle = norm == 0.0 ? 0.0 : y / norm;
+    if (x < 0.0) angle = y >= 0.0 ? 2.0 - angle : -2.0 - angle;
+    if (packed) {
+      // For coordinate spans <= 8191, distinct rays differ by at least
+      // 1/(16382^2), larger than this key's 2^-30 angular resolution.
+      // Thus packing preserves angular order, including collinear ties.
+      reinterpret_cast<uint64_t*>(keys)[offset + i] =
+          (uint64_t(seg_idx) << 32) | uint64_t((2.0 - angle) * 1073741824.0);
+    } else {
+      keys[offset + i] = -angle;
+    }
   }
 }
 
@@ -614,6 +633,8 @@ struct GpuSegmentSorter::Impl {
   std::vector<Coord<int>> h_points_out;
   std::vector<int> h_offsets;
   std::vector<SegmentSortInfo> h_segments_info;
+  std::vector<uint32_t> coordinate_stamps;
+  uint32_t stamp = 0;
 
   Impl(size_t initial_points = 65536, size_t initial_segments = 2048) {
     Allocate(initial_points, initial_segments);
@@ -690,6 +711,7 @@ struct GpuSegmentSorter::Impl {
       return;
     }
 
+    CHECK_LE(total_points, static_cast<size_t>(std::numeric_limits<int>::max()));
     const int num_segments = static_cast<int>(non_empty_indices.size());
     EnsureCapacity(total_points, num_segments);
 
@@ -698,6 +720,10 @@ struct GpuSegmentSorter::Impl {
     h_segments_info.resize(num_segments);
 
     int current_offset = 0;
+    int min_row = std::numeric_limits<int>::max();
+    int max_row = std::numeric_limits<int>::min();
+    int min_col = std::numeric_limits<int>::max();
+    int max_col = std::numeric_limits<int>::min();
     for (int seg_idx = 0; seg_idx < num_segments; ++seg_idx) {
       const auto& seg = segments[non_empty_indices[seg_idx]];
       const int seg_size = static_cast<int>(seg.size());
@@ -709,6 +735,10 @@ struct GpuSegmentSorter::Impl {
         h_points_in[current_offset + i] = seg[i];
         sum_row += seg[i].row;
         sum_col += seg[i].col;
+        min_row = std::min(min_row, seg[i].row);
+        max_row = std::max(max_row, seg[i].row);
+        min_col = std::min(min_col, seg[i].col);
+        max_col = std::max(max_col, seg[i].col);
       }
 
       h_segments_info[seg_idx] = SegmentSortInfo{
@@ -732,18 +762,29 @@ struct GpuSegmentSorter::Impl {
                           num_segments * sizeof(SegmentSortInfo),
                           cudaMemcpyHostToDevice));
 
+    const bool packed = int64_t(max_row) - min_row <= 8191 &&
+                         int64_t(max_col) - min_col <= 8191;
     constexpr int block_dim = 128;
     ComputeSortKeysKernel<<<num_segments, block_dim>>>(
-        d_points_in, d_segments_info, d_keys_in, num_segments);
+        d_points_in, d_segments_info, d_keys_in, num_segments, packed);
     CUDA_CHECK(cudaGetLastError());
 
+    int end_bit = 32;
+    for (unsigned int s = num_segments - 1; s; s >>= 1) ++end_bit;
+    auto sort_pairs = [&](void* temp, size_t& bytes) {
+      if (packed) {
+        return cub::DeviceRadixSort::SortPairs(temp, bytes,
+            reinterpret_cast<uint64_t*>(d_keys_in),
+            reinterpret_cast<uint64_t*>(d_keys_out), d_points_in, d_points_out,
+            total_points, 0, end_bit);
+      }
+      return cub::DeviceSegmentedSort::SortPairs(temp, bytes,
+          d_keys_in, d_keys_out, d_points_in, d_points_out,
+          static_cast<int64_t>(total_points), static_cast<int64_t>(num_segments),
+          d_offsets, d_offsets + 1);
+    };
     size_t required_temp_bytes = temp_storage_bytes;
-    CUDA_CHECK(cub::DeviceSegmentedSort::SortPairs(
-        nullptr, required_temp_bytes,
-        d_keys_in, d_keys_out,
-        d_points_in, d_points_out,
-        static_cast<int64_t>(total_points), static_cast<int64_t>(num_segments),
-        d_offsets, d_offsets + 1));
+    CUDA_CHECK(sort_pairs(nullptr, required_temp_bytes));
 
     if (required_temp_bytes > temp_storage_bytes) {
       if (d_temp_storage) {
@@ -753,12 +794,7 @@ struct GpuSegmentSorter::Impl {
       CUDA_CHECK(cudaMalloc(&d_temp_storage, temp_storage_bytes));
     }
 
-    CUDA_CHECK(cub::DeviceSegmentedSort::SortPairs(
-        d_temp_storage, temp_storage_bytes,
-        d_keys_in, d_keys_out,
-        d_points_in, d_points_out,
-        static_cast<int64_t>(total_points), static_cast<int64_t>(num_segments),
-        d_offsets, d_offsets + 1));
+    CUDA_CHECK(sort_pairs(d_temp_storage, temp_storage_bytes));
     CUDA_CHECK(cudaGetLastError());
 
     h_points_out.resize(total_points);
@@ -766,6 +802,21 @@ struct GpuSegmentSorter::Impl {
                           total_points * sizeof(Coord<int>),
                           cudaMemcpyDeviceToHost));
 
+    const uint64_t rows = int64_t(max_row) - min_row + 1;
+    const uint64_t cols = int64_t(max_col) - min_col + 1;
+    // Image coordinates permit direct indexing. Bound the workspace for the
+    // public sorter, which also accepts sparse or negative coordinates.
+    const uint64_t max_cells = std::min<uint64_t>(16 * 1024 * 1024,
+        std::max<uint64_t>(65536, total_points * 8));
+    const bool dense = rows <= max_cells / cols;
+    if (dense) {
+      const size_t cells = rows * cols;
+      if (coordinate_stamps.size() < cells) coordinate_stamps.resize(cells, 0);
+      if (uint32_t(num_segments) > std::numeric_limits<uint32_t>::max() - stamp) {
+        std::fill(coordinate_stamps.begin(), coordinate_stamps.end(), 0);
+        stamp = 0;
+      }
+    }
     for (int seg_idx = 0; seg_idx < num_segments; ++seg_idx) {
       auto& seg = segments[non_empty_indices[seg_idx]];
       const int start_idx = h_offsets[seg_idx];
@@ -774,12 +825,27 @@ struct GpuSegmentSorter::Impl {
       auto* end_ptr = h_points_out.data() + end_idx;
 
       // Equal angular keys need not group identical coordinates together.
-      absl::flat_hash_set<Coord<int>> seen;
-      seen.reserve(end_idx - start_idx);
-      seg.clear();
-      for (auto* point = start_ptr; point != end_ptr; ++point) {
-        if (seen.insert(*point).second) seg.push_back(*point);
+      size_t unique = 0;
+      if (dense) {
+        ++stamp;
+        for (auto* point = start_ptr; point != end_ptr; ++point) {
+          const size_t cell = uint64_t(int64_t(point->row) - min_row) * cols +
+                              uint64_t(int64_t(point->col) - min_col);
+          if (coordinate_stamps[cell] != stamp) {
+            coordinate_stamps[cell] = stamp;
+            seg[unique++] = *point;
+          }
+        }
+      } else {
+        absl::flat_hash_set<uint64_t> seen;
+        seen.reserve(end_idx - start_idx);
+        for (auto* point = start_ptr; point != end_ptr; ++point) {
+          const uint64_t key = (uint64_t(uint32_t(point->row)) << 32) |
+                                uint32_t(point->col);
+          if (seen.insert(key).second) seg[unique++] = *point;
+        }
       }
+      seg.resize(unique);
     }
   }
 };
@@ -802,10 +868,11 @@ void SortSegmentsGPU(std::vector<std::vector<Coord<int>>>& segments) {
 __device__ inline float DeviceGetBlackWhiteThreshold(
     const uint8_t* __restrict__ image, int stride, int width, int height,
     const BitLocation& bit_location) {
-  float white = 0.0f;
+  const int lane = threadIdx.x & 31;
+  int white_sum = 0;
   int white_count = 0;
 
-  for (int i = 0; i < 10; i++) {
+  for (int i = lane; i < 10; i += 32) {
     const Coord<int> pts[4] = {
         bit_location[0][i], bit_location[9][i],
         bit_location[i][0], bit_location[i][9]};
@@ -813,16 +880,18 @@ __device__ inline float DeviceGetBlackWhiteThreshold(
       const int r = pts[k].row;
       const int c = pts[k].col;
       if (r >= 0 && r < height && c >= 0 && c < width) {
-        white += static_cast<float>(image[r * stride + c]);
+        white_sum += image[r * stride + c];
         white_count++;
       }
     }
   }
-  white = (white_count > 0) ? (white / static_cast<float>(white_count)) : 255.0f;
+  white_sum = __reduce_add_sync(0xffffffff, white_sum);
+  white_count = __reduce_add_sync(0xffffffff, white_count);
+  const float white = white_count > 0 ? float(white_sum) / white_count : 255.0f;
 
-  float black = 0.0f;
+  int black_sum = 0;
   int black_count = 0;
-  for (int i = 1; i < 9; i++) {
+  for (int i = lane + 1; i < 9; i += 32) {
     const Coord<int> pts[4] = {
         bit_location[1][i], bit_location[8][i],
         bit_location[i][1], bit_location[i][8]};
@@ -830,12 +899,14 @@ __device__ inline float DeviceGetBlackWhiteThreshold(
       const int r = pts[k].row;
       const int c = pts[k].col;
       if (r >= 0 && r < height && c >= 0 && c < width) {
-        black += static_cast<float>(image[r * stride + c]);
+        black_sum += image[r * stride + c];
         black_count++;
       }
     }
   }
-  black = (black_count > 0) ? (black / static_cast<float>(black_count)) : 0.0f;
+  black_sum = __reduce_add_sync(0xffffffff, black_sum);
+  black_count = __reduce_add_sync(0xffffffff, black_count);
+  const float black = black_count > 0 ? float(black_sum) / black_count : 0.0f;
 
   return (white + black) * 0.5f;
 }
@@ -846,19 +917,23 @@ __device__ inline uint64_t DeviceExtractCodeword(
     const uint32_t* __restrict__ bit_x,
     const uint32_t* __restrict__ bit_y,
     uint32_t nbits,
-    float thresh) {
+    float thresh,
+    int dr = 0, int dc = 0) {
   uint64_t code = 0;
-  for (uint32_t j = 0; j < nbits; j++) {
-    const uint32_t x = bit_x[j];
-    const uint32_t y = bit_y[j];
-    code <<= 1;
-    const int r = bit_location[y + 1][x + 1].row;
-    const int c = bit_location[y + 1][x + 1].col;
-    if (r >= 0 && r < height && c >= 0 && c < width) {
-      if (static_cast<float>(image[r * stride + c]) > thresh) {
-        code |= 1ULL;
-      }
+  for (uint32_t first = 0; first < nbits; first += 32) {
+    const uint32_t j = first + (threadIdx.x & 31);
+    bool set = false;
+    if (j < nbits) {
+      const uint32_t x = bit_x[j];
+      const uint32_t y = bit_y[j];
+      const int r = bit_location[y + 1][x + 1].row + dr;
+      const int c = bit_location[y + 1][x + 1].col + dc;
+      set = r >= 0 && r < height && c >= 0 && c < width &&
+            static_cast<float>(image[r * stride + c]) > thresh;
     }
+    const uint32_t bits = __ballot_sync(0xffffffff, set);
+    const uint32_t count = min(32u, nbits - first);
+    code = (code << count) | (__brev(bits) >> (32 - count));
   }
   return code;
 }
@@ -874,23 +949,29 @@ __device__ inline bool DeviceMatchCodeword(
   constexpr int nbits = 36;
   constexpr int shift = 9;
   constexpr uint64_t mask = (1ULL << nbits) - 1;
-
+  // A warp cooperates on one quad. Include the original scan position in
+  // the reduction so equal Hamming distances retain the same ID/rotation.
+  const int lane = threadIdx.x & 31;
+  uint64_t match = UINT64_MAX;
   for (int j = 0; j < 4; j++) {
-    for (int k = 0; k < num_codes; k++) {
+    for (uint32_t k = lane; k < static_cast<uint32_t>(num_codes); k += 32) {
       const int hamming = __popcll(code ^ target_codes[k]);
-      if (hamming < best_hamming) {
-        best_hamming = hamming;
-        best_id = target_ids[k];
-        best_rotation = j;
-        if (hamming == 0) {
-          return true;
-        }
-      }
-    }
-    if (best_hamming == 0) {
-      return true;
+      const uint64_t candidate = (uint64_t(hamming) << 34) |
+                                  (uint64_t(j) * num_codes + k);
+      match = min(match, candidate);
     }
     code = ((code << shift) | (code >> (nbits - shift))) & mask;
+  }
+  for (int offset = 16; offset; offset >>= 1) {
+    match = min(match, __shfl_down_sync(0xffffffff, match, offset));
+  }
+  match = __shfl_sync(0xffffffff, match, 0);
+  const int hamming = int(match >> 34);
+  if (num_codes > 0 && hamming < best_hamming) {
+    best_hamming = hamming;
+    const uint64_t position = match & ((1ULL << 34) - 1);
+    best_id = target_ids[position % num_codes];
+    best_rotation = position / num_codes;
   }
   return best_hamming <= 2;
 }
@@ -907,17 +988,21 @@ __global__ void DecodeTagIdsKernel(
     const int* __restrict__ target_ids,
     int num_target_codes,
     int* __restrict__ out_tag_ids,
-    int* __restrict__ out_rotations) {
-  const int quad_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int* __restrict__ out_rotations,
+    int* __restrict__ out_hammings) {
+  const size_t quad_idx = (size_t(blockIdx.x) * blockDim.x + threadIdx.x) / 32;
   if (quad_idx >= num_quads) {
     return;
   }
 
-  const BitLocation bit_loc = bit_locations[quad_idx];
+  const BitLocation& bit_loc = bit_locations[quad_idx];
   if (bit_loc[0][0].row == 0 && bit_loc[0][0].col == 0 &&
       bit_loc[9][9].row == 0 && bit_loc[9][9].col == 0) {
-    out_tag_ids[quad_idx] = -1;
-    out_rotations[quad_idx] = -1;
+    if ((threadIdx.x & 31) == 0) {
+      out_tag_ids[quad_idx] = -1;
+      out_rotations[quad_idx] = -1;
+      if (out_hammings != nullptr) out_hammings[quad_idx] = 36;
+    }
     return;
   }
 
@@ -926,7 +1011,7 @@ __global__ void DecodeTagIdsKernel(
 
   int best_id = -1;
   int best_rotation = -1;
-  int best_hamming = 3;
+  int best_hamming = 36;
 
   // Pass 1: base threshold
   uint64_t code = DeviceExtractCodeword(
@@ -935,7 +1020,7 @@ __global__ void DecodeTagIdsKernel(
                       best_id, best_rotation, best_hamming);
 
   // Passes 2-5: retry with deltas {-8, +8, -16, +16} if not decoded
-  if (best_id == -1) {
+  if (best_hamming > 2) {
     const float deltas[4] = {-8.0f, 8.0f, -16.0f, 16.0f};
     #pragma unroll
     for (int d = 0; d < 4; d++) {
@@ -943,14 +1028,55 @@ __global__ void DecodeTagIdsKernel(
                                    bit_y, nbits, threshold + deltas[d]);
       DeviceMatchCodeword(code, num_target_codes, target_codes, target_ids,
                           best_id, best_rotation, best_hamming);
-      if (best_id != -1) {
+      if (best_hamming <= 2) {
         break;
       }
     }
   }
 
-  out_tag_ids[quad_idx] = best_id;
-  out_rotations[quad_idx] = best_rotation;
+  // Pass 6: retry with spatial offsets if not decoded
+  if (best_hamming > 2) {
+    const int kOffsets[8][2] = {
+        {0, 1}, {0, -1}, {1, 0}, {-1, 0},
+        {1, 1}, {-1, -1}, {1, -1}, {-1, 1}};
+    #pragma unroll
+    for (int o = 0; o < 8; o++) {
+      const int dr = kOffsets[o][0];
+      const int dc = kOffsets[o][1];
+      code = DeviceExtractCodeword(image, stride, width, height, bit_loc, bit_x,
+                                   bit_y, nbits, threshold, dr, dc);
+      DeviceMatchCodeword(code, num_target_codes, target_codes, target_ids,
+                          best_id, best_rotation, best_hamming);
+      if (best_hamming <= 2) {
+        break;
+      }
+      const float deltas[2] = {-8.0f, 8.0f};
+      #pragma unroll
+      for (int d = 0; d < 2; d++) {
+        code = DeviceExtractCodeword(image, stride, width, height, bit_loc, bit_x,
+                                     bit_y, nbits, threshold + deltas[d], dr, dc);
+        DeviceMatchCodeword(code, num_target_codes, target_codes, target_ids,
+                            best_id, best_rotation, best_hamming);
+        if (best_hamming <= 2) {
+          break;
+        }
+      }
+      if (best_hamming <= 2) {
+        break;
+      }
+    }
+  }
+
+  if (best_hamming > 2) {
+    best_id = -1;
+    best_rotation = -1;
+  }
+
+  if ((threadIdx.x & 31) == 0) {
+    out_tag_ids[quad_idx] = best_id;
+    out_rotations[quad_idx] = best_rotation;
+    if (out_hammings != nullptr) out_hammings[quad_idx] = best_hamming;
+  }
 }
 
 struct GpuTagIdDecoder::Impl {
@@ -959,6 +1085,7 @@ struct GpuTagIdDecoder::Impl {
   BitLocation* d_bit_locations = nullptr;
   int* d_out_tag_ids = nullptr;
   int* d_out_rotations = nullptr;
+  int* d_out_hammings = nullptr;
 
   uint32_t* d_bit_x = nullptr;
   uint32_t* d_bit_y = nullptr;
@@ -985,6 +1112,7 @@ struct GpuTagIdDecoder::Impl {
     CUDA_CHECK(cudaMalloc(&d_bit_locations, quads * sizeof(BitLocation)));
     CUDA_CHECK(cudaMalloc(&d_out_tag_ids, quads * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_out_rotations, quads * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_out_hammings, quads * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_bit_x, 64 * sizeof(uint32_t)));
     CUDA_CHECK(cudaMalloc(&d_bit_y, 64 * sizeof(uint32_t)));
   }
@@ -993,6 +1121,7 @@ struct GpuTagIdDecoder::Impl {
     if (d_bit_locations) cudaFree(d_bit_locations);
     if (d_out_tag_ids) cudaFree(d_out_tag_ids);
     if (d_out_rotations) cudaFree(d_out_rotations);
+    if (d_out_hammings) cudaFree(d_out_hammings);
     if (d_bit_x) cudaFree(d_bit_x);
     if (d_bit_y) cudaFree(d_bit_y);
     if (d_target_codes) cudaFree(d_target_codes);
@@ -1000,6 +1129,7 @@ struct GpuTagIdDecoder::Impl {
     d_bit_locations = nullptr;
     d_out_tag_ids = nullptr;
     d_out_rotations = nullptr;
+    d_out_hammings = nullptr;
     d_bit_x = nullptr;
     d_bit_y = nullptr;
     d_target_codes = nullptr;
@@ -1013,10 +1143,12 @@ struct GpuTagIdDecoder::Impl {
       if (d_bit_locations) cudaFree(d_bit_locations);
       if (d_out_tag_ids) cudaFree(d_out_tag_ids);
       if (d_out_rotations) cudaFree(d_out_rotations);
+      if (d_out_hammings) cudaFree(d_out_hammings);
       capacity_quads = std::max(quads, capacity_quads * 2);
       CUDA_CHECK(cudaMalloc(&d_bit_locations, capacity_quads * sizeof(BitLocation)));
       CUDA_CHECK(cudaMalloc(&d_out_tag_ids, capacity_quads * sizeof(int)));
       CUDA_CHECK(cudaMalloc(&d_out_rotations, capacity_quads * sizeof(int)));
+      CUDA_CHECK(cudaMalloc(&d_out_hammings, capacity_quads * sizeof(int)));
     }
   }
 
@@ -1071,10 +1203,13 @@ struct GpuTagIdDecoder::Impl {
   }
 
   auto Decode(const std::vector<BitLocation>& bit_locations,
-              ImageView apriltag)
+              ImageView apriltag,
+              std::vector<int>* out_hammings = nullptr)
       -> std::pair<std::vector<int>, std::vector<int>> {
+    CHECK_LE(bit_locations.size(), static_cast<size_t>(std::numeric_limits<int>::max()));
     const int num_quads = static_cast<int>(bit_locations.size());
     if (num_quads == 0) {
+      if (out_hammings) out_hammings->clear();
       return {{}, {}};
     }
 
@@ -1085,14 +1220,15 @@ struct GpuTagIdDecoder::Impl {
                           num_quads * sizeof(BitLocation),
                           cudaMemcpyHostToDevice));
 
-    constexpr int block_size = 64;
-    const int grid_size = (num_quads + block_size - 1) / block_size;
+    constexpr int block_size = 128;
+    const int grid_size = (num_quads - 1) / (block_size / 32) + 1;
     DecodeTagIdsKernel<<<grid_size, block_size>>>(
         d_bit_locations, num_quads,
         apriltag.data_gpu, apriltag.stride, apriltag.width, apriltag.height,
         d_bit_x, d_bit_y, nbits,
         d_target_codes, d_target_ids, num_target_codes,
-        d_out_tag_ids, d_out_rotations);
+        d_out_tag_ids, d_out_rotations,
+        out_hammings ? d_out_hammings : nullptr);
     CUDA_CHECK(cudaGetLastError());
 
     h_out_tag_ids.resize(num_quads);
@@ -1101,6 +1237,11 @@ struct GpuTagIdDecoder::Impl {
                           num_quads * sizeof(int), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(h_out_rotations.data(), d_out_rotations,
                           num_quads * sizeof(int), cudaMemcpyDeviceToHost));
+    if (out_hammings != nullptr) {
+      out_hammings->resize(num_quads);
+      CUDA_CHECK(cudaMemcpy(out_hammings->data(), d_out_hammings,
+                            num_quads * sizeof(int), cudaMemcpyDeviceToHost));
+    }
 
     return {h_out_tag_ids, h_out_rotations};
   }
@@ -1118,9 +1259,10 @@ void GpuTagIdDecoder::SetTargetCodes(
 }
 
 auto GpuTagIdDecoder::Decode(const std::vector<BitLocation>& bit_locations,
-                             ImageView apriltag)
+                             ImageView apriltag,
+                             std::vector<int>* out_hammings)
     -> std::pair<std::vector<int>, std::vector<int>> {
-  return impl_->Decode(bit_locations, apriltag);
+  return impl_->Decode(bit_locations, apriltag, out_hammings);
 }
 
 auto GetTagIdsGPU(const std::vector<BitLocation>& bit_locations,

@@ -29,32 +29,15 @@ auto main(int argc, char** argv) -> int {
   CHECK_GE(factor, 1);
   CHECK_EQ(apriltag.cols % (4LL * factor), 0);
   CHECK_EQ(apriltag.rows % (4LL * factor), 0);
-  const int width = apriltag.cols / factor;
-  const int height = apriltag.rows / factor;
+  const int width = apriltag.cols;
+  const int height = apriltag.rows;
 
-  auto detector = apriltag::GPUApriltagDetector(width, height);
-  cv::Mat reduced;
+  auto detector = apriltag::GPUApriltagDetector(width, height, {}, factor);
+  apriltag::ImageView view{
+      .data = apriltag.data, .stride = static_cast<int>(apriltag.step),
+      .height = height, .width = width};
   auto detect = [&](bool debug = false) {
-    if (factor > 1) {
-      cv::resize(apriltag, reduced, cv::Size(width, height),
-                 0, 0, cv::INTER_AREA);
-    } else {
-      reduced = apriltag;
-    }
-    apriltag::ImageView view{
-        .data = reduced.data, .stride = static_cast<int>(reduced.step),
-        .height = height, .width = width};
-    auto detections = detector.Detect(view, debug);
-    // Draw detections in the original image's pixel-center coordinates.
-    if (factor > 1) {
-      for (auto& detection : detections) {
-        for (auto& point : detection.quad.corners) {
-          point.row = (point.row + 0.5f) * factor - 0.5f;
-          point.col = (point.col + 0.5f) * factor - 0.5f;
-        }
-      }
-    }
-    return detections;
+    return detector.Detect(view, debug);
   };
   auto detections = detect(true);
   LOG(INFO) << "Decimation factor: " << factor << "; detector image: "

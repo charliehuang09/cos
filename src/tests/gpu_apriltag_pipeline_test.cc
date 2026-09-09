@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <limits>
 #include <random>
 #include <future>
 #include <memory>
@@ -14,6 +16,17 @@
 #include "apriltag/gpu_apriltag_detector.h"
 
 namespace {
+TEST(DetectorDeathTest, RejectsInvalidDimensionsBeforeInitializingCuda) {
+  for (int factor : {0, -1, std::numeric_limits<int>::max()}) {
+    EXPECT_DEATH({ apriltag::GPUApriltagDetector detector(128, 80, {}, factor); },
+                 "Check failed");
+  }
+  EXPECT_DEATH({ apriltag::GPUApriltagDetector detector(0, 80); }, "width");
+  EXPECT_DEATH({ apriltag::GPUApriltagDetector detector(128, -80); }, "height");
+  EXPECT_DEATH({ apriltag::GPUApriltagDetector detector(128, 80, {}, 3); },
+               "Check failed");
+}
+
 class PipelineTest : public testing::Test {
  protected:
   void SetUp() override {
@@ -109,6 +122,57 @@ TEST(GeometryTest, FourPointWindowWrapsAtSegmentEnd) {
              (std::vector<std::vector<float>>{{1, 1, 1, 1}}));
 }
 
+TEST_F(PipelineTest, DecimationMatchesBoxAverageWithPaddedAndMappedInputs) {
+  constexpr int width = 96, height = 96, stride = 101;
+  MappedImage image;
+  image.Allocate(width, height, stride);
+  std::mt19937 random(121);
+  for (int i = 0; i < stride * height; ++i) image.view.data[i] = random() % 256;
+  for (int factor : {2, 3, 4}) {
+    const int w = width / factor, h = height / factor;
+    std::vector<uint8_t> pixels(w * h);
+    for (int row = 0; row < h; ++row) {
+      for (int col = 0; col < w; ++col) {
+        uint64_t sum = 0;
+        for (int dr = 0; dr < factor; ++dr) {
+          for (int dc = 0; dc < factor; ++dc) {
+            sum += image.view(row * factor + dr, col * factor + dc);
+          }
+        }
+        pixels[row * w + col] = (sum + factor * factor / 2) / (factor * factor);
+      }
+    }
+    apriltag::GPUApriltagDetector reference(w, h), detector(width, height, {}, factor);
+    reference.Detect({.data = pixels.data(), .stride = w, .height = h, .width = w});
+    const auto expected = reference.GetSegmentedApriltagView();
+    for (bool mapped : {false, true}) {
+      auto input = image.view;
+      if (!mapped) input.data_gpu = nullptr;
+      detector.Detect(input, true);
+      const auto actual = detector.GetSegmentedApriltagView();
+      EXPECT_EQ(std::vector<uint32_t>(actual.data, actual.data + w * h),
+                std::vector<uint32_t>(expected.data, expected.data + w * h));
+    }
+  }
+}
+
+TEST(GeometryTest, DegenerateRefinementReturnsWholeFallback) {
+  const apriltag::Quad fallback{{{{10, 10}, {10, 20}, {20, 20}, {20, 10}}}};
+  std::vector<std::array<std::vector<apriltag::WeightedPoint>, 4>> points(1);
+  auto check = [&] {
+    EXPECT_EQ(apriltag::GetRefinedQuads(points, {fallback})[0].corners, fallback.corners);
+    EXPECT_EQ(apriltag::GetRefinedQuads(points)[0].corners, apriltag::Quad{}.corners);
+  };
+  check();
+  points[0][0] = {{{10, 10}, 1}, {{10, 20}, 1}};
+  points[0][1] = {{{10, 20}, 1}, {{20, 20}, 1}};
+  points[0][2] = {{{10, 30}, 1}, {{20, 30}, 1}};
+  points[0][3] = {{{20, 10}, 1}, {{20, 20}, 1}};
+  check();  // The second intersection is parallel after a valid first corner.
+  points[0][0][0].weight = std::numeric_limits<float>::quiet_NaN();
+  check();
+}
+
 TEST(GeometryTest, ParallelMatchesSequentialIncludingConcurrentCalls) {
   for (int count : {0, 1, 63, 64, 200}) {
     std::vector<std::vector<apriltag::Coord<int>>> segments(count);
@@ -171,6 +235,43 @@ TEST_F(PipelineTest, GpuRemovesNonAdjacentDuplicateCoordinates) {
   CheckBoundaryDeduplication(true);
 }
 
+TEST_F(PipelineTest, GpuSortPreservesAngularOrder) {
+  std::mt19937 random(301);
+  apriltag::GpuSegmentSorter sorter;
+  for (int limit : {4095, 10000, 100, 4095}) {
+    std::vector<std::vector<apriltag::Coord<int>>> segments(25);
+    for (auto& segment : segments) {
+      // Symmetric pairs give an exact zero centroid, including axis and origin
+      // cases as well as nearly collinear rays. Exercise both sorting paths.
+      segment = {{0, 0}, {0, 1}, {0, -1}, {1, 0}, {-1, 0},
+                 {limit, limit - 1}, {-limit, 1 - limit}};
+      for (int i = 0; i < 2000; ++i) {
+        const int row = int(random() % (2 * limit + 1)) - limit;
+        const int col = int(random() % (2 * limit + 1)) - limit;
+        segment.push_back({row, col});
+        segment.push_back({-row, -col});
+      }
+    }
+    const auto original = segments;
+    sorter.Sort(segments);
+    for (size_t s = 0; s < segments.size(); ++s) {
+      auto coordinates = [](const auto& points) {
+        std::set<std::pair<int, int>> result;
+        for (auto point : points) result.emplace(point.row, point.col);
+        return result;
+      };
+      EXPECT_EQ(coordinates(segments[s]), coordinates(original[s]));
+      EXPECT_EQ(segments[s].size(), coordinates(original[s]).size());
+      double previous = -4;
+      for (auto point : segments[s]) {
+        const double angle = -std::atan2(double(point.row), double(point.col));
+        EXPECT_GE(angle + 1e-14, previous);
+        previous = angle;
+      }
+    }
+  }
+}
+
 apriltag::BitLocation RenderCode(apriltag_family_t* family, int id,
                                  apriltag::ImageView image) {
   apriltag::BitLocation locations{};
@@ -199,6 +300,45 @@ TEST(DecoderTest, CpuPreservesFilteredEmptyTargets) {
     const bool matches = targets.empty() || targets == std::vector<int>{-1, 0};
     EXPECT_EQ(result.first, std::vector<int>{matches ? 0 : -1});
     EXPECT_EQ(result.second, std::vector<int>{matches ? 0 : -1});
+  }
+}
+
+TEST_F(PipelineTest, DecoderBatchesRotationsAndBitErrorsMatchCpu) {
+  std::unique_ptr<apriltag_family_t, decltype(&tag36h11_destroy)>
+      family(tag36h11_create(), tag36h11_destroy);
+  MappedImage image;
+  image.Allocate(10, 10, 10);
+  apriltag::GpuTagIdDecoder decoder;
+  decoder.SetTargetCodes(family.get(), {});
+  std::vector<int> stale_hammings{1, 2, 3};
+  EXPECT_TRUE(decoder.Decode({}, image.view, &stale_hammings).first.empty());
+  EXPECT_TRUE(stale_hammings.empty());
+  for (int id : {0, 31, 32, 99, int(family->ncodes) - 1}) {
+    const auto base = RenderCode(family.get(), id, image.view);
+    for (int errors = 0; errors <= 2; ++errors) {
+      if (errors) {
+        auto point = base[family->bit_y[errors - 1] + 1]
+                          [family->bit_x[errors - 1] + 1];
+        image.view(point.row, point.col) ^= 255;
+      }
+      std::vector<apriltag::BitLocation> locations;
+      for (int i = 0; i < 35; ++i) {
+        auto rotated = base;
+        for (int turn = 0; turn < i % 4; ++turn) {
+          const auto previous = rotated;
+          for (int row = 0; row < 10; ++row) {
+            for (int col = 0; col < 10; ++col) {
+              rotated[row][col] = previous[9 - col][row];
+            }
+          }
+        }
+        locations.push_back(rotated);
+      }
+      std::vector<int> hammings;
+      EXPECT_EQ(decoder.Decode(locations, image.view, &hammings),
+                apriltag::GetTagIdsCPU(locations, image.view, family.get()));
+      EXPECT_EQ(hammings, std::vector<int>(35, errors));
+    }
   }
 }
 

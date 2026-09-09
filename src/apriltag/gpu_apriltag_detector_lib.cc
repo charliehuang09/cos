@@ -18,6 +18,7 @@
 #include <span>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <opencv2/opencv.hpp>
 #include <queue>
 #include <ranges>
@@ -1139,15 +1140,15 @@ auto GetTagIdsCPU(std::vector<BitLocation>& bit_locations, ImageView apriltag,
     int rotation = -1;
     int best_hamming = 3;
 
-    auto try_decode = [&](float thresh) -> void {
+    auto try_decode = [&](float thresh, int dr = 0, int dc = 0) -> void {
       uint64_t code = 0;
       for (uint32_t j = 0; j < family->nbits; j++) {
         const auto x = family->bit_x[j];
         const auto y = family->bit_y[j];
 
         code <<= 1;
-        int r = bit_location[y + 1][x + 1].row;
-        int c = bit_location[y + 1][x + 1].col;
+        int r = bit_location[y + 1][x + 1].row + dr;
+        int c = bit_location[y + 1][x + 1].col + dc;
         if (r >= 0 && r < apriltag.height && c >= 0 && c < apriltag.width) {
           if (apriltag(r, c) > thresh) {
             code |= 1ULL;
@@ -1199,6 +1200,20 @@ auto GetTagIdsCPU(std::vector<BitLocation>& bit_locations, ImageView apriltag,
         if (tag_id != -1) {
           break;
         }
+      }
+    }
+    if (tag_id == -1) {
+      constexpr int kOffsets[8][2] = {
+          {0, 1}, {0, -1}, {1, 0}, {-1, 0},
+          {1, 1}, {-1, -1}, {1, -1}, {-1, 1}};
+      for (const auto& [dr, dc] : kOffsets) {
+        try_decode(threshold, dr, dc);
+        if (tag_id != -1) break;
+        for (float delta : {-8.0f, 8.0f}) {
+          try_decode(threshold + delta, dr, dc);
+          if (tag_id != -1) break;
+        }
+        if (tag_id != -1) break;
       }
     }
 
@@ -1295,17 +1310,26 @@ auto GradientRow(Coord<int> point, ImageView& apriltag) -> float {
   return output;
 }
 
-auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
+auto GetRefinedPoints(const std::vector<Quad>& quads,
                       ImageView& apriltag)
     -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
 
   constexpr int num_samples = 10;
-  constexpr int search_vector_length = 10;
   constexpr int quad_size = 4;
   std::vector<std::array<std::vector<WeightedPoint>, quad_size>> refined_points;
-  for (const auto& apriltag_detection : apriltag_detections) {
-    CHECK(apriltag_detection.quad.corners.size() == quad_size);
-    const auto& quad = apriltag_detection.quad;
+  refined_points.reserve(quads.size());
+  for (const auto& quad : quads) {
+    CHECK(quad.corners.size() == quad_size);
+    // Determine edge length to scale search vector
+    float min_len = std::numeric_limits<float>::max();
+    for (size_t i = 0; i < 4; ++i) {
+      const auto& p1 = quad.corners[i];
+      const auto& p2 = quad.corners[(i + 1) % 4];
+      min_len = std::min(min_len, std::hypot(static_cast<float>(p2.row - p1.row),
+                                             static_cast<float>(p2.col - p1.col)));
+    }
+    const int search_vector_length = std::clamp(static_cast<int>(min_len / 4.0f), 4, 10);
+
     std::array<std::vector<WeightedPoint>, quad_size> weighted_points;
     for (size_t i = 0; i < quad.corners.size(); i++) {
       weighted_points[i].reserve(num_samples);
@@ -1384,6 +1408,17 @@ auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
   return refined_points;
 }
 
+auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
+                      ImageView& apriltag)
+    -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
+  std::vector<Quad> quads;
+  quads.reserve(apriltag_detections.size());
+  for (const auto& det : apriltag_detections) {
+    quads.push_back(det.quad);
+  }
+  return GetRefinedPoints(quads, apriltag);
+}
+
 void PopulateRefinedPointsApriltag(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
         refined_points,
@@ -1416,7 +1451,7 @@ auto Cross(const Coord<float>& a, const Coord<float>& b) -> float {
 auto GetIntersection(const Coord<float>& centroid_a,
                      const std::pair<float, float>& vector_a,
                      const Coord<float>& centroid_b,
-                     const std::pair<float, float>& vector_b) -> Coord<int> {
+                     const std::pair<float, float>& vector_b) -> std::optional<Coord<int>> {
   const float denominator =
       vector_a.first * vector_b.second - vector_a.second * vector_b.first;
 
@@ -1429,24 +1464,30 @@ auto GetIntersection(const Coord<float>& centroid_a,
                    difference.second * vector_b.first) /
                   denominator;
 
-  return Coord<int>{
-      .row = static_cast<int>(centroid_a.row + t * vector_a.first),
-      .col = static_cast<int>(centroid_a.col + t * vector_a.second),
-  };
+  const float row = centroid_a.row + t * vector_a.first;
+  const float col = centroid_a.col + t * vector_a.second;
+  for (float value : {row, col}) {
+    if (!std::isfinite(value) || double(value) < std::numeric_limits<int>::min() ||
+        double(value) > std::numeric_limits<int>::max()) return std::nullopt;
+  }
+  return Coord<int>{.row = static_cast<int>(row), .col = static_cast<int>(col)};
 }
 
 auto GetRefinedQuads(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
-        refined_points) -> std::vector<Quad> {
+        refined_points,
+    const std::vector<Quad>& fallback_quads) -> std::vector<Quad> {
   std::vector<Quad> refined_quads;
   refined_quads.reserve(refined_points.size());
   std::vector<std::pair<float, float>> vectors;
   std::vector<Coord<float>> centroids;
   vectors.reserve(4);
   centroids.reserve(4);
-  for (const auto& tag : refined_points) {
+  for (size_t tag_idx = 0; tag_idx < refined_points.size(); ++tag_idx) {
+    const auto& tag = refined_points[tag_idx];
     vectors.clear();
     centroids.clear();
+    bool valid = true;
     for (const auto& segment : tag) {
       Coord<float> first_moment{.row = 0, .col = 0};
       Coord<float> second_moment{.row = 0, .col = 0};
@@ -1462,6 +1503,11 @@ auto GetRefinedQuads(
         xy_moment += point.coord.col * point.coord.row * point.weight;
 
         weight_sum += point.weight;
+      }
+
+      if (!std::isfinite(weight_sum) || weight_sum <= 0.0f) {
+        valid = false;
+        break;
       }
 
       float mean_x = first_moment.row / weight_sum;
@@ -1485,13 +1531,41 @@ auto GetRefinedQuads(
       vectors.push_back(vector);
       centroids.push_back(centroid);
     }
+    if (!valid || vectors.size() != 4) {
+      if (tag_idx < fallback_quads.size()) {
+        refined_quads.push_back(fallback_quads[tag_idx]);
+      } else {
+        refined_quads.push_back({});
+      }
+      continue;
+    }
     Quad quad;
     for (size_t i = 0; i < quad.corners.size(); i++) {
-      quad.corners[(i + 1) % quad.corners.size()] = GetIntersection(
+      const float denominator =
+          vectors[i].first * vectors[(i + 1) % 4].second -
+          vectors[i].second * vectors[(i + 1) % 4].first;
+      if (std::abs(denominator) < 1e-6f) {
+        valid = false;
+        break;
+      }
+      const auto intersection = GetIntersection(
           centroids[i], vectors[i], centroids[(i + 1) % quad.corners.size()],
           vectors[(i + 1) % quad.corners.size()]);
+      if (!intersection) {
+        valid = false;
+        break;
+      }
+      quad.corners[(i + 1) % quad.corners.size()] = *intersection;
     }
-    refined_quads.push_back(quad);
+    if (!valid || !IsApproximateSquare(quad)) {
+      if (tag_idx < fallback_quads.size()) {
+        refined_quads.push_back(fallback_quads[tag_idx]);
+      } else {
+        refined_quads.push_back(valid ? quad : Quad{});
+      }
+    } else {
+      refined_quads.push_back(quad);
+    }
   }
   return refined_quads;
 }
