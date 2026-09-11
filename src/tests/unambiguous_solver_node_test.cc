@@ -12,7 +12,6 @@
 #include "control_loop/control_loop.h"
 #include "control_loop/rio_clock.h"
 #include "control_loop/thread_pool.h"
-#include "simulation/simulation_position_sender_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
 
@@ -72,10 +71,6 @@ auto main(int argc, char** argv) -> int {
           }
         });
     control_loop.RegisterNode(solver_node);
-
-    auto simulation_position_sender_node =
-        std::make_shared<simulation::SimulationPositionSenderNode>("pose");
-    control_loop.RegisterNode(simulation_position_sender_node);
   }
 
   control_loop.Start();
