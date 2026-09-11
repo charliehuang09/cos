@@ -75,8 +75,8 @@ auto main(int argc, char** argv) -> int {
     }
 
     auto jpeg_buffer_streamer_node =
-        std::make_shared<streamer::PositionEstimateRioStreamerNode>(
-            "jpeg_buffer", "stream", 4971);
+        std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
+                                                           "stream", 4971);
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
     for (uint instance = 0; instance < instances; ++instance) {

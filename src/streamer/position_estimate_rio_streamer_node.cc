@@ -72,6 +72,7 @@ auto PositionEstimateRioStreamerNode::CreateCallback()
         pose.X().value(), pose.Y().value(), pose.Rotation().Z().value(),
         position_estimate_message->variance, GetTimestamp(context)};
     position_estimate_publisher_.Set(position_estimate_array);
+    instance_.Flush();
 
     for (const auto& callback : callbacks_) {
       callback(context);

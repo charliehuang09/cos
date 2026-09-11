@@ -6,10 +6,10 @@
 
 namespace streamer {
 
-class PositionEstimateRioStreamerNode final : public control_loop::INode {
+class JpegBufferStreamerNode final : public control_loop::INode {
  public:
-  PositionEstimateRioStreamerNode(std::string_view input_path, std::string path,
-                                  int port);
+  JpegBufferStreamerNode(std::string_view input_path, std::string path,
+                         int port);
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
   [[nodiscard]] auto GetDependencies() const
