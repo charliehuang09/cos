@@ -47,3 +47,14 @@ target_sources(visualization_backend PRIVATE
 target_link_libraries(visualization_backend PRIVATE
   ixwebsocket
 )
+
+add_executable(connect_to_rio)
+target_sources(connect_to_rio PRIVATE
+  connect_to_rio.cc
+)
+target_link_libraries(connect_to_rio PRIVATE
+  absl::flags_parse
+  absl::log
+  absl::log_initialize
+  cos::connect_to_rio
+)
