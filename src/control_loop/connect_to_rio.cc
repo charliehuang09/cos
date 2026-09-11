@@ -67,8 +67,9 @@ void StartNetworktables(int team_number) {
   StartLogging(inst, log_path);
 
   LOG(INFO) << "Team number: " << team_number;
-  LOG(INFO) << "Waiting for connection";
-  while (!inst.IsConnected() && !stop::StopRequested()) {
+  LOG(INFO) << "Waiting for connection and time synchronization";
+  while ((!inst.IsConnected() || !inst.GetServerTimeOffset()) &&
+         !stop::StopRequested()) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
   }
   if (stop::StopRequested()) {

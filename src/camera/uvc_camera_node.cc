@@ -4,6 +4,7 @@
 #include "camera/uvc_camera_node.h"
 #include "control_loop/rio_clock.h"
 
+#include <cmath>
 #include <cstdint>
 
 #include <wpi/timestamp.h>
@@ -70,9 +71,13 @@ auto UVCCameraNode::CreateCallback()
 
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
+  const double timestamp = control_loop::RioClock::GetTime();
+  if (!std::isfinite(timestamp)) {
+    return;
+  }
   auto buffer =
       std::make_unique<JpegBuffer>(frame->data_bytes + (2 * terminate_jpeg_),
-                                   control_loop::RioClock::GetTime());
+                                   timestamp);
   std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
   if (terminate_jpeg_) {
     buffer->ptr[frame->data_bytes + 0] = 0xFFU;

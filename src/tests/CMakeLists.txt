@@ -56,7 +56,8 @@ add_executable(timestamp_test
   timestamp_test.cc
 )
 target_link_libraries(timestamp_test PRIVATE
-  wpilibc
+  cos::rio_clock
+  wpiutil
   ntcore
 )
 

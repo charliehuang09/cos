@@ -63,8 +63,9 @@ target_sources(cos.rio_clock
       rio_clock.h
 )
 target_link_libraries(cos.rio_clock PRIVATE
-  wpilibc
+  wpiutil
   ntcore
+  absl::log
 )
 
 add_library(cos.connect_to_rio)

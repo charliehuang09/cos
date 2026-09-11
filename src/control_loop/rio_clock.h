@@ -6,6 +6,8 @@ namespace control_loop {
 class RioClock {
  public:
   static auto GetInstance() -> RioClock&;
+  // Seconds in the NetworkTables server's clock, or NaN while unsynchronized.
+  // Simulation mode returns elapsed local time instead.
   static auto GetTime() -> double;
   static void EnableSimulation();
   static void DisableSimulation();
