@@ -42,8 +42,8 @@ auto main(int argc, char** argv) -> int {
     control_loop.RegisterDependancyNode(disk_camera_node);
 
     auto jpeg_buffer_streamer_node =
-        std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
-                                                           "stream", 4971);
+        std::make_shared<streamer::PositionEstimateRioStreamerNode>(
+            "jpeg_buffer", "stream", 4971);
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
     auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(

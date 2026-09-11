@@ -40,8 +40,8 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
   {
     // UVC AE modes are one-hot bit flags, not V4L2 menu values.
     uvc_error_t code = uvc_set_ae_mode(
-        device_handle_, config.auto_exposure ? kUvcAeAperturePriority
-                                             : kUvcAeManual);
+        device_handle_,
+        config.auto_exposure ? kUvcAeAperturePriority : kUvcAeManual);
     CHECK(!code) << "Failed to set exposure mode: " << code;
   }
   if (!config.auto_exposure) {
@@ -138,6 +138,10 @@ void UVCCameraNode::RegisterCallback(
 
 void UVCCameraNode::SetTerminateJpeg(bool terminate_jpeg) {
   terminate_jpeg_ = terminate_jpeg;
+}
+
+auto UVCCameraNode::GetOutputPath() const -> std::string {
+  return output_path_;
 }
 
 }  // namespace camera

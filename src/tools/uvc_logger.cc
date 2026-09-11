@@ -72,7 +72,7 @@ auto main(int argc, char* argv[]) -> int {
 
   if (absl::GetFlag(FLAGS_port).has_value()) {
     auto jpeg_buffer_streamer_node =
-        std::make_shared<streamer::JpegBufferStreamerNode>(
+        std::make_shared<streamer::PositionEstimateRioStreamerNode>(
             "jpeg_stream", absl::GetFlag(FLAGS_stream_path),
             absl::GetFlag(FLAGS_port).value());
     control_loop.RegisterNode(jpeg_buffer_streamer_node);

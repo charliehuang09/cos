@@ -33,7 +33,7 @@ auto main(int argc, char* argv[]) -> int {
         log_path, "jpeg_stream", camera::GetEarliestTimestamp(log_path));
 
     auto jpeg_buffer_streamer_node =
-        std::make_shared<streamer::JpegBufferStreamerNode>(
+        std::make_shared<streamer::PositionEstimateRioStreamerNode>(
             "jpeg_stream", "/stream", absl::GetFlag(FLAGS_port));
 
     control_loop.RegisterDependancyNode(disk_camera_node);

@@ -4,8 +4,8 @@
 
 namespace streamer {
 
-JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
-                                               std::string path, int port)
+PositionEstimateRioStreamerNode::PositionEstimateRioStreamerNode(
+    std::string_view input_path, std::string path, int port)
     : input_path_(input_path),
       path_(std::move(path)),
       dependencies_({{input_path_, typeid(camera::JpegBuffer)}}) {
@@ -13,13 +13,14 @@ JpegBufferStreamerNode::JpegBufferStreamerNode(std::string_view input_path,
   LOG(INFO) << "MJPEG stream available at :" << port << path_;
 }
 
-void JpegBufferStreamerNode::Stream(const camera::JpegBuffer& jpeg_buffer) {
+void PositionEstimateRioStreamerNode::Stream(
+    const camera::JpegBuffer& jpeg_buffer) {
   std::string string_buffer(reinterpret_cast<char*>(jpeg_buffer.ptr),
                             jpeg_buffer.size);
   streamer_.publish(path_, string_buffer);
 }
 
-auto JpegBufferStreamerNode::CreateCallback()
+auto PositionEstimateRioStreamerNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     auto* jpeg_buffer = context->GetMessage<camera::JpegBuffer>(input_path_);
@@ -33,17 +34,17 @@ auto JpegBufferStreamerNode::CreateCallback()
   };
 }
 
-auto JpegBufferStreamerNode::GetDependencies() const
+auto PositionEstimateRioStreamerNode::GetDependencies() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return dependencies_;
 }
 
-auto JpegBufferStreamerNode::GetPublications() const
+auto PositionEstimateRioStreamerNode::GetPublications() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return publications_;
 }
 
-void JpegBufferStreamerNode::RegisterCallback(
+void PositionEstimateRioStreamerNode::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {
   callbacks_.emplace_back(callback);
 }

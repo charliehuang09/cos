@@ -46,7 +46,7 @@ void AddCameraPipeline(const std::string& config_path,
   control_loop.RegisterDependancyNode(uvc_camera_node);
 
   auto jpeg_buffer_streamer_node =
-      std::make_shared<streamer::JpegBufferStreamerNode>(
+      std::make_shared<streamer::PositionEstimateRioStreamerNode>(
           jpeg_channel, "/stream", stream_port);
   control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
