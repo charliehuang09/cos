@@ -21,6 +21,7 @@ target_link_libraries(dev_orin_main PRIVATE
   cos::variance_calculator_node
   cos::position_estimate_sender_node
   cos::jpeg_buffer_log_node
+  cos::simulation_position_sender_node
   cos::connect_to_rio
   cos::position_estimate_rio_streamer_node
   ${OpenCV_LIBS}
@@ -49,5 +50,6 @@ target_link_libraries(second_bot_main PRIVATE
   cos::variance_calculator_node
   cos::position_estimate_sender_node
   cos::jpeg_buffer_log_node
+  cos::simulation_position_sender_node
   ${OpenCV_LIBS}
 )

@@ -96,4 +96,5 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   cos::camera_config
   absl::flags_parse
   cos::unambiguous_solver_node
+  cos::simulation_position_sender_node
 )
