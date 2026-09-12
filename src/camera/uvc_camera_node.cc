@@ -4,6 +4,7 @@
 #include "camera/uvc_camera_node.h"
 #include "control_loop/rio_clock.h"
 
+#include <cmath>
 #include <cstdint>
 
 #include <wpi/timestamp.h>
@@ -40,8 +41,8 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
   {
     // UVC AE modes are one-hot bit flags, not V4L2 menu values.
     uvc_error_t code = uvc_set_ae_mode(
-        device_handle_, config.auto_exposure ? kUvcAeAperturePriority
-                                             : kUvcAeManual);
+        device_handle_,
+        config.auto_exposure ? kUvcAeAperturePriority : kUvcAeManual);
     CHECK(!code) << "Failed to set exposure mode: " << code;
   }
   if (!config.auto_exposure) {
@@ -70,9 +71,13 @@ auto UVCCameraNode::CreateCallback()
 
 void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   CHECK(frame->frame_format == UVC_COLOR_FORMAT_MJPEG);
+  const double timestamp = control_loop::RioClock::GetTime();
+  if (!std::isfinite(timestamp)) {
+    return;
+  }
   auto buffer =
       std::make_unique<JpegBuffer>(frame->data_bytes + (2 * terminate_jpeg_),
-                                   control_loop::RioClock::GetTime());
+                                   timestamp);
   std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
   if (terminate_jpeg_) {
     buffer->ptr[frame->data_bytes + 0] = 0xFFU;
@@ -138,6 +143,10 @@ void UVCCameraNode::RegisterCallback(
 
 void UVCCameraNode::SetTerminateJpeg(bool terminate_jpeg) {
   terminate_jpeg_ = terminate_jpeg;
+}
+
+auto UVCCameraNode::GetOutputPath() const -> std::string {
+  return output_path_;
 }
 
 }  // namespace camera

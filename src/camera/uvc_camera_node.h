@@ -31,6 +31,7 @@ class UVCCameraNode final : public control_loop::INode {
   void RegisterCallback(const std::function<void(const control_loop::Context&)>&
                             callback) override;
   void SetTerminateJpeg(bool terminate_jpeg);
+  [[nodiscard]] auto GetOutputPath() const -> std::string;
 
  public:
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
@@ -49,6 +50,7 @@ class UVCCameraNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   bool terminate_jpeg_ = true;
+  std::optional<std::string> timestamp_path_ = std::nullopt;
 };
 
 }  // namespace camera
