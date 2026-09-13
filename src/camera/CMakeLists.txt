@@ -50,7 +50,6 @@ find_library(NVBUF_TRANSFORM_LIBRARY NAMES nvbufsurftransform REQUIRED)
 add_library(cos.jetson_mmjpeg STATIC)
 add_library(cos::jetson_mmjpeg ALIAS cos.jetson_mmjpeg)
 target_sources(cos.jetson_mmjpeg PRIVATE
-  "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvJpegDecoder.cpp"
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvElement.cpp"
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvElementProfiler.cpp"
   "${TEGRA_MMAPI_ROOT}/samples/common/classes/NvBufSurface.cpp"
@@ -104,6 +103,7 @@ add_library(cos::nvjpeg_fd_decode_node ALIAS cos.nvjpeg_fd_decode_node)
 target_sources(cos.nvjpeg_fd_decode_node
   PRIVATE
     nvjpeg_fd_decode_node.cc
+    safe_nvjpeg_decoder.c
   PUBLIC
     FILE_SET HEADERS
     BASE_DIRS ${PROJECT_SOURCE_DIR}/src
@@ -114,6 +114,7 @@ target_sources(cos.nvjpeg_fd_decode_node
 target_include_directories(cos.nvjpeg_fd_decode_node PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/nvjpeg-headers"
 )
+target_compile_definitions(cos.nvjpeg_fd_decode_node PRIVATE TEGRA_ACCELERATE)
 target_link_libraries(cos.nvjpeg_fd_decode_node
   PUBLIC
     cos::jetson_mmjpeg

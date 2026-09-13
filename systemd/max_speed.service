@@ -1,0 +1,11 @@
+[Unit]
+Description=Max clock speed and fan max speed
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/usr/bin/jetson_clocks --fan
+
+[Install]
+WantedBy=multi-user.target

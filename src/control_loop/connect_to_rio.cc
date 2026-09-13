@@ -55,6 +55,11 @@ void PublishLogName(const std::string& path) {
 }
 }  // namespace
 
+auto GetLogPath() -> const std::string& {
+  static const std::string log_path = GetNewLogPath();
+  return log_path;
+}
+
 void StartNetworktables(int team_number) {
   nt::NetworkTableInstance inst = nt::NetworkTableInstance::GetDefault();
   inst.StopServer();
@@ -62,7 +67,7 @@ void StartNetworktables(int team_number) {
   inst.StartClient4("orin_localization");
   inst.SetServerTeam(team_number);
   inst.StartDSClient();
-  std::string log_path = GetNewLogPath();
+  const std::string& log_path = GetLogPath();
   LOG(INFO) << "Log path: " << log_path;
   StartLogging(inst, log_path);
 
@@ -86,7 +91,7 @@ void StartNetworktablesAsHost() {
   inst.StopLocal();
   inst.StopClient();
   inst.StartServer("orin_localization");
-  std::string log_path = GetNewLogPath();
+  const std::string& log_path = GetLogPath();
   LOG(INFO) << "Log path: " << log_path;
   StartLogging(inst, log_path);
 }

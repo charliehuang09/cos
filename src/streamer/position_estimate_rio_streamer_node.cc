@@ -48,7 +48,6 @@ auto PositionEstimateRioStreamerNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
     if (!context->Exists(input_path_)) {
-      LOG(WARNING) << "Missing position estimate";
       for (const auto& callback : callbacks_) {
         callback(context);
       }
@@ -57,7 +56,6 @@ auto PositionEstimateRioStreamerNode::CreateCallback()
     auto position_estimate_message =
         context->GetMessage<localization::PositionEstimateMessage>(input_path_);
     if (position_estimate_message == nullptr) {
-      LOG(WARNING) << "Null position estimate message";
       for (const auto& callback : callbacks_) {
         callback(context);
       }

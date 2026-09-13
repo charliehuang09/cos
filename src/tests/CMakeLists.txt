@@ -1,5 +1,14 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+add_executable(nvjpeg_fd_decode_node_test nvjpeg_fd_decode_node_test.cc)
+target_link_libraries(nvjpeg_fd_decode_node_test PRIVATE
+  cos::nvjpeg_fd_decode_node
+  cos::control_loop
+  cos::thread_pool
+  GTest::gtest_main
+)
+add_test(NAME nvjpeg_fd_decode_node_test COMMAND nvjpeg_fd_decode_node_test)
+
 add_executable(test_thread_pool
   thread_pool_test.cc
 )

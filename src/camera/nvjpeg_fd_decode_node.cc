@@ -1,11 +1,15 @@
 #include "camera/nvjpeg_fd_decode_node.h"
 
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 #include <vector>
 
 #include "NvBufSurface.h"
-#include "NvJpegDecoder.h"
+#include "camera/safe_nvjpeg_decoder.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "control_loop/timer.h"
 #include "nvbufsurface.h"
 
@@ -34,13 +38,12 @@ NvjpegFdDecodeNode::NvjpegFdDecodeNode(std::string_view input_path,
       thread_pool_(thread_pool),
       dependencies_({{input_path_, typeid(JpegBuffer)}}),
       publications_({{output_path_, typeid(DecodedJpegFdBuffer)}}) {
-  decoder_ = NvJPEGDecoder::createJPEGDecoder("cos-jpeg-fd-decoder");
+  decoder_ = cos_nvjpeg_create();
   CHECK(decoder_ != nullptr);
-  decoder_->setMemType(NVBUF_MEM_SURFACE_ARRAY);
 }
 
 NvjpegFdDecodeNode::~NvjpegFdDecodeNode() {
-  delete decoder_;
+  cos_nvjpeg_destroy(decoder_);
 }
 
 auto NvjpegFdDecodeNode::CreateCallback()
@@ -49,8 +52,28 @@ auto NvjpegFdDecodeNode::CreateCallback()
     bool exists;
     auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_, exists);
     CHECK(exists);
+    // Reject invalid start markers without scheduling decoder work. Other
+    // JPEG errors are handled by the decoder's recovery boundary.
+    const bool invalid_header =
+        jpeg_buffer != nullptr && jpeg_buffer->ptr != nullptr &&
+        (jpeg_buffer->size < 2 || jpeg_buffer->ptr[0] != 0xFFU ||
+         jpeg_buffer->ptr[1] != 0xD8U);
+    if (invalid_header) {
+      std::ostringstream header;
+      header << std::hex << std::setfill('0');
+      for (size_t i = 0; i < std::min(jpeg_buffer->size, size_t{2}); ++i) {
+        if (i != 0) {
+          header << ' ';
+        }
+        header << std::setw(2) << static_cast<unsigned int>(jpeg_buffer->ptr[i]);
+      }
+      LOG(WARNING)
+          << "Dropping malformed JPEG on " << input_path_
+          << ": size=" << jpeg_buffer->size << " header="
+          << (header.str().empty() ? "<empty>" : header.str());
+    }
     if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr ||
-        jpeg_buffer->size == 0U) {
+        invalid_header) {
       context->SetMessage(output_path_, nullptr);
       for (const auto& callback : callbacks_) {
         callback(context);
@@ -61,9 +84,12 @@ auto NvjpegFdDecodeNode::CreateCallback()
     thread_pool_.Submit(
         [this, context, jpeg_buffer]() -> void {
           control_loop::Timer timer;
-          std::unique_ptr<control_loop::IMessage> decoded_buffer =
-              std::make_unique<DecodedJpegFdBuffer>(
-                  DecodeJpegBuffer(jpeg_buffer));
+          auto decoded = DecodeJpegBuffer(jpeg_buffer);
+          std::unique_ptr<control_loop::IMessage> decoded_buffer;
+          if (decoded.has_value()) {
+            decoded_buffer =
+                std::make_unique<DecodedJpegFdBuffer>(std::move(*decoded));
+          }
           context->SetMessage(output_path_, std::move(decoded_buffer));
 
           if (latency_channel_.has_value()) {
@@ -80,16 +106,20 @@ auto NvjpegFdDecodeNode::CreateCallback()
 }
 
 auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
-    -> DecodedJpegFdBuffer {
+    -> std::optional<DecodedJpegFdBuffer> {
   std::lock_guard lock(decode_mutex_);
 
   int decoded_fd = -1;
   uint32_t pixel_format = 0;
   uint32_t width = 0;
   uint32_t height = 0;
-  CHECK_EQ(decoder_->decodeToFd(decoded_fd, jpeg_buffer->ptr, jpeg_buffer->size,
-                                pixel_format, width, height),
-           0);
+  if (cos_nvjpeg_decode(decoder_, jpeg_buffer->ptr, jpeg_buffer->size,
+                        &decoded_fd, &pixel_format, &width, &height) != 0) {
+    LOG(WARNING)
+        << "Dropping undecodable JPEG on " << input_path_
+        << ": size=" << jpeg_buffer->size << ": " << cos_nvjpeg_error(decoder_);
+    return std::nullopt;
+  }
 
   NvBufSurface* decoded_surface = nullptr;
   CHECK_EQ(NvBufSurfaceFromFd(decoded_fd,

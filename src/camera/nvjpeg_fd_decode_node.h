@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include "camera/jpeg_buffer.h"
@@ -11,7 +12,7 @@
 #include "control_loop/thread_pool.h"
 #include "control_loop/timed_node.h"
 
-class NvJPEGDecoder;
+struct CosNvjpegDecoder;
 
 namespace camera {
 
@@ -55,11 +56,12 @@ class NvjpegFdDecodeNode final : public control_loop::INode,
   void EnableTiming(std::string_view latency_channel) override;
 
  private:
-  auto DecodeJpegBuffer(const JpegBuffer* jpeg_buffer) -> DecodedJpegFdBuffer;
+  auto DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
+      -> std::optional<DecodedJpegFdBuffer>;
 
   std::string input_path_;
   std::string output_path_;
-  NvJPEGDecoder* decoder_ = nullptr;
+  CosNvjpegDecoder* decoder_ = nullptr;
   std::mutex decode_mutex_;
   control_loop::ThreadPool& thread_pool_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;

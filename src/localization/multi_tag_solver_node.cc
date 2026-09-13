@@ -73,7 +73,6 @@ auto MultiTagSolverNode::CreateCallback()
     auto estimate =
         AmbiguousSolve(detections->tag_detections, reject_far_tags_);
     if (!estimate.has_value()) {
-      LOG(WARNING) << "Multi-tag solver produced no pose estimate";
       context->SetMessage(output_channel_, nullptr);
     } else {
       std::vector<AmbiguousEstimate> estimates;
@@ -207,8 +206,8 @@ auto MultiTagSolverNode::AmbiguousSolve(
       tag_list += std::to_string(tag_id);
     }
     LOG(WARNING) << "SQPnP produced a physically impossible pose from tags ["
-                 << tag_list << "] with reprojection RMSE "
-                 << reprojection_rmse << " px: " << estimate;
+                 << tag_list << "] with reprojection RMSE " << reprojection_rmse
+                 << " px: " << estimate;
   }
 
   return ambiguous_estimate_t{.pos1 = std::move(estimate),
