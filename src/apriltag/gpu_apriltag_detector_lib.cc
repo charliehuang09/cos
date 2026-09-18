@@ -5,73 +5,10 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "absl/cleanup/cleanup.h"
-#include "control_loop/thread_pool.h"
 
-#include <algorithm>
-#include <bit>
-#include <cmath>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <future>
-#include <span>
-#include <limits>
-#include <numeric>
-#include <optional>
 #include <opencv2/opencv.hpp>
-#include <queue>
-#include <ranges>
-#include <tuple>
-
-#include <cuda_runtime_api.h>
-
-#define CUDA_CHECK(call)                                         \
-  do {                                                           \
-    const cudaError_t cuda_check_error = (call);                 \
-    if (cuda_check_error != cudaSuccess) {                       \
-      std::cerr << cudaGetErrorString(cuda_check_error) << '\n'; \
-      std::exit(EXIT_FAILURE);                                   \
-    }                                                            \
-  } while (0)
 
 namespace {
-class ScopedHostRegistration {
- public:
-  ScopedHostRegistration(void* data, size_t size) : data_(data) {
-    const cudaError_t error =
-        cudaHostRegister(data_, size, cudaHostRegisterMapped);
-    if (error == cudaSuccess) {
-      owns_registration_ = true;
-    } else if (error == cudaErrorHostMemoryAlreadyRegistered) {
-      // cudaHostRegister also records this otherwise acceptable result as the
-      // thread's last CUDA error. Clear it so a later launch check does not
-      // report this registration attempt as a kernel failure.
-      cudaGetLastError();
-    } else {
-      CUDA_CHECK(error);
-    }
-  }
-
-  ScopedHostRegistration(const ScopedHostRegistration&) = delete;
-  auto operator=(const ScopedHostRegistration&)
-      -> ScopedHostRegistration& = delete;
-
-  ~ScopedHostRegistration() {
-    if (!owns_registration_) {
-      return;
-    }
-    const cudaError_t error = cudaHostUnregister(data_);
-    if (error != cudaSuccess) {
-      std::cerr << cudaGetErrorString(error) << '\n';
-    }
-  }
-
- private:
-  void* data_;
-  bool owns_registration_ = false;
-};
-
 [[gnu::always_inline]]
 void inline PopulateColor(int id, uint8_t& r, uint8_t& g, uint8_t& b) {
   r = (id * 2222009) % 256;
@@ -96,7 +33,7 @@ void inline GetMinMax(apriltag::ImageView apriltag, int row, int col,
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 4; j++) {
       min = std::min(min, (apriltag(row + i, col + j)));
-      max = std::max(max, (apriltag(row + i, col + j)));
+      max = std::max(min, (apriltag(row + i, col + j)));
     }
   }
 }
@@ -137,48 +74,6 @@ void PrintCode(const apriltag::BitLocation& bit_location,
     std::cout << "\n";
   }
   std::cout << "----------------------------\n";
-}
-
-void OrderQuad(apriltag::Quad& quad) {
-  apriltag::Coord<int> mean = std::accumulate(
-      quad.corners.begin(), quad.corners.end(), apriltag::Coord<int>{},
-      [](apriltag::Coord<int> sum,
-         apriltag::Coord<int> value) -> apriltag::Coord<int> {
-        sum.row += value.row;
-        sum.col += value.col;
-        return sum;
-      });
-  mean.row /= 4;
-  mean.col /= 4;
-  std::ranges::sort(
-      quad.corners,
-      [&mean](apriltag::Coord<int> a, apriltag::Coord<int> b) -> bool {
-        const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
-        const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
-
-        const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
-        const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
-
-        auto sector = [](int64_t x, int64_t y) -> int {
-          if (x == 0 && y < 0)
-            return 0;  // angle = pi
-          if (x > 0)
-            return 1;  // (0, pi) if (x == 0) return 2;  // angle = 0
-          return 3;    // (-pi, 0)
-        };
-
-        const int sa = sector(a_row, a_col);
-        const int sb = sector(b_row, b_col);
-
-        if (sa != sb) {
-          return sa < sb;
-        }
-
-        // Equivalent angular ordering without atan2.
-        const int64_t cross = a_col * b_row - a_row * b_col;
-      if (cross != 0) return cross < 0;
-      return a.row != b.row ? a.row < b.row : a.col < b.col;
-      });
 }
 
 }  // namespace
@@ -267,24 +162,50 @@ void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
   CHECK_EQ(valid.height, threshold.height);
 
   for (int i = 0; i < min.height; i++) {
-    for (int j = 0; j < min.width; j++) {
-      uint8_t min_value = 255;
-      uint8_t max_value = 0;
-      for (int di = -1; di <= 1; ++di) {
-        int r = std::clamp(i + di, 0, min.height - 1);
-        for (int dj = -1; dj <= 1; ++dj) {
-          int c = std::clamp(j + dj, 0, min.width - 1);
-          min_value = std::min(min_value, min(r, c));
-          max_value = std::max(max_value, max(r, c));
-        }
-      }
+    threshold(i, 0) = (min(i, 0) / 2) + (max(i, 0) / 2);
+    threshold(i, min.width - 1) =
+        (min(i, min.width - 1) / 2) + (max(i, min.width - 1) / 2);
+  }
+  for (int j = 0; j < min.width; j++) {
+    threshold(0, j) = (min(0, j) / 2) + (max(0, j) / 2);
+    threshold(min.height - 1, j) =
+        (min(min.height - 1, j) / 2) + (max(min.height - 1, j) / 2);
+  }
+  for (int i = 1; i < min.height - 1; i++) {
+    for (int j = 1; j < min.width - 1; j++) {
+      uint8_t max_value = std::max({
+          max(i - 1, j - 1),
+          max(i - 1, j + 0),
+          max(i - 1, j + 1),
+
+          max(i + 0, j - 1),
+          max(i + 0, j + 0),
+          max(i + 0, j + 1),
+
+          max(i + 1, j - 1),
+          max(i + 1, j + 0),
+          max(i + 1, j + 1),
+      });
+
+      uint8_t min_value = std::min({
+          min(i - 1, j - 1),
+          min(i - 1, j + 0),
+          min(i - 1, j + 1),
+
+          min(i + 0, j - 1),
+          min(i + 0, j + 0),
+          min(i + 0, j + 1),
+
+          min(i + 1, j - 1),
+          min(i + 1, j + 0),
+          min(i + 1, j + 1),
+      });
       threshold(i, j) = (max_value / 2) + (min_value / 2);
-      valid(i, j) = (max_value - min_value > 8) ? 255 : 0;
+      valid(i, j) = max_value - min_value > 50 ? 255 : 0;
     }
   }
 }
 
-// TODO GPU
 void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
                                ImageView apriltag,
                                ImageView binarized_apriltag) {
@@ -348,42 +269,49 @@ void PopulateSegmentedApriltag(ImageView binarized_apriltag,
   }
 }
 
-auto GetSegmentsCPU(ImageView32 segmented_apriltag)
+auto GetSegments(ImageView32 segmented_apriltag)
     -> std::vector<std::vector<Coord<int>>> {
-  absl::flat_hash_map<uint64_t, std::vector<Coord<int>>> segments_set;
-  segments_set.reserve(1024);
-  const int h = segmented_apriltag.height - 1;
-  const int w = segmented_apriltag.width - 1;
-  for (int i = 0; i < h; i++) {
-    for (int j = 0; j < w; j++) {
-      const auto id = segmented_apriltag(i, j);
-      if (id == 0) {
-        continue;
+  absl::flat_hash_map<std::pair<uint32_t, uint32_t>,
+                      absl::flat_hash_set<Coord<int>>>
+      segments_set;
+  for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
+    for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
+      if (segmented_apriltag(i, j) != 0) {
+        constexpr int dx = 0;
+        constexpr int dy = 1;
+        auto id = segmented_apriltag(i, j);
+        auto neighbor_id = segmented_apriltag(i + dx, j + dy);
+        if (neighbor_id != 0 && neighbor_id != id) {
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i + dx, j + dy);
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i, j);
+        }
       }
-      const auto right_id = segmented_apriltag(i, j + 1);
-      if (right_id != 0 && right_id != id) {
-        const uint64_t key =
-            (static_cast<uint64_t>(std::max(id, right_id)) << 32) |
-            std::min(id, right_id);
-        auto& set = segments_set[key];
-        set.emplace_back(i, j + 1);
-        set.emplace_back(i, j);
-      }
-      const auto bottom_id = segmented_apriltag(i + 1, j);
-      if (bottom_id != 0 && bottom_id != id) {
-        const uint64_t key =
-            (static_cast<uint64_t>(std::max(id, bottom_id)) << 32) |
-            std::min(id, bottom_id);
-        auto& set = segments_set[key];
-        set.emplace_back(i + 1, j);
-        set.emplace_back(i, j);
+    }
+  }
+  for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
+    for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
+      if (segmented_apriltag(i, j) != 0) {
+        constexpr int dx = 1;
+        constexpr int dy = 0;
+        auto id = segmented_apriltag(i, j);
+        auto neighbor_id = segmented_apriltag(i + dx, j + dy);
+        if (neighbor_id != 0 && neighbor_id != id) {
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i + dx, j + dy);
+          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
+              .emplace(i, j);
+        }
       }
     }
   }
   std::vector<std::vector<Coord<int>>> segments;
-  for (auto& [ids, pixel_coords_vector] : segments_set) {
-    constexpr size_t min_segment_size = 80;
-    if (pixel_coords_vector.size() >= min_segment_size) {
+  for (const auto& [ids, pixel_coords_set] : segments_set) {
+    constexpr size_t min_segment_size = 100;
+    if (pixel_coords_set.size() >= min_segment_size) {
+      std::vector<Coord<int>> pixel_coords_vector(pixel_coords_set.begin(),
+                                                  pixel_coords_set.end());
       segments.push_back(std::move(pixel_coords_vector));
     }
   }
@@ -402,20 +330,17 @@ void PopulateBoundarySegmentedApriltag(
   }
 }
 
-void SortSegmentsCPU(std::vector<std::vector<Coord<int>>>& segments) {
+auto SortSegments(std::vector<std::vector<Coord<int>>>& segments) {
   for (auto& segment : segments) {
-    if (segment.empty()) {
-      continue;
-    }
     auto sum = std::accumulate(
-        segment.begin(), segment.end(), Coord<int64_t>{.row = 0, .col = 0},
-        [](Coord<int64_t> sum, Coord<int> value) -> Coord<int64_t> {
+        segment.begin(), segment.end(), Coord<int>{.row = 0, .col = 0},
+        [](Coord<int> sum, Coord<int> value) -> Coord<int> {
           sum.row += value.row;
           sum.col += value.col;
           return sum;
         });
-    Coord<int64_t> mean{.row = sum.row / static_cast<int64_t>(segment.size()),
-                        .col = sum.col / static_cast<int64_t>(segment.size())};
+    Coord<int> mean{.row = sum.row / static_cast<int>(segment.size()),
+                    .col = sum.col / static_cast<int>(segment.size())};
 
     std::ranges::sort(segment, [&mean](Coord<int> a, Coord<int> b) -> bool {
       const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
@@ -442,18 +367,9 @@ void SortSegmentsCPU(std::vector<std::vector<Coord<int>>>& segments) {
       }
 
       // Equivalent angular ordering without atan2.
-      const int64_t cross = a_col * b_row - a_row * b_col;
-      if (cross != 0) return cross < 0;
-      return a.row != b.row ? a.row < b.row : a.col < b.col;
+      return a_col * b_row - a_row * b_col < 0;
     });
-
-    auto removed = std::ranges::unique(segment);
-    segment.erase(removed.begin(), removed.end());
   }
-}
-
-void SortSegments(std::vector<std::vector<Coord<int>>>& segments) {
-  SortSegmentsGPU(segments);
 }
 
 void PopulateSortedBoundarySegmentedApriltag(
@@ -469,19 +385,12 @@ void PopulateSortedBoundarySegmentedApriltag(
   }
 }
 
-static auto GetMsesForSegments(std::span<const std::vector<Coord<int>>> segments)
+auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
     -> std::vector<std::vector<float>> {
   std::vector<std::vector<float>> mses;
-  mses.reserve(segments.size());
+  constexpr int window_size = 100;
+  constexpr float window_size_float = window_size;
   for (const auto& segment : segments) {
-    if (segment.size() < 4) {
-      mses.emplace_back(segment.size(), 0.0f);
-      continue;
-    }
-    const int window_size =
-        std::max(4, std::min(40, static_cast<int>(segment.size() / 6)));
-    const auto window_size_float = static_cast<float>(window_size);
-
     Coord<int64_t> first_moment{.row = 0, .col = 0};
     Coord<int64_t> second_moment{.row = 0, .col = 0};
     int64_t xy_moment = 0;
@@ -496,9 +405,9 @@ static auto GetMsesForSegments(std::span<const std::vector<Coord<int>>> segments
       xy_moment += point.row * point.col;
     }
 
-    int window_head = window_size == static_cast<int>(segment.size()) ? 0 : window_size;
+    int window_head = window_size;
     int window_tail = 0;
-    std::vector<float> mse(segment.size(), 0.0f);
+    std::vector<float> mse(segment.size());
     for (size_t i = window_size / 2; i < segment.size() + (window_size / 2);
          i++) {
       auto mean_x = first_moment.row / window_size_float;
@@ -518,7 +427,7 @@ static auto GetMsesForSegments(std::span<const std::vector<Coord<int>>> segments
         std::swap(lambdas.first, lambdas.second);
       }
 
-      mse[i < mse.size() ? i : i - mse.size()] = lambdas.second;
+      mse[i % mse.size()] = lambdas.second;
 
       const Coord<int64_t> head{.row = segment[window_head].row,
                                 .col = segment[window_head].col};
@@ -537,9 +446,9 @@ static auto GetMsesForSegments(std::span<const std::vector<Coord<int>>> segments
       xy_moment -= tail.row * tail.col;
 
       window_head++;
-      if (window_head == static_cast<int>(segment.size())) window_head = 0;
+      window_head %= segment.size();
       window_tail++;
-      if (window_tail == static_cast<int>(segment.size())) window_tail = 0;
+      window_tail %= segment.size();
     }
     mses.push_back(std::move(mse));
   }
@@ -547,299 +456,46 @@ static auto GetMsesForSegments(std::span<const std::vector<Coord<int>>> segments
   return mses;
 }
 
-auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
-    -> std::vector<std::vector<float>> {
-  return GetMsesForSegments(segments);
-}
-
-auto IsApproximateSquare(const Quad& quad) -> bool;
-
-static auto GetCandidatesQuadCornersForSegments(
-    std::span<const std::vector<Coord<int>>> segments,
-    std::span<const std::vector<float>> mse_map)
-    -> std::vector<CandidatesQuad> {
-  std::vector<CandidatesQuad> quads;
-  CHECK_EQ(mse_map.size(), segments.size());
-  quads.reserve(segments.size());
-
-  struct Peak {
-    size_t index;
-    float val;
-  };
-  thread_local std::vector<Peak> peaks;
-  thread_local std::vector<size_t> chosen_peak_indices;
-
-  for (size_t idx = 0; idx < mse_map.size(); idx++) {
-    const auto& segment = segments[idx];
-    const auto& mse = mse_map[idx];
-    CHECK_EQ(segment.size(), mse.size());
-
-    CandidatesQuad quad{};
-    if (segment.size() < 4 || mse.empty()) {
-      quads.push_back(quad);
-      continue;
-    }
-
-    const int window_size =
-        std::max(4, std::min(40, static_cast<int>(segment.size() / 6)));
-    const size_t peak_radius = std::max(
-        size_t{2},
-        std::min(static_cast<size_t>(window_size / 2), mse.size() / 8));
-
-    peaks.clear();
-    const size_t mse_sz = mse.size();
-    for (size_t i = 0; i < mse_sz; i++) {
-      const float candidate_mse = mse[i];
-      if (!std::isfinite(candidate_mse) || candidate_mse <= 0.001f) {
-        continue;
-      }
-
-      const size_t prev1_idx = (i > 0) ? (i - 1) : (mse_sz - 1);
-      const size_t next1_idx = (i + 1 < mse_sz) ? (i + 1) : 0;
-      const float prev1 = mse[prev1_idx];
-      const float next1 = mse[next1_idx];
-      if (candidate_mse < prev1 || candidate_mse <= next1) {
-        continue;
-      }
-
-      bool is_peak = true;
-      for (size_t offset = 2; offset <= peak_radius; offset++) {
-        const size_t prev_idx =
-            (i >= offset) ? (i - offset) : (i + mse_sz - offset);
-        const size_t next_idx =
-            (i + offset < mse_sz) ? (i + offset) : (i + offset - mse_sz);
-        const float prev_mse = mse[prev_idx];
-        const float next_mse = mse[next_idx];
-        if (prev_mse > candidate_mse || next_mse >= candidate_mse) {
-          is_peak = false;
-          break;
-        }
-      }
-
-      if (is_peak) {
-        peaks.push_back({.index = i, .val = candidate_mse});
-      }
-    }
-
-    if (peaks.size() > 16) {
-      std::partial_sort(peaks.begin(), peaks.begin() + 16, peaks.end(),
-                        [](const Peak& a, const Peak& b) {
-                          return a.val > b.val;
-                        });
-      peaks.resize(16);
-    } else {
-      std::ranges::sort(peaks, [](const Peak& a, const Peak& b) -> bool {
-        return a.val > b.val;
-      });
-    }
-
-    const size_t min_dist = std::max(size_t{2}, mse_sz / 16);
-    chosen_peak_indices.clear();
-    for (const auto& p : peaks) {
-      bool too_close = false;
-      for (size_t chosen : chosen_peak_indices) {
-        size_t d =
-            (p.index >= chosen) ? (p.index - chosen) : (chosen - p.index);
-        d = std::min(d, mse_sz - d);
-        if (d < min_dist) {
-          too_close = true;
-          break;
-        }
-      }
-      if (!too_close) {
-        chosen_peak_indices.push_back(p.index);
-        if (chosen_peak_indices.size() >= 10) {
-          break;
-        }
-      }
-    }
-
-    if (chosen_peak_indices.size() < 4) {
-      quads.push_back(quad);
-      continue;
-    }
-
-    std::ranges::sort(chosen_peak_indices);
-    const size_t K = chosen_peak_indices.size();
-
-    std::array<Coord<int>, 10> pts{};
-    for (size_t i = 0; i < K; ++i) {
-      pts[i] = segment[chosen_peak_indices[i]];
-    }
-
-    std::array<std::array<float, 10>, 10> len{};
-    std::array<std::array<float, 10>, 10> vr{};
-    std::array<std::array<float, 10>, 10> vc{};
-    for (size_t a = 0; a < K; ++a) {
-      for (size_t b = a + 1; b < K; ++b) {
-        const float r = static_cast<float>(pts[b].row - pts[a].row);
-        const float c = static_cast<float>(pts[b].col - pts[a].col);
-        const float l = std::hypot(r, c);
-        vr[a][b] = r;
-        vr[b][a] = -r;
-        vc[a][b] = c;
-        vc[b][a] = -c;
-        len[a][b] = l;
-        len[b][a] = l;
-      }
-    }
-
-    float best_score = -1.0f;
-    std::array<Coord<int>, 4> best_corners{};
-    constexpr float cos_threshold = 0.90f;
-
-    for (size_t m0 = 0; m0 < K - 3; ++m0) {
-      for (size_t m1 = m0 + 1; m1 < K - 2; ++m1) {
-        const float len01 = len[m0][m1];
-        if (len01 < 3.0f) {
-          continue;
-        }
-        const float v01_r = vr[m0][m1];
-        const float v01_c = vc[m0][m1];
-
-        for (size_t m2 = m1 + 1; m2 < K - 1; ++m2) {
-          const float len12 = len[m1][m2];
-          if (len12 < 3.0f) {
-            continue;
-          }
-          const float v12_r = vr[m1][m2];
-          const float v12_c = vc[m1][m2];
-
-          const float cross01_12 = v01_r * v12_c - v01_c * v12_r;
-          if (std::abs(cross01_12) < 1.0f) {
-            continue;
-          }
-          const float cos1 =
-              (v01_r * v12_r + v01_c * v12_c) / (len01 * len12);
-          if (!std::isfinite(cos1) || std::abs(cos1) > cos_threshold) {
-            continue;
-          }
-
-          for (size_t m3 = m2 + 1; m3 < K; ++m3) {
-            const float len23 = len[m2][m3];
-            if (len23 < 3.0f) {
-              continue;
-            }
-            const float v23_r = vr[m2][m3];
-            const float v23_c = vc[m2][m3];
-
-            const float cross12_23 = v12_r * v23_c - v12_c * v23_r;
-            if ((cross12_23 > 0.0f) != (cross01_12 > 0.0f)) {
-              continue;
-            }
-            const float cos2 =
-                (v12_r * v23_r + v12_c * v23_c) / (len12 * len23);
-            if (!std::isfinite(cos2) || std::abs(cos2) > cos_threshold) {
-              continue;
-            }
-
-            const float len30 = len[m3][m0];
-            if (len30 < 3.0f) {
-              continue;
-            }
-            const float v30_r = vr[m3][m0];
-            const float v30_c = vc[m3][m0];
-
-            const float cross23_30 = v23_r * v30_c - v23_c * v30_r;
-            if ((cross23_30 > 0.0f) != (cross01_12 > 0.0f)) {
-              continue;
-            }
-            const float cos3 =
-                (v23_r * v30_r + v23_c * v30_c) / (len23 * len30);
-            if (!std::isfinite(cos3) || std::abs(cos3) > cos_threshold) {
-              continue;
-            }
-
-            const float cross30_01 = v30_r * v01_c - v30_c * v01_r;
-            if ((cross30_01 > 0.0f) != (cross01_12 > 0.0f)) {
-              continue;
-            }
-            const float cos0 =
-                (v30_r * v01_r + v30_c * v01_c) / (len30 * len01);
-            if (!std::isfinite(cos0) || std::abs(cos0) > cos_threshold) {
-              continue;
-            }
-
-            const auto& c0 = pts[m0];
-            const auto& c1 = pts[m1];
-            const auto& c2 = pts[m2];
-            const auto& c3 = pts[m3];
-
-            const float area = 0.5f * std::abs(static_cast<float>(
-                                          (c0.col * c1.row - c1.col * c0.row) +
-                                          (c1.col * c2.row - c2.col * c1.row) +
-                                          (c2.col * c3.row - c3.col * c2.row) +
-                                          (c3.col * c0.row - c0.col * c3.row)));
-            if (area >= 16.0f) {
-              const float mse_sum = mse[chosen_peak_indices[m0]] +
-                                    mse[chosen_peak_indices[m1]] +
-                                    mse[chosen_peak_indices[m2]] +
-                                    mse[chosen_peak_indices[m3]];
-              const float score = area * mse_sum;
-              if (score > best_score) {
-                best_score = score;
-                best_corners = {c0, c1, c2, c3};
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (best_score > 0.0f) {
-      Quad q{best_corners};
-      OrderQuad(q);
-      quad.corners = q.corners;
-    }
-    quads.push_back(quad);
-  }
-  return quads;
-}
-
 auto GetCandidatesQuadCorners(
     const std::vector<std::vector<Coord<int>>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad> {
-  return GetCandidatesQuadCornersForSegments(segments, mse_map);
-}
-
-auto GetCandidatesQuadCornersParallel(
-    const std::vector<std::vector<Coord<int>>>& segments)
-    -> std::vector<CandidatesQuad> {
-  auto calculate = [](std::span<const std::vector<Coord<int>>> part) {
-    const auto mses = GetMsesForSegments(part);
-    return GetCandidatesQuadCornersForSegments(part, mses);
-  };
-  static const size_t workers = std::min<size_t>(
-      2, std::max(1u, std::thread::hardware_concurrency()) - 1);
-  if (segments.size() < 64 || workers == 0) return calculate(segments);
-
-  // Shared across detectors: at most two background workers, plus the caller.
-  static control_loop::ThreadPool pool(workers);
-  std::array<std::future<std::vector<CandidatesQuad>>, 2> futures;
-  // Workers reference the caller's segments; finish them even on exceptions.
-  absl::Cleanup wait_for_workers = [&] {
-    for (auto& future : futures) if (future.valid()) future.wait();
-  };
-  const std::span<const std::vector<Coord<int>>> all(segments);
-  const size_t parts = workers + 1;
-  for (size_t i = 0; i < workers; ++i) {
-    const size_t first = i * segments.size() / parts;
-    const size_t last = (i + 1) * segments.size() / parts;
-    auto task = std::make_shared<std::packaged_task<std::vector<CandidatesQuad>()>>(
-        [calculate, part = all.subspan(first, last - first)] { return calculate(part); });
-    futures[i] = task->get_future();
-    pool.Submit([task] { (*task)(); });
+  std::vector<CandidatesQuad> quads;
+  CHECK_EQ(mse_map.size(), segments.size());
+  for (size_t idx = 0; idx < mse_map.size(); idx++) {
+    const auto& segment = segments[idx];
+    const auto& mse = mse_map[idx];
+    CHECK_EQ(segment.size(), mse.size());
+    constexpr int window_size = 100;
+    CandidatesQuad quad{};
+    std::array<float, quad.corners.size()> max_mse{};
+    for (size_t i = 0; i < mse.size(); i++) {
+      const float middle_mse = mse[(i + (window_size / 2)) % mse.size()];
+      if (middle_mse < max_mse[0]) {
+        continue;
+      }
+      bool peak = true;
+      for (size_t j = i; j < i + window_size; j++) {
+        if (middle_mse < mse[(j + (window_size / 2)) % mse.size()]) {
+          peak = false;
+          break;
+        }
+      }
+      if (peak) {
+        max_mse[0] = middle_mse;
+        quad.corners[0] = segment[(i + (window_size / 2)) % segment.size()];
+        for (size_t k = 1; k < max_mse.size(); k++) {
+          if (max_mse[k - 1] > max_mse[k]) {
+            std::swap(max_mse[k - 1], max_mse[k]);
+            std::swap(quad.corners[k - 1], quad.corners[k]);
+          }
+        }
+        i += window_size / 2;
+      }
+    }
+    quads.push_back(quad);
   }
-  auto last = calculate(all.subspan(workers * segments.size() / parts));
-  std::vector<CandidatesQuad> candidates;
-  candidates.reserve(segments.size());
-  for (size_t i = 0; i < workers; ++i) {
-    auto part = futures[i].get();
-    candidates.insert(candidates.end(), part.begin(), part.end());
-  }
-  candidates.insert(candidates.end(), last.begin(), last.end());
-  return candidates;
+  return quads;
 }
 
 void PopulateCandidateQuadCornersApriltagBuffer(
@@ -851,17 +507,10 @@ void PopulateCandidateQuadCornersApriltagBuffer(
       if (corner.row == 0 && corner.col == 0) {
         continue;
       }
-      for (int i = -2; i <= 2; i++) {
-        const int r = corner.row + i;
-        if (r < 0 || r >= candidates_quad_corners_apriltag.height) {
-          continue;
-        }
-        for (int j = -2; j <= 2; j++) {
-          const int c = corner.col + j;
-          if (c < 0 || c >= candidates_quad_corners_apriltag.width) {
-            continue;
-          }
-          candidates_quad_corners_apriltag(r, c) = color;
+      for (int i = -5; i <= 5; i++) {
+        for (int j = -5; j <= 5; j++) {
+          candidates_quad_corners_apriltag(corner.row + i, corner.col + j) =
+              color;
         }
       }
       color -= 50;
@@ -869,64 +518,63 @@ void PopulateCandidateQuadCornersApriltagBuffer(
   }
 }
 
-auto IsApproximateSquare(const Quad& quad) -> bool {  // TODO
-  static_assert(std::tuple_size_v<decltype(Quad::corners)> == 4);
-  constexpr float threshold = 0.90f;
-  float initial_cross = 0.0f;
-  for (size_t i = 0; i < quad.corners.size(); i++) {
-    const auto& c1 = quad.corners[i];
-    const auto& c2 = quad.corners[(i + 1) % quad.corners.size()];
-    const auto& c3 = quad.corners[(i + 2) % quad.corners.size()];
-    std::pair<float, float> v1{static_cast<float>(c2.row - c1.row),
-                               static_cast<float>(c2.col - c1.col)};
-    std::pair<float, float> v2{static_cast<float>(c3.row - c2.row),
-                               static_cast<float>(c3.col - c2.col)};
-    float len1 = std::hypot(v1.first, v1.second);
-    float len2 = std::hypot(v2.first, v2.second);
-    if (len1 < 3.0f || len2 < 3.0f) {
-      return false;
-    }
-    float cross = v1.first * v2.second - v1.second * v2.first;
-    if (i == 0) {
-      initial_cross = cross;
-      if (std::abs(initial_cross) < 1.0f)
-        return false;
-    } else {
-      if ((cross > 0.0f) != (initial_cross > 0.0f))
-        return false;
-    }
-    float cos_theta =
-        (v1.first * v2.first + v1.second * v2.second) / (len1 * len2);
-    if (!std::isfinite(cos_theta) || std::abs(cos_theta) > threshold) {
-      return false;
-    }
-  }
-  return true;
-}
-
 auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
     -> std::vector<Quad> {
   std::vector<Quad> quads;
   quads.reserve(candidate_quad_corners.size());
   for (const auto& candidate_quad_corner : candidate_quad_corners) {
-    if (candidate_quad_corner.corners[0].row == 0 &&
-        candidate_quad_corner.corners[0].col == 0 &&
-        candidate_quad_corner.corners[1].row == 0 &&
-        candidate_quad_corner.corners[1].col == 0) {
-      continue;
-    }
+    constexpr auto candidates = candidate_quad_corner.corners.size();
     Quad quad{
-        candidate_quad_corner.corners[0],
-        candidate_quad_corner.corners[1],
-        candidate_quad_corner.corners[2],
-        candidate_quad_corner.corners[3],
+        candidate_quad_corner.corners[candidates - 1],
+        candidate_quad_corner.corners[candidates - 2],
+        candidate_quad_corner.corners[candidates - 3],
+        candidate_quad_corner.corners[candidates - 4],
     };
-    OrderQuad(quad);
-    if (IsApproximateSquare(quad)) {
-      quads.push_back(quad);
-    }
+    quads.push_back(quad);
   }
   return quads;
+}
+
+void OrderQuads(std::vector<Quad>& quads) {
+  for (auto& quad : quads) {
+    Coord<int> mean =
+        std::accumulate(quad.corners.begin(), quad.corners.end(), Coord<int>{},
+                        [](Coord<int> sum, Coord<int> value) -> Coord<int> {
+                          sum.row += value.row;
+                          sum.col += value.col;
+                          return sum;
+                        });
+    mean.row /= 4;
+    mean.col /= 4;
+    std::ranges::sort(
+        quad.corners, [&mean](Coord<int> a, Coord<int> b) -> bool {
+          const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
+          const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
+
+          const int64_t b_row = static_cast<int64_t>(b.row) - mean.row;
+          const int64_t b_col = static_cast<int64_t>(b.col) - mean.col;
+
+          auto sector = [](int64_t x, int64_t y) -> int {
+            if (x == 0 && y < 0)
+              return 0;  // angle = pi
+            if (x > 0)
+              return 1;  // (0, pi)
+            if (x == 0)
+              return 2;  // angle = 0
+            return 3;    // (-pi, 0)
+          };
+
+          const int sa = sector(a_row, a_col);
+          const int sb = sector(b_row, b_col);
+
+          if (sa != sb) {
+            return sa < sb;
+          }
+
+          // Equivalent angular ordering without atan2.
+          return a_col * b_row - a_row * b_col < 0;
+        });
+  }
 }
 
 void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
@@ -939,16 +587,8 @@ void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
         continue;
       }
       for (int i = -5; i <= 5; i++) {
-        const int r = corner.row + i;
-        if (r < 0 || r >= quad_apriltag.height) {
-          continue;
-        }
         for (int j = -5; j <= 5; j++) {
-          const int c = corner.col + j;
-          if (c < 0 || c >= quad_apriltag.width) {
-            continue;
-          }
-          quad_apriltag(r, c) = color;
+          quad_apriltag(corner.row + i, corner.col + j) = color;
         }
       }
       color -= 50;
@@ -1046,13 +686,12 @@ auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation> {
 
         float numerator = ((x4 - x3) * (y3 - y1) - (y4 - y3) * (x3 - x1));
         float denomenator = ((x4 - x3) * (y2 - y1) - (y4 - y3) * (x2 - x1));
-        float alpha =
-            (std::abs(denomenator) > 1e-6f) ? (numerator / denomenator) : 0.5f;
+        float alpha = numerator / denomenator;
         Coord<int> intersection{
-            .row = static_cast<int>(std::lround(first_row_position.first +
-                                                row_vector.first * alpha)),
-            .col = static_cast<int>(std::lround(first_row_position.second +
-                                                row_vector.second * alpha))};
+            .row = static_cast<int>(first_row_position.first +
+                                    row_vector.first * alpha),
+            .col = static_cast<int>(first_row_position.second +
+                                    row_vector.second * alpha)};
         bit_location[i][j] = intersection;
         if (intersection.row < 0 || intersection.col < 0) {
           valid = false;
@@ -1081,156 +720,67 @@ void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
 auto GetBlackWhiteThreshold(ImageView apriltag,
                             const BitLocation& bit_location) {
   float white = 0;
-  int white_count = 0;
-  auto sample_white = [&](int r, int c) -> void {
-    if (r >= 0 && r < apriltag.height && c >= 0 && c < apriltag.width) {
-      white += apriltag(r, c);
-      white_count++;
-    }
-  };
   for (int i = 0; i < 10; i++) {
-    sample_white(bit_location[0][i].row, bit_location[0][i].col);
-    sample_white(bit_location[9][i].row, bit_location[9][i].col);
-    sample_white(bit_location[i][0].row, bit_location[i][0].col);
-    sample_white(bit_location[i][9].row, bit_location[i][9].col);
+    white += apriltag(bit_location[0][i].row, bit_location[0][i].col);
+    white += apriltag(bit_location[9][i].row, bit_location[9][i].col);
+    white += apriltag(bit_location[i][0].row, bit_location[i][0].col);
+    white += apriltag(bit_location[i][9].row, bit_location[i][9].col);
   }
-  white = white_count > 0 ? (white / white_count) : 255.0f;
+  white /= 40;
 
   float black = 0;
-  int black_count = 0;
-  auto sample_black = [&](int r, int c) -> void {
-    if (0 <= r && r < apriltag.height && c >= 0 && c < apriltag.width) {
-      black += apriltag(r, c);
-      black_count++;
-    }
-  };
   for (int i = 1; i < 9; i++) {
-    sample_black(bit_location[1][i].row, bit_location[1][i].col);
-    sample_black(bit_location[8][i].row, bit_location[8][i].col);
-    sample_black(bit_location[i][1].row, bit_location[i][1].col);
-    sample_black(bit_location[i][8].row, bit_location[i][8].col);
+    black += apriltag(bit_location[1][i].row, bit_location[1][i].col);
+    black += apriltag(bit_location[8][i].row, bit_location[8][i].col);
+    black += apriltag(bit_location[i][1].row, bit_location[i][1].col);
+    black += apriltag(bit_location[i][8].row, bit_location[i][8].col);
   }
-  black = black_count > 0 ? (black / black_count) : 0.0f;
+  black /= 40;
 
-  return (white + black) / 2.0f;
+  return (white + black) / 2;
 }
 
-auto GetTagIdsCPU(std::vector<BitLocation>& bit_locations, ImageView apriltag,
-                  apriltag_family_t* family,
-                  const std::vector<int>& target_tag_ids)
+auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag,
+               apriltag_family_t* family)
     -> std::pair<std::vector<int>, std::vector<int>> {
   std::vector<int> tag_ids;
   std::vector<int> rotations;
   tag_ids.reserve(bit_locations.size());
   rotations.reserve(bit_locations.size());
+  for (const auto& bit_location : bit_locations) {
+    uint64_t code = 0;
+    auto threshold = GetBlackWhiteThreshold(apriltag, bit_location);
+    for (uint32_t j = 0; j < family->nbits; j++) {
+      const auto x = family->bit_x[j];
+      const auto y = family->bit_y[j];
 
-  std::vector<int> valid_target_ids;
-  if (!target_tag_ids.empty()) {
-    valid_target_ids.reserve(target_tag_ids.size());
-    for (int id : target_tag_ids) {
-      if (id >= 0 && static_cast<uint32_t>(id) < family->ncodes) {
-        valid_target_ids.push_back(id);
+      code <<= 1;
+      if (apriltag(bit_location[y + 1][x + 1].row,
+                   bit_location[y + 1][x + 1].col) > threshold) {
+        code |= 1ULL;
       }
     }
-  }
-
-  for (const auto& bit_location : bit_locations) {
-    const auto threshold = GetBlackWhiteThreshold(apriltag, bit_location);
     int tag_id = -1;
     int rotation = -1;
-    int best_hamming = 3;
+    for (int j = 0; j < 4; j++) {
+      constexpr int nbits = 36;
+      constexpr int shift = 9;
+      constexpr uint64_t mask = (1ULL << nbits) - 1;
 
-    auto try_decode = [&](float thresh, int dr = 0, int dc = 0) -> void {
-      uint64_t code = 0;
-      for (uint32_t j = 0; j < family->nbits; j++) {
-        const auto x = family->bit_x[j];
-        const auto y = family->bit_y[j];
-
-        code <<= 1;
-        int r = bit_location[y + 1][x + 1].row + dr;
-        int c = bit_location[y + 1][x + 1].col + dc;
-        if (r >= 0 && r < apriltag.height && c >= 0 && c < apriltag.width) {
-          if (apriltag(r, c) > thresh) {
-            code |= 1ULL;
-          }
-        }
-      }
-
-      for (int j = 0; j < 4; j++) {
-        constexpr int nbits = 36;
-        constexpr int shift = 9;
-        constexpr uint64_t mask = (1ULL << nbits) - 1;
-
-        if (!target_tag_ids.empty()) {
-          for (int k : valid_target_ids) {
-            int hamming = std::popcount(code ^ family->codes[k]);
-            if (hamming < best_hamming) {
-              best_hamming = hamming;
-              tag_id = k;
-              rotation = j;
-              if (hamming == 0) {
-                return;
-              }
-            }
-          }
-        } else {
-          for (uint32_t k = 0; k < family->ncodes; k++) {
-            int hamming = std::popcount(code ^ family->codes[k]);
-            if (hamming < best_hamming) {
-              best_hamming = hamming;
-              tag_id = k;
-              rotation = j;
-              if (hamming == 0) {
-                return;
-              }
-            }
-          }
-        }
-        if (best_hamming == 0) {
-          return;
-        }
-        code = ((code << shift) | (code >> (nbits - shift))) & mask;
-      }
-    };
-
-    try_decode(threshold);
-    if (tag_id == -1) {
-      for (float delta : {-8.0f, 8.0f, -16.0f, 16.0f}) {
-        try_decode(threshold + delta);
-        if (tag_id != -1) {
+      for (uint32_t k = 0; k < family->ncodes; k++) {
+        int hamming = std::popcount(code ^ family->codes[k]);
+        if (hamming <= 2) {
+          tag_id = k;
+          rotation = j;
           break;
         }
       }
+      code = ((code << shift) | (code >> (nbits - shift))) & mask;
     }
-    if (tag_id == -1) {
-      constexpr int kOffsets[8][2] = {
-          {0, 1}, {0, -1}, {1, 0}, {-1, 0},
-          {1, 1}, {-1, -1}, {1, -1}, {-1, 1}};
-      for (const auto& [dr, dc] : kOffsets) {
-        try_decode(threshold, dr, dc);
-        if (tag_id != -1) break;
-        for (float delta : {-8.0f, 8.0f}) {
-          try_decode(threshold + delta, dr, dc);
-          if (tag_id != -1) break;
-        }
-        if (tag_id != -1) break;
-      }
-    }
-
     tag_ids.push_back(tag_id);
     rotations.push_back(rotation);
   }
   return {tag_ids, rotations};
-}
-
-auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag,
-               apriltag_family_t* family,
-               const std::vector<int>& target_tag_ids)
-    -> std::pair<std::vector<int>, std::vector<int>> {
-  if (apriltag.data_gpu != nullptr) {
-    return GetTagIdsGPU(bit_locations, apriltag, family, target_tag_ids);
-  }
-  return GetTagIdsCPU(bit_locations, apriltag, family, target_tag_ids);
 }
 
 void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations) {
@@ -1310,26 +860,17 @@ auto GradientRow(Coord<int> point, ImageView& apriltag) -> float {
   return output;
 }
 
-auto GetRefinedPoints(const std::vector<Quad>& quads,
+auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
                       ImageView& apriltag)
     -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
 
   constexpr int num_samples = 10;
+  constexpr int search_vector_length = 10;
   constexpr int quad_size = 4;
   std::vector<std::array<std::vector<WeightedPoint>, quad_size>> refined_points;
-  refined_points.reserve(quads.size());
-  for (const auto& quad : quads) {
-    CHECK(quad.corners.size() == quad_size);
-    // Determine edge length to scale search vector
-    float min_len = std::numeric_limits<float>::max();
-    for (size_t i = 0; i < 4; ++i) {
-      const auto& p1 = quad.corners[i];
-      const auto& p2 = quad.corners[(i + 1) % 4];
-      min_len = std::min(min_len, std::hypot(static_cast<float>(p2.row - p1.row),
-                                             static_cast<float>(p2.col - p1.col)));
-    }
-    const int search_vector_length = std::clamp(static_cast<int>(min_len / 4.0f), 4, 10);
-
+  for (const auto& apriltag_detection : apriltag_detections) {
+    CHECK(apriltag_detection.quad.corners.size() == quad_size);
+    const auto& quad = apriltag_detection.quad;
     std::array<std::vector<WeightedPoint>, quad_size> weighted_points;
     for (size_t i = 0; i < quad.corners.size(); i++) {
       weighted_points[i].reserve(num_samples);
@@ -1408,17 +949,6 @@ auto GetRefinedPoints(const std::vector<Quad>& quads,
   return refined_points;
 }
 
-auto GetRefinedPoints(const std::vector<ApriltagDetection>& apriltag_detections,
-                      ImageView& apriltag)
-    -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
-  std::vector<Quad> quads;
-  quads.reserve(apriltag_detections.size());
-  for (const auto& det : apriltag_detections) {
-    quads.push_back(det.quad);
-  }
-  return GetRefinedPoints(quads, apriltag);
-}
-
 void PopulateRefinedPointsApriltag(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
         refined_points,
@@ -1451,7 +981,7 @@ auto Cross(const Coord<float>& a, const Coord<float>& b) -> float {
 auto GetIntersection(const Coord<float>& centroid_a,
                      const std::pair<float, float>& vector_a,
                      const Coord<float>& centroid_b,
-                     const std::pair<float, float>& vector_b) -> std::optional<Coord<int>> {
+                     const std::pair<float, float>& vector_b) -> Coord<int> {
   const float denominator =
       vector_a.first * vector_b.second - vector_a.second * vector_b.first;
 
@@ -1464,30 +994,24 @@ auto GetIntersection(const Coord<float>& centroid_a,
                    difference.second * vector_b.first) /
                   denominator;
 
-  const float row = centroid_a.row + t * vector_a.first;
-  const float col = centroid_a.col + t * vector_a.second;
-  for (float value : {row, col}) {
-    if (!std::isfinite(value) || double(value) < std::numeric_limits<int>::min() ||
-        double(value) > std::numeric_limits<int>::max()) return std::nullopt;
-  }
-  return Coord<int>{.row = static_cast<int>(row), .col = static_cast<int>(col)};
+  return Coord<int>{
+      .row = static_cast<int>(centroid_a.row + t * vector_a.first),
+      .col = static_cast<int>(centroid_a.col + t * vector_a.second),
+  };
 }
 
 auto GetRefinedQuads(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
-        refined_points,
-    const std::vector<Quad>& fallback_quads) -> std::vector<Quad> {
+        refined_points) -> std::vector<Quad> {
   std::vector<Quad> refined_quads;
   refined_quads.reserve(refined_points.size());
   std::vector<std::pair<float, float>> vectors;
   std::vector<Coord<float>> centroids;
   vectors.reserve(4);
   centroids.reserve(4);
-  for (size_t tag_idx = 0; tag_idx < refined_points.size(); ++tag_idx) {
-    const auto& tag = refined_points[tag_idx];
+  for (const auto& tag : refined_points) {
     vectors.clear();
     centroids.clear();
-    bool valid = true;
     for (const auto& segment : tag) {
       Coord<float> first_moment{.row = 0, .col = 0};
       Coord<float> second_moment{.row = 0, .col = 0};
@@ -1503,11 +1027,6 @@ auto GetRefinedQuads(
         xy_moment += point.coord.col * point.coord.row * point.weight;
 
         weight_sum += point.weight;
-      }
-
-      if (!std::isfinite(weight_sum) || weight_sum <= 0.0f) {
-        valid = false;
-        break;
       }
 
       float mean_x = first_moment.row / weight_sum;
@@ -1531,65 +1050,25 @@ auto GetRefinedQuads(
       vectors.push_back(vector);
       centroids.push_back(centroid);
     }
-    if (!valid || vectors.size() != 4) {
-      if (tag_idx < fallback_quads.size()) {
-        refined_quads.push_back(fallback_quads[tag_idx]);
-      } else {
-        refined_quads.push_back({});
-      }
-      continue;
-    }
     Quad quad;
     for (size_t i = 0; i < quad.corners.size(); i++) {
-      const float denominator =
-          vectors[i].first * vectors[(i + 1) % 4].second -
-          vectors[i].second * vectors[(i + 1) % 4].first;
-      if (std::abs(denominator) < 1e-6f) {
-        valid = false;
-        break;
-      }
-      const auto intersection = GetIntersection(
+      quad.corners[(i + 1) % quad.corners.size()] = GetIntersection(
           centroids[i], vectors[i], centroids[(i + 1) % quad.corners.size()],
           vectors[(i + 1) % quad.corners.size()]);
-      if (!intersection) {
-        valid = false;
-        break;
-      }
-      quad.corners[(i + 1) % quad.corners.size()] = *intersection;
     }
-    if (!valid || !IsApproximateSquare(quad)) {
-      if (tag_idx < fallback_quads.size()) {
-        refined_quads.push_back(fallback_quads[tag_idx]);
-      } else {
-        refined_quads.push_back(valid ? quad : Quad{});
-      }
-    } else {
-      refined_quads.push_back(quad);
-    }
+    refined_quads.push_back(quad);
   }
   return refined_quads;
 }
 
-[[deprecated]]
-auto DetectAprilTag(ImageView apriltag, bool imwrite,
-                    const std::vector<int>& target_tag_ids)
+auto DetectAprilTag(ImageView apriltag, bool imwrite)
     -> std::vector<ApriltagDetection> {
-  CUDA_CHECK(cudaSetDeviceFlags(cudaDeviceMapHost));
-
-  const ScopedHostRegistration apriltag_registration(
-      apriltag.data, static_cast<size_t>(apriltag.stride) * apriltag.height);
-  apriltag.EnableGpu();
-
   CHECK(apriltag.height % 4 == 0);
   CHECK(apriltag.width % 4 == 0);
-  uint8_t* max_buffer;
-  CUDA_CHECK(cudaHostAlloc(reinterpret_cast<void**>(&max_buffer),
-                           apriltag.width * apriltag.height / 16,
-                           cudaHostAllocMapped));
-  uint8_t* min_buffer;
-  CUDA_CHECK(cudaHostAlloc(reinterpret_cast<void**>(&min_buffer),
-                           apriltag.width * apriltag.height / 16,
-                           cudaHostAllocMapped));
+  auto* max_buffer = static_cast<uint8_t*>(
+      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
+  auto* min_buffer = static_cast<uint8_t*>(
+      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
   ImageView max{.data = max_buffer,
                 .stride = apriltag.stride / 4,
                 .height = apriltag.height / 4,
@@ -1598,35 +1077,26 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite,
                 .stride = apriltag.stride / 4,
                 .height = apriltag.height / 4,
                 .width = apriltag.width / 4};
-  max.EnableGpu();
-  min.EnableGpu();
-
-  PopulateMinMaxGPU(apriltag, min, max);
+  PopulateMinMax(apriltag, min, max);
   if (imwrite) {
     ImWrite("/root/max.png", max);
     ImWrite("/root/min.png", min);
   }
 
-  uint8_t* threshold_buffer;
-  CUDA_CHECK(cudaHostAlloc(reinterpret_cast<void**>(&threshold_buffer),
-                           apriltag.width * apriltag.height / 16,
-                           cudaHostAllocMapped));
+  auto* threshold_buffer = static_cast<uint8_t*>(
+      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
   ImageView threshold{.data = threshold_buffer,
                       .stride = apriltag.stride / 4,
                       .height = apriltag.height / 4,
                       .width = apriltag.width / 4};
 
-  uint8_t* valid_buffer;
-  CUDA_CHECK(cudaHostAlloc(reinterpret_cast<void**>(&valid_buffer),
-                           apriltag.width * apriltag.height / 16,
-                           cudaHostAllocMapped));
+  auto* valid_buffer = static_cast<uint8_t*>(
+      calloc(apriltag.width * apriltag.height / 16, sizeof(uint8_t)));
   ImageView valid{.data = valid_buffer,
                   .stride = apriltag.stride / 4,
                   .height = apriltag.height / 4,
                   .width = apriltag.width / 4};
-  threshold.EnableGpu();
-  valid.EnableGpu();
-  PopulateThresholdValidGPU(min, max, threshold, valid);
+  PopulateThresholdValid(min, max, threshold, valid);
   if (imwrite) {
     ImWrite("/root/threshold.png", threshold);
     ImWrite("/root/valid.png", valid);
@@ -1650,21 +1120,12 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite,
                                  .stride = apriltag.stride,
                                  .height = apriltag.height,
                                  .width = apriltag.width};
-  uint8_t* device_image = nullptr;
-  uint32_t* device_labels = nullptr;
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&device_image),
-                        apriltag.width * apriltag.height * sizeof(uint8_t)));
-  CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&device_labels),
-                        apriltag.width * apriltag.height * sizeof(uint32_t)));
-  PopulateSegmentedApriltagGPU(binarized_apriltag, segmented_apriltag,
-                               device_image, device_labels);
+  PopulateSegmentedApriltag(binarized_apriltag, segmented_apriltag);
   if (imwrite) {
     ImWrite("/root/segmented_apriltag.png", segmented_apriltag);
   }
 
-  GpuSegmentExtractor segment_extractor;
-  auto segments = segment_extractor.ExtractDevice(
-      device_labels, apriltag.width, apriltag.height, apriltag.width);
+  auto segments = GetSegments(segmented_apriltag);
   SortSegments(segments);
 
   auto* boundary_segmented_apriltag_buffer = static_cast<uint32_t*>(
@@ -1703,34 +1164,34 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite,
 
   auto* candidate_quad_corners_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
+  memcpy(candidate_quad_corners_apriltag_buffer,
+         sorted_boundary_segmented_apriltag_buffer,
+         sizeof(uint8_t) * apriltag.width * apriltag.height);
+  ImageView candidate_quad_corners_apriltag{
+      .data = candidate_quad_corners_apriltag_buffer,
+      .stride = apriltag.stride,
+      .height = apriltag.height,
+      .width = apriltag.width};
+  PopulateCandidateQuadCornersApriltagBuffer(candidate_quad_corners,
+                                             candidate_quad_corners_apriltag);
   if (imwrite) {
-    memcpy(candidate_quad_corners_apriltag_buffer,
-           sorted_boundary_segmented_apriltag_buffer,
-           sizeof(uint8_t) * apriltag.width * apriltag.height);
-    ImageView candidate_quad_corners_apriltag{
-        .data = candidate_quad_corners_apriltag_buffer,
-        .stride = apriltag.stride,
-        .height = apriltag.height,
-        .width = apriltag.width};
-    PopulateCandidateQuadCornersApriltagBuffer(candidate_quad_corners,
-                                               candidate_quad_corners_apriltag);
     ImWrite("/root/candidate_quad_corners_apriltag.png",
             candidate_quad_corners_apriltag);
   }
 
-  auto quads = GetQuads(candidate_quad_corners);
-
   auto* quad_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
+  memcpy(quad_apriltag_buffer, sorted_boundary_segmented_apriltag_buffer,
+         sizeof(uint8_t) * apriltag.width * apriltag.height);
+  ImageView quad_apriltag{.data = quad_apriltag_buffer,
+                          .stride = apriltag.stride,
+                          .height = apriltag.height,
+                          .width = apriltag.width};
+  auto quads = GetQuads(candidate_quad_corners);
+  OrderQuads(quads);
+  CHECK_EQ(quads.size(), segments.size());
+  PopulateQuadApriltagBuffer(quads, quad_apriltag);
   if (imwrite) {
-    memcpy(quad_apriltag_buffer, sorted_boundary_segmented_apriltag_buffer,
-           sizeof(uint8_t) * apriltag.width * apriltag.height);
-    ImageView quad_apriltag{.data = quad_apriltag_buffer,
-                            .stride = apriltag.stride,
-                            .height = apriltag.height,
-                            .width = apriltag.width};
-
-    PopulateQuadApriltagBuffer(quads, quad_apriltag);
     ImWrite("/root/quad_apriltag.png", quad_apriltag);
   }
 
@@ -1738,22 +1199,21 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite,
 
   auto* bit_locations_apriltag_buffer = static_cast<uint32_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint32_t)));
+  memcpy(bit_locations_apriltag_buffer, boundary_segmented_apriltag_buffer,
+         sizeof(uint32_t) * apriltag.width * apriltag.height);
+  ImageView32 bit_locations_apriltag{
+      .data = bit_locations_apriltag_buffer,
+      .stride = apriltag.stride,
+      .height = apriltag.height,
+      .width = apriltag.width,
+  };
+  PopulateBitLocationsApriltag(bit_locations, bit_locations_apriltag);
   if (imwrite) {
-    memcpy(bit_locations_apriltag_buffer, boundary_segmented_apriltag_buffer,
-           sizeof(uint32_t) * apriltag.width * apriltag.height);
-    ImageView32 bit_locations_apriltag{
-        .data = bit_locations_apriltag_buffer,
-        .stride = apriltag.stride,
-        .height = apriltag.height,
-        .width = apriltag.width,
-    };
-    PopulateBitLocationsApriltag(bit_locations, bit_locations_apriltag);
     ImWrite("/root/bit_locations_apriltag.png", bit_locations_apriltag);
   }
 
   apriltag_family_t* family = tag36h11_create();
-  auto [tag_ids, rotations] =
-      GetTagIds(bit_locations, apriltag, family, target_tag_ids);
+  auto [tag_ids, rotations] = GetTagIds(bit_locations, apriltag, family);
   RotateQuads(quads, rotations);
 
   std::vector<ApriltagDetection> detections;
@@ -1764,19 +1224,18 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite,
     }
   }
 
-  auto refined_points = GetRefinedPoints(detections, apriltag);
-
   auto* refined_points_apriltag_buffer = static_cast<uint8_t*>(
       calloc(apriltag.width * apriltag.height, sizeof(uint8_t)));
-  if (imwrite) {
-    ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer,
-                                      .stride = apriltag.stride,
-                                      .height = apriltag.height,
-                                      .width = apriltag.width};
-    memcpy(refined_points_apriltag_buffer,
-           sorted_boundary_segmented_apriltag_buffer,
-           sizeof(uint8_t) * apriltag.width * apriltag.height);
+  ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer,
+                                    .stride = apriltag.stride,
+                                    .height = apriltag.height,
+                                    .width = apriltag.width};
+  memcpy(refined_points_apriltag_buffer,
+         sorted_boundary_segmented_apriltag_buffer,
+         sizeof(uint8_t) * apriltag.width * apriltag.height);
+  auto refined_points = GetRefinedPoints(detections, apriltag);
 
+  if (imwrite) {
     PopulateRefinedPointsApriltag(refined_points, refined_points_apriltag);
     ImWrite("/root/refined_points_apriltag.png", refined_points_apriltag);
   }
@@ -1792,12 +1251,10 @@ auto DetectAprilTag(ImageView apriltag, bool imwrite,
     }
   }
 
-  cudaFree(device_image);
-  cudaFree(device_labels);
-  cudaFreeHost(max_buffer);
-  cudaFreeHost(min_buffer);
-  cudaFreeHost(threshold_buffer);
-  cudaFreeHost(valid_buffer);
+  free(max_buffer);
+  free(min_buffer);
+  free(threshold_buffer);
+  free(valid_buffer);
   free(binarized_apriltag_buffer);
   free(segmented_apriltag_buffer);
   free(boundary_segmented_apriltag_buffer);

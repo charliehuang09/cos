@@ -6,7 +6,6 @@
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
-#include "apriltag/gpu_apriltag_detector.h"
 
 #include "control_loop/timer.h"
 
@@ -14,8 +13,6 @@
 
 ABSL_FLAG(std::string, image_path, "/root/apriltag.png",               // NOLINT
           "Apriltag image, width and height must be divisible by 4");  // NOLINT
-ABSL_FLAG(int, decimate, 1,
-          "Integer image reduction factor; dimensions must be divisible by 4 * factor");
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -24,43 +21,26 @@ auto main(int argc, char** argv) -> int {
 
   std::string apriltag_path = absl::GetFlag(FLAGS_image_path);
   cv::Mat apriltag = cv::imread(apriltag_path, cv::IMREAD_GRAYSCALE);
-  CHECK(!apriltag.empty()) << "Failed to read " << apriltag_path;
-  const int factor = absl::GetFlag(FLAGS_decimate);
-  CHECK_GE(factor, 1);
-  CHECK_EQ(apriltag.cols % (4LL * factor), 0);
-  CHECK_EQ(apriltag.rows % (4LL * factor), 0);
-  const int width = apriltag.cols;
-  const int height = apriltag.rows;
-
-  auto detector = apriltag::GPUApriltagDetector(width, height, {}, factor);
-  apriltag::ImageView view{
-      .data = apriltag.data, .stride = static_cast<int>(apriltag.step),
-      .height = height, .width = width};
-  auto detect = [&](bool debug = false) {
-    return detector.Detect(view, debug);
-  };
-  auto detections = detect(true);
-  LOG(INFO) << "Decimation factor: " << factor << "; detector image: "
-            << width << "x" << height << "; detected tags: " << detections.size();
+  uint8_t* pixels = apriltag.data;
+  int height = apriltag.rows;
+  int width = apriltag.cols;
+  CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
+  auto detections = DetectAprilTag(
+      apriltag::ImageView{
+          .data = pixels, .stride = width, .height = height, .width = width},
+      true);
   auto annotated_apriltag = apriltag.clone();
   DrawTagDetections(annotated_apriltag, detections);
-  const std::filesystem::path log_path = "/root/apriltag_logs";
-  std::error_code create_directory_error;
-  std::filesystem::create_directories(log_path, create_directory_error);
-  CHECK(!create_directory_error)
-      << "Failed to create " << log_path << ": "
-      << create_directory_error.message();
-  CHECK(cv::imwrite((log_path / "annotated_apriltag.png").string(),
-                    annotated_apriltag));
-  detector.WriteLogImages(log_path);
-
-  constexpr int runs = 250;
+  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
+  constexpr int runs = 100;
   double average_run_time = 0.0;
   for (int i = 0; i < runs; i++) {
     control_loop::Timer timer;
-    detections = detect();
+    auto detections = DetectAprilTag(
+        apriltag::ImageView{
+            .data = pixels, .stride = width, .height = height, .width = width},
+        false);
     average_run_time += timer.Stop().count();
   }
-  LOG(INFO) << "Average time (ms, including resize): "
-            << 1000 * average_run_time / runs;
+  LOG(INFO) << average_run_time / runs;
 }
