@@ -31,7 +31,7 @@ auto main(int argc, char** argv) -> int {
   CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
   const std::filesystem::path output_directory =
       absl::GetFlag(FLAGS_output_directory);
-  apriltag::GpuApriltagDetector detector;
+  apriltag::GpuApriltagDetector detector(width, height);
   auto detections = detector.DetectAprilTag(
       apriltag::ImageView{
           .data = pixels, .stride = width, .height = height, .width = width},
