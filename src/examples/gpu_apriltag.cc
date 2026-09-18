@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <opencv2/opencv.hpp>
 
 #include "absl/flags/flag.h"
@@ -14,6 +15,9 @@
 ABSL_FLAG(std::string, image_path, "/root/apriltag.png",               // NOLINT
           "Apriltag image, width and height must be divisible by 4");  // NOLINT
 
+ABSL_FLAG(std::string, output_directory, "/root",  // NOLINT
+          "Folder for debug and annotated images; empty disables writing");
+
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
@@ -25,21 +29,25 @@ auto main(int argc, char** argv) -> int {
   int height = apriltag.rows;
   int width = apriltag.cols;
   CHECK(apriltag.step == static_cast<size_t>(apriltag.cols));
-  auto detections = DetectAprilTag(
+  const std::filesystem::path output_directory =
+      absl::GetFlag(FLAGS_output_directory);
+  apriltag::GpuApriltagDetector detector;
+  auto detections = detector.DetectAprilTag(
       apriltag::ImageView{
           .data = pixels, .stride = width, .height = height, .width = width},
-      true);
-  auto annotated_apriltag = apriltag.clone();
-  DrawTagDetections(annotated_apriltag, detections);
-  cv::imwrite("/root/annotated_apriltag.png", annotated_apriltag);
+      output_directory);
+  if (!output_directory.empty()) {
+    auto annotated_apriltag = apriltag.clone();
+    detector.DrawTagDetections(annotated_apriltag, detections);
+    cv::imwrite((output_directory / "annotated_apriltag.png").string(),
+                annotated_apriltag);
+  }
   constexpr int runs = 100;
   double average_run_time = 0.0;
   for (int i = 0; i < runs; i++) {
     control_loop::Timer timer;
-    auto detections = DetectAprilTag(
-        apriltag::ImageView{
-            .data = pixels, .stride = width, .height = height, .width = width},
-        false);
+    auto detections = detector.DetectAprilTag(apriltag::ImageView{
+        .data = pixels, .stride = width, .height = height, .width = width});
     average_run_time += timer.Stop().count();
   }
   LOG(INFO) << average_run_time / runs;

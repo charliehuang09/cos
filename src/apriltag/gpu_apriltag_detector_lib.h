@@ -1,7 +1,11 @@
+#pragma once
+
 #include <apriltag.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <memory>
 #include <opencv2/core/mat.hpp>
 #include <string>
 #include <utility>
@@ -63,78 +67,147 @@ struct WeightedPoint {
   float weight;
 };
 
-void ImWrite(const std::string& path, const ImageView& image);
+// Detects tag36h11 AprilTags and owns the tag family and working memory.
+// Reuse one detector across frames; calls on the same instance must be serialized.
+class GpuApriltagDetector {
+ public:
+  GpuApriltagDetector();
 
-void ImWrite(const std::string& path, const ImageView& image_r,
-             const ImageView& image_g, const ImageView& image_b);
+  // Runs the entire pipeline and returns refined detections. The input is
+  // borrowed only for this call. Working buffers are resized and cleared for
+  // each frame, retaining their capacity for reuse. Image width and height
+  // must be positive and divisible by four. A nonempty output_directory enables
+  // debug images; the directory is created if needed. An empty path disables them.
+  auto DetectAprilTag(ImageView apriltag,
+                      const std::filesystem::path& output_directory = {})
+      -> std::vector<ApriltagDetection>;
 
-void ImWrite(const std::string& path, ImageView32 segmented_apriltag);
+  void DrawTagDetections(cv::Mat& image,
+                         const std::vector<ApriltagDetection>& detections);
 
-void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max);
+ private:
+  void PrepareBuffers(int width, int height);
 
-void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
-                            ImageView valid);
+  void ImWrite(const std::string& path, const ImageView& image);
 
-void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
-                               ImageView apriltag,
-                               ImageView binarized_apriltag);
+  void ImWrite(const std::string& path, const ImageView& image_r,
+               const ImageView& image_g, const ImageView& image_b);
 
-void Segment(int row, int col, ImageView binarized_apriltag,
-             ImageView32 segmented_apriltag, int32_t id);
+  void ImWrite(const std::string& path, ImageView32 segmented_apriltag);
 
-void PopulateSegmentedApriltag(ImageView binarized_apriltag,
-                               ImageView32 segmented_apriltag);
+  void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max);
 
-auto GetSegments(ImageView32 segmented_apriltag)
-    -> std::vector<std::vector<Coord<int>>>;
+  void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
+                              ImageView valid);
 
-void PopulateBoundarySegmentedApriltag(
-    std::vector<std::vector<Coord<int>>>& segments,
-    ImageView32 boundary_segmented_apriltag);
+  void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
+                                 ImageView apriltag,
+                                 ImageView binarized_apriltag);
 
-auto SortSegments(std::vector<std::vector<Coord<int>>>& segments);
+  void Segment(int row, int col, ImageView binarized_apriltag,
+               ImageView32 segmented_apriltag, int32_t id);
 
-void PopulateSortedBoundarySegmentedApriltag(
-    std::vector<std::vector<Coord<int>>>& segments,
-    ImageView sorted_boundary_segmented_apriltag);
+  void PopulateSegmentedApriltag(ImageView binarized_apriltag,
+                                 ImageView32 segmented_apriltag);
 
-auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
-    -> std::vector<std::vector<float>>;
+  auto GetSegments(ImageView32 segmented_apriltag)
+      -> std::vector<std::vector<Coord<int>>>;
 
-auto GetCandidatesQuadCorners(
-    const std::vector<std::vector<Coord<int>>>& segments,
-    const std::vector<std::vector<float>>& mse_map)
-    -> std::vector<CandidatesQuad>;
+  void PopulateBoundarySegmentedApriltag(
+      std::vector<std::vector<Coord<int>>>& segments,
+      ImageView32 boundary_segmented_apriltag);
 
-void PopulateCandidateQuadCornersApriltagBuffer(
-    std::vector<CandidatesQuad>& quads,
-    ImageView candidates_quad_corners_apriltag);
+  auto SortSegments(std::vector<std::vector<Coord<int>>>& segments);
 
-auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
-    -> std::vector<Quad>;
+  void PopulateSortedBoundarySegmentedApriltag(
+      std::vector<std::vector<Coord<int>>>& segments,
+      ImageView sorted_boundary_segmented_apriltag);
 
-void OrderQuads(std::vector<Quad>& quads);
+  auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
+      -> std::vector<std::vector<float>>;
 
-void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
-                                ImageView quad_apriltag);
+  auto GetCandidatesQuadCorners(
+      const std::vector<std::vector<Coord<int>>>& segments,
+      const std::vector<std::vector<float>>& mse_map)
+      -> std::vector<CandidatesQuad>;
 
-auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation>;
+  void PopulateCandidateQuadCornersApriltagBuffer(
+      std::vector<CandidatesQuad>& quads,
+      ImageView candidates_quad_corners_apriltag);
 
-void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
-                                  ImageView32 bit_locations_apriltag);
+  auto GetQuads(std::vector<CandidatesQuad>& candidate_quad_corners)
+      -> std::vector<Quad>;
 
-auto GetBlackWhiteThreshold(ImageView apriltag,
-                            const BitLocation& bit_location);
+  void OrderQuads(std::vector<Quad>& quads);
 
-auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag,
-               apriltag_family_t* family)
-    -> std::pair<std::vector<int>, std::vector<int>>;
+  void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
+                                  ImageView quad_apriltag);
 
-void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations);
+  auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation>;
 
-void DrawTagDetections(cv::Mat& image,
-                       const std::vector<ApriltagDetection>& detections);
+  void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
+                                    ImageView32 bit_locations_apriltag);
 
-auto DetectAprilTag(ImageView apriltag, bool imwrite = true)
-    -> std::vector<ApriltagDetection>;
+  auto GetBlackWhiteThreshold(ImageView apriltag,
+                              const BitLocation& bit_location);
+
+  auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView apriltag)
+      -> std::pair<std::vector<int>, std::vector<int>>;
+
+  void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations);
+
+  auto GradientCol(Coord<int> point, ImageView& apriltag) -> float;
+
+  auto GradientRow(Coord<int> point, ImageView& apriltag) -> float;
+
+  auto GetRefinedPoints(
+      const std::vector<ApriltagDetection>& apriltag_detections,
+      ImageView& apriltag)
+      -> std::vector<std::array<std::vector<WeightedPoint>, 4>>;
+
+  void PopulateRefinedPointsApriltag(
+      const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
+          refined_points,
+      ImageView& refined_points_apriltag);
+
+  auto Cross(const Coord<float>& a, const Coord<float>& b) -> float;
+
+  auto GetIntersection(const Coord<float>& centroid_a,
+                       const std::pair<float, float>& vector_a,
+                       const Coord<float>& centroid_b,
+                       const std::pair<float, float>& vector_b) -> Coord<int>;
+
+  auto GetRefinedQuads(
+      const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
+          refined_points) -> std::vector<Quad>;
+
+  std::unique_ptr<apriltag_family_t, void (*)(apriltag_family_t*)> family_;
+
+  // Packed image buffers; their stride is independent of the input stride.
+  std::vector<uint8_t> max_buffer_;
+  std::vector<uint8_t> min_buffer_;
+  std::vector<uint8_t> threshold_buffer_;
+  std::vector<uint8_t> valid_buffer_;
+  std::vector<uint8_t> binarized_apriltag_buffer_;
+  std::vector<uint32_t> segmented_apriltag_buffer_;
+  std::vector<uint32_t> boundary_segmented_apriltag_buffer_;
+  std::vector<uint8_t> sorted_boundary_segmented_apriltag_buffer_;
+  std::vector<uint8_t> candidate_quad_corners_apriltag_buffer_;
+  std::vector<uint8_t> quad_apriltag_buffer_;
+  std::vector<uint32_t> bit_locations_apriltag_buffer_;
+  std::vector<uint8_t> refined_points_apriltag_buffer_;
+  std::vector<uint8_t> debug_r_buffer_;
+  std::vector<uint8_t> debug_g_buffer_;
+  std::vector<uint8_t> debug_b_buffer_;
+
+  std::vector<std::vector<Coord<int>>> segments_;
+  std::vector<std::vector<float>> mses_;
+  std::vector<CandidatesQuad> candidate_quad_corners_;
+  std::vector<Quad> quads_;
+  std::vector<BitLocation> bit_locations_;
+  std::vector<ApriltagDetection> detections_;
+  std::vector<std::array<std::vector<WeightedPoint>, 4>> refined_points_;
+  std::vector<Quad> refined_quads_;
+};
+
 }  // namespace apriltag
