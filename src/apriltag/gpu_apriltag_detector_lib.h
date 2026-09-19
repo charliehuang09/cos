@@ -33,9 +33,7 @@ struct ImageView {
   int height;
   int width;
 
-  auto operator()(size_t row, size_t col) -> uint8_t& {
-    return data[row * stride + col];
-  }
+  auto operator()(size_t row, size_t col) -> uint8_t&;
 };
 
 struct ImageView32 {
@@ -73,6 +71,12 @@ class GpuApriltagDetector {
  public:
   // Allocates image buffers for a fixed, positive size divisible by four.
   GpuApriltagDetector(int width, int height);
+  ~GpuApriltagDetector();
+
+  GpuApriltagDetector(const GpuApriltagDetector&) = delete;
+  auto operator=(const GpuApriltagDetector&) -> GpuApriltagDetector& = delete;
+  GpuApriltagDetector(GpuApriltagDetector&&) = delete;
+  auto operator=(GpuApriltagDetector&&) -> GpuApriltagDetector& = delete;
 
   // Runs the entire pipeline and returns refined detections. The input is
   // borrowed only for this call and must match the constructor dimensions.
@@ -87,16 +91,7 @@ class GpuApriltagDetector {
                          const std::vector<ApriltagDetection>& detections);
 
  private:
-  struct BufferDeleter {
-    void operator()(void* buffer) const;
-  };
-
-  template <typename T>
-  using Buffer = std::unique_ptr<T, BufferDeleter>;
-
-  template <typename T>
-  auto AllocateBuffer(size_t count) -> Buffer<T>;
-
+  void FreeBuffers();
   void ClearBuffers();
 
   void ImWrite(const std::string& path, const ImageView& image);
@@ -106,7 +101,11 @@ class GpuApriltagDetector {
 
   void ImWrite(const std::string& path, ImageView32 segmented_apriltag);
 
+  void RegisterApriltagViewToGPU(ImageView apriltag);
+  void UnregisterApriltagViewToGPU(ImageView apriltag);
+
   void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max);
+  void PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max);
 
   void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
                               ImageView valid);
@@ -197,21 +196,21 @@ class GpuApriltagDetector {
   std::unique_ptr<apriltag_family_t, void (*)(apriltag_family_t*)> family_;
 
   // Packed image buffers; their stride is independent of the input stride.
-  Buffer<uint8_t> max_buffer_;
-  Buffer<uint8_t> min_buffer_;
-  Buffer<uint8_t> threshold_buffer_;
-  Buffer<uint8_t> valid_buffer_;
-  Buffer<uint8_t> binarized_apriltag_buffer_;
-  Buffer<uint32_t> segmented_apriltag_buffer_;
-  Buffer<uint32_t> boundary_segmented_apriltag_buffer_;
-  Buffer<uint8_t> sorted_boundary_segmented_apriltag_buffer_;
-  Buffer<uint8_t> candidate_quad_corners_apriltag_buffer_;
-  Buffer<uint8_t> quad_apriltag_buffer_;
-  Buffer<uint32_t> bit_locations_apriltag_buffer_;
-  Buffer<uint8_t> refined_points_apriltag_buffer_;
-  Buffer<uint8_t> debug_r_buffer_;
-  Buffer<uint8_t> debug_g_buffer_;
-  Buffer<uint8_t> debug_b_buffer_;
+  uint8_t* max_buffer_ = nullptr;
+  uint8_t* min_buffer_ = nullptr;
+  uint8_t* threshold_buffer_ = nullptr;
+  uint8_t* valid_buffer_ = nullptr;
+  uint8_t* binarized_apriltag_buffer_ = nullptr;
+  uint32_t* segmented_apriltag_buffer_ = nullptr;
+  uint32_t* boundary_segmented_apriltag_buffer_ = nullptr;
+  uint8_t* sorted_boundary_segmented_apriltag_buffer_ = nullptr;
+  uint8_t* candidate_quad_corners_apriltag_buffer_ = nullptr;
+  uint8_t* quad_apriltag_buffer_ = nullptr;
+  uint32_t* bit_locations_apriltag_buffer_ = nullptr;
+  uint8_t* refined_points_apriltag_buffer_ = nullptr;
+  uint8_t* debug_r_buffer_ = nullptr;
+  uint8_t* debug_g_buffer_ = nullptr;
+  uint8_t* debug_b_buffer_ = nullptr;
 
   std::vector<std::vector<Coord<int>>> segments_;
   std::vector<std::vector<float>> mses_;
