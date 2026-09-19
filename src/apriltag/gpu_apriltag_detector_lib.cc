@@ -157,6 +157,83 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
   debug_b_buffer_ =
       static_cast<uint8_t*>(std::malloc(pixels * sizeof(uint8_t)));
   std::memset(debug_b_buffer_, 0, pixels * sizeof(uint8_t));
+
+  // Views borrow the fixed-size buffers allocated above.
+  segmented_apriltag_r_view_ = {
+      .data = debug_r_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  segmented_apriltag_g_view_ = {
+      .data = debug_g_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  segmented_apriltag_b_view_ = {
+      .data = debug_b_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  max_view_ = {
+      .data = max_buffer_,
+      .stride = width_ / 4,
+      .height = height_ / 4,
+      .width = width_ / 4};
+  min_view_ = {
+      .data = min_buffer_,
+      .stride = width_ / 4,
+      .height = height_ / 4,
+      .width = width_ / 4};
+  binarized_apriltag_view_ = {
+      .data = binarized_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  threshold_view_ = {
+      .data = threshold_buffer_,
+      .stride = width_ / 4,
+      .height = height_ / 4,
+      .width = width_ / 4};
+  valid_view_ = {
+      .data = valid_buffer_,
+      .stride = width_ / 4,
+      .height = height_ / 4,
+      .width = width_ / 4};
+  segmented_apriltag_view_ = {
+      .data = segmented_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  boundary_segmented_apriltag_view_ = {
+      .data = boundary_segmented_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  sorted_boundary_segmented_apriltag_view_ = {
+      .data = sorted_boundary_segmented_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  candidate_quad_corners_apriltag_view_ = {
+      .data = candidate_quad_corners_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  quad_apriltag_view_ = {
+      .data = quad_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  bit_locations_apriltag_view_ = {
+      .data = bit_locations_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
+  refined_points_apriltag_view_ = {
+      .data = refined_points_apriltag_buffer_,
+      .stride = width_,
+      .height = height_,
+      .width = width_};
 }
 
 GpuApriltagDetector::~GpuApriltagDetector() {
@@ -214,20 +291,8 @@ void GpuApriltagDetector::ImWrite(const std::string& path,
                                   ImageView32 segmented_apriltag) {
   const size_t pixels = static_cast<size_t>(width_) * height_;
   std::memset(debug_r_buffer_, 0, pixels * sizeof(uint8_t));
-  ImageView segmented_apriltag_r{.data = debug_r_buffer_,
-                                 .stride = segmented_apriltag.width,
-                                 .height = segmented_apriltag.height,
-                                 .width = segmented_apriltag.width};
   std::memset(debug_g_buffer_, 0, pixels * sizeof(uint8_t));
-  ImageView segmented_apriltag_g{.data = debug_g_buffer_,
-                                 .stride = segmented_apriltag.width,
-                                 .height = segmented_apriltag.height,
-                                 .width = segmented_apriltag.width};
   std::memset(debug_b_buffer_, 0, pixels * sizeof(uint8_t));
-  ImageView segmented_apriltag_b{.data = debug_b_buffer_,
-                                 .stride = segmented_apriltag.width,
-                                 .height = segmented_apriltag.height,
-                                 .width = segmented_apriltag.width};
 
   for (int i = 0; i < segmented_apriltag.height; i++) {
     for (int j = 0; j < segmented_apriltag.width; j++) {
@@ -235,15 +300,15 @@ void GpuApriltagDetector::ImWrite(const std::string& path,
       if (id != 0) {
         uint8_t r, g, b;
         PopulateColor(id, r, g, b);
-        segmented_apriltag_r(i, j) = r;
-        segmented_apriltag_g(i, j) = g;
-        segmented_apriltag_b(i, j) = b;
+        segmented_apriltag_r_view_(i, j) = r;
+        segmented_apriltag_g_view_(i, j) = g;
+        segmented_apriltag_b_view_(i, j) = b;
       }
     }
   }
 
-  ImWrite(path, segmented_apriltag_r, segmented_apriltag_g,
-          segmented_apriltag_b);
+  ImWrite(path, segmented_apriltag_r_view_, segmented_apriltag_g_view_,
+          segmented_apriltag_b_view_);
 }
 
 void GpuApriltagDetector::PopulateMinMax(ImageView apriltag, ImageView min,
@@ -1206,88 +1271,52 @@ auto GpuApriltagDetector::DetectAprilTag(
 
   RegisterApriltagViewToGPU(apriltag);
 
-  ImageView max{.data = max_buffer_,
-                .stride = apriltag.width / 4,
-                .height = apriltag.height / 4,
-                .width = apriltag.width / 4};
-  ImageView min{.data = min_buffer_,
-                .stride = apriltag.width / 4,
-                .height = apriltag.height / 4,
-                .width = apriltag.width / 4};
-  ImageView binarized_apriltag{.data = binarized_apriltag_buffer_,
-                               .stride = apriltag.width,
-                               .height = apriltag.height,
-                               .width = apriltag.width};
-
   {
-    PopulateMinMaxGPU(apriltag, min, max, stream_);
-    SyncStream();
-
-    PopulateThresholdValidGPU(apriltag, min, max, binarized_apriltag, stream_);
+    PopulateMinMaxGPU(apriltag, min_view_, max_view_, stream_);
+    PopulateThresholdValidGPU(apriltag, min_view_, max_view_,
+                              binarized_apriltag_view_, stream_);
     SyncStream();
   }
 
   // {
-  //   PopulateMinMax(apriltag, min, max);
-  //   ImageView threshold{.data = threshold_buffer_,
-  //                       .stride = apriltag.width / 4,
-  //                       .height = apriltag.height / 4,
-  //                       .width = apriltag.width / 4};
-  //   ImageView valid{.data = valid_buffer_,
-  //                   .stride = apriltag.width / 4,
-  //                   .height = apriltag.height / 4,
-  //                   .width = apriltag.width / 4};
-  //   PopulateThresholdValid(min, max, threshold, valid);
-  //   PopulateBinarizedApriltag(threshold, valid, apriltag, binarized_apriltag);
+  //   PopulateMinMax(apriltag, min_view_, max_view_);
+  //   PopulateThresholdValid(min_view_, max_view_, threshold_view_, valid_view_);
+  //   PopulateBinarizedApriltag(threshold_view_, valid_view_, apriltag,
+  //                            binarized_apriltag_view_);
   //   if (!output_directory.empty()) {
-  //     ImWrite((output_directory / "threshold.png").string(), threshold);
-  //     ImWrite((output_directory / "valid.png").string(), valid);
+  //     ImWrite((output_directory / "threshold.png").string(), threshold_view_);
+  //     ImWrite((output_directory / "valid.png").string(), valid_view_);
   //   }
   // }
 
   if (!output_directory.empty()) {
-    ImWrite((output_directory / "max.png").string(), max);
-    ImWrite((output_directory / "min.png").string(), min);
+    ImWrite((output_directory / "max.png").string(), max_view_);
+    ImWrite((output_directory / "min.png").string(), min_view_);
     ImWrite((output_directory / "binarized_apriltag.png").string(),
-            binarized_apriltag);
+            binarized_apriltag_view_);
   }
 
-  ImageView32 segmented_apriltag{.data = segmented_apriltag_buffer_,
-                                 .stride = apriltag.width,
-                                 .height = apriltag.height,
-                                 .width = apriltag.width};
-  PopulateSegmentedApriltag(binarized_apriltag, segmented_apriltag);
+  PopulateSegmentedApriltag(binarized_apriltag_view_, segmented_apriltag_view_);
   if (!output_directory.empty()) {
     ImWrite((output_directory / "segmented_apriltag.png").string(),
-            segmented_apriltag);
+            segmented_apriltag_view_);
   }
 
-  segments_ = GetSegments(segmented_apriltag);
+  segments_ = GetSegments(segmented_apriltag_view_);
   SortSegments(segments_);
 
-  ImageView32 boundary_segmented_apriltag{
-      .data = boundary_segmented_apriltag_buffer_,
-      .stride = apriltag.width,
-      .height = apriltag.height,
-      .width = apriltag.width};
-  PopulateBoundarySegmentedApriltag(segments_, boundary_segmented_apriltag);
+  PopulateBoundarySegmentedApriltag(segments_, boundary_segmented_apriltag_view_);
   if (!output_directory.empty()) {
     ImWrite((output_directory / "boundary_segmented_apriltag.png").string(),
-            boundary_segmented_apriltag);
+            boundary_segmented_apriltag_view_);
   }
 
-  ImageView sorted_boundary_segmented_apriltag{
-      .data = sorted_boundary_segmented_apriltag_buffer_,
-      .stride = apriltag.width,
-      .height = apriltag.height,
-      .width = apriltag.width};
-
-  PopulateSortedBoundarySegmentedApriltag(segments_,
-                                          sorted_boundary_segmented_apriltag);
+  PopulateSortedBoundarySegmentedApriltag(
+      segments_, sorted_boundary_segmented_apriltag_view_);
   if (!output_directory.empty()) {
     ImWrite(
         (output_directory / "sorted_boundary_segmented_apriltag.png").string(),
-        sorted_boundary_segmented_apriltag);
+        sorted_boundary_segmented_apriltag_view_);
   }
 
   mses_ = GetMses(segments_);
@@ -1299,46 +1328,31 @@ auto GpuApriltagDetector::DetectAprilTag(
   memcpy(candidate_quad_corners_apriltag_buffer_,
          sorted_boundary_segmented_apriltag_buffer_,
          sizeof(uint8_t) * apriltag.width * apriltag.height);
-  ImageView candidate_quad_corners_apriltag{
-      .data = candidate_quad_corners_apriltag_buffer_,
-      .stride = apriltag.width,
-      .height = apriltag.height,
-      .width = apriltag.width};
-  PopulateCandidateQuadCornersApriltagBuffer(candidate_quad_corners_,
-                                             candidate_quad_corners_apriltag);
+  PopulateCandidateQuadCornersApriltagBuffer(
+      candidate_quad_corners_, candidate_quad_corners_apriltag_view_);
   if (!output_directory.empty()) {
     ImWrite((output_directory / "candidate_quad_corners_apriltag.png").string(),
-            candidate_quad_corners_apriltag);
+            candidate_quad_corners_apriltag_view_);
   }
 
   memcpy(quad_apriltag_buffer_, sorted_boundary_segmented_apriltag_buffer_,
          sizeof(uint8_t) * apriltag.width * apriltag.height);
-  ImageView quad_apriltag{.data = quad_apriltag_buffer_,
-                          .stride = apriltag.width,
-                          .height = apriltag.height,
-                          .width = apriltag.width};
   quads_ = GetQuads(candidate_quad_corners_);
   OrderQuads(quads_);
   CHECK_EQ(quads_.size(), segments_.size());
-  PopulateQuadApriltagBuffer(quads_, quad_apriltag);
+  PopulateQuadApriltagBuffer(quads_, quad_apriltag_view_);
   if (!output_directory.empty()) {
-    ImWrite((output_directory / "quad_apriltag.png").string(), quad_apriltag);
+    ImWrite((output_directory / "quad_apriltag.png").string(), quad_apriltag_view_);
   }
 
   bit_locations_ = GetBitLocations(quads_);
 
   memcpy(bit_locations_apriltag_buffer_, boundary_segmented_apriltag_buffer_,
          sizeof(uint32_t) * apriltag.width * apriltag.height);
-  ImageView32 bit_locations_apriltag{
-      .data = bit_locations_apriltag_buffer_,
-      .stride = apriltag.width,
-      .height = apriltag.height,
-      .width = apriltag.width,
-  };
-  PopulateBitLocationsApriltag(bit_locations_, bit_locations_apriltag);
+  PopulateBitLocationsApriltag(bit_locations_, bit_locations_apriltag_view_);
   if (!output_directory.empty()) {
     ImWrite((output_directory / "bit_locations_apriltag.png").string(),
-            bit_locations_apriltag);
+            bit_locations_apriltag_view_);
   }
 
   auto [tag_ids, rotations] = GetTagIds(bit_locations_, apriltag);
@@ -1352,19 +1366,15 @@ auto GpuApriltagDetector::DetectAprilTag(
     }
   }
 
-  ImageView refined_points_apriltag{.data = refined_points_apriltag_buffer_,
-                                    .stride = apriltag.width,
-                                    .height = apriltag.height,
-                                    .width = apriltag.width};
   memcpy(refined_points_apriltag_buffer_,
          sorted_boundary_segmented_apriltag_buffer_,
          sizeof(uint8_t) * apriltag.width * apriltag.height);
   refined_points_ = GetRefinedPoints(detections_, apriltag);
 
   if (!output_directory.empty()) {
-    PopulateRefinedPointsApriltag(refined_points_, refined_points_apriltag);
+    PopulateRefinedPointsApriltag(refined_points_, refined_points_apriltag_view_);
     ImWrite((output_directory / "refined_points_apriltag.png").string(),
-            refined_points_apriltag);
+            refined_points_apriltag_view_);
   }
 
   refined_quads_ = GetRefinedQuads(refined_points_);

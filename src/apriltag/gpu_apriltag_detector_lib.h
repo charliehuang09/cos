@@ -219,6 +219,23 @@ class GpuApriltagDetector {
   uint8_t* debug_g_buffer_ = nullptr;
   uint8_t* debug_b_buffer_ = nullptr;
 
+  // Reused views into the owned image buffers.
+  ImageView segmented_apriltag_r_view_{};
+  ImageView segmented_apriltag_g_view_{};
+  ImageView segmented_apriltag_b_view_{};
+  ImageView max_view_{};
+  ImageView min_view_{};
+  ImageView binarized_apriltag_view_{};
+  ImageView threshold_view_{};
+  ImageView valid_view_{};
+  ImageView32 segmented_apriltag_view_{};
+  ImageView32 boundary_segmented_apriltag_view_{};
+  ImageView sorted_boundary_segmented_apriltag_view_{};
+  ImageView candidate_quad_corners_apriltag_view_{};
+  ImageView quad_apriltag_view_{};
+  ImageView32 bit_locations_apriltag_view_{};
+  ImageView refined_points_apriltag_view_{};
+
   std::vector<std::vector<Coord<int>>> segments_;
   std::vector<std::vector<float>> mses_;
   std::vector<CandidatesQuad> candidate_quad_corners_;
