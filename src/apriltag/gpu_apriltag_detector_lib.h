@@ -93,24 +93,29 @@ class GpuApriltagDetector {
   void ImWrite(const std::string& path, const ImageView<uint8_t>& image);
 
   void ImWrite(const std::string& path, const ImageView<uint8_t>& image_r,
-               const ImageView<uint8_t>& image_g, const ImageView<uint8_t>& image_b);
+               const ImageView<uint8_t>& image_g,
+               const ImageView<uint8_t>& image_b);
 
   void ImWrite(const std::string& path, ImageView<uint32_t> segmented_apriltag);
 
   void RegisterApriltagViewToGPU(ImageView<uint8_t> apriltag);
   void UnregisterApriltagViewToGPU(ImageView<uint8_t> apriltag);
 
-  void PopulateMinMax(ImageView<uint8_t> apriltag, ImageView<uint8_t> min, ImageView<uint8_t> max);
-  void PopulateMinMaxGPU(ImageView<uint8_t> apriltag, ImageView<uint8_t> min, ImageView<uint8_t> max,
-                         cudaStream_t stream);
+  void PopulateMinMax(ImageView<uint8_t> apriltag, ImageView<uint8_t> min,
+                      ImageView<uint8_t> max);
+  void PopulateMinMaxGPU(ImageView<uint8_t> apriltag, ImageView<uint8_t> min,
+                         ImageView<uint8_t> max, cudaStream_t stream);
 
-  void PopulateThresholdValid(ImageView<uint8_t> min, ImageView<uint8_t> max, ImageView<uint8_t> threshold,
+  void PopulateThresholdValid(ImageView<uint8_t> min, ImageView<uint8_t> max,
+                              ImageView<uint8_t> threshold,
                               ImageView<uint8_t> valid);
-  void PopulateThresholdValidGPU(ImageView<uint8_t> apriltag, ImageView<uint8_t> min,
-                                 ImageView<uint8_t> max, ImageView<uint8_t> binarized_apriltag,
+  void PopulateThresholdValidGPU(ImageView<uint8_t> apriltag,
+                                 ImageView<uint8_t> min, ImageView<uint8_t> max,
+                                 ImageView<uint8_t> binarized_apriltag,
                                  cudaStream_t stream);
 
-  void PopulateBinarizedApriltag(ImageView<uint8_t> threshold, ImageView<uint8_t> valid,
+  void PopulateBinarizedApriltag(ImageView<uint8_t> threshold,
+                                 ImageView<uint8_t> valid,
                                  ImageView<uint8_t> apriltag,
                                  ImageView<uint8_t> binarized_apriltag);
 
@@ -161,7 +166,8 @@ class GpuApriltagDetector {
   auto GetBlackWhiteThreshold(ImageView<uint8_t> apriltag,
                               const BitLocation& bit_location);
 
-  auto GetTagIds(std::vector<BitLocation>& bit_locations, ImageView<uint8_t> apriltag)
+  auto GetTagIds(std::vector<BitLocation>& bit_locations,
+                 ImageView<uint8_t> apriltag)
       -> std::pair<std::vector<int>, std::vector<int>>;
 
   void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations);
@@ -212,7 +218,7 @@ class GpuApriltagDetector {
   uint8_t* debug_g_buffer_ = nullptr;
   uint8_t* debug_b_buffer_ = nullptr;
 
-  // Reused views into the owned image buffers.
+  // Reuse views into the owned image buffers.
   ImageView<uint8_t> segmented_apriltag_r_view_{};
   ImageView<uint8_t> segmented_apriltag_g_view_{};
   ImageView<uint8_t> segmented_apriltag_b_view_{};
