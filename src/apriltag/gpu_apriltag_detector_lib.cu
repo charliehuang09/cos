@@ -81,19 +81,63 @@ namespace{
     min_view(min_max_row_index, min_max_col_index) = min_value;
     max_view(min_max_row_index, min_max_col_index) = max_value;
   }
+
+  __global__ void PopulateBinarizedApriltagKernal(ImageViewGPU apriltag, ImageViewGPU min_view, ImageViewGPU max_view, ImageViewGPU binarized_apriltag){
+    int col_offset = threadIdx.x + blockIdx.x * blockDim.x;
+    int row_offset = threadIdx.y + blockIdx.y * blockDim.y;
+
+    if (row_offset >= min_view.height || col_offset >= min_view.width) {
+      return;
+    }
+
+    uint8_t min_value = 255;
+    uint8_t max_value = 0;
+    for (int row = cuda::std::max(0, row_offset - 1); row <= cuda::std::min(min_view.height - 1, row_offset + 1); row++){
+      for (int col = cuda::std::max(0, col_offset - 1); col <= cuda::std::min(min_view.width - 1, col_offset + 1); col++){
+        min_value = cuda::std::min(min_value, min_view(row, col));
+        max_value = cuda::std::max(max_value, max_view(row, col));
+      }
+    }
+    uint8_t threshold = (max_value / 2) + (min_value / 2);
+    uint8_t valid = max_value - min_value > 50 ? 255 : 0;
+
+    if (valid == 0){
+      for (int row = row_offset * 4; row < (row_offset * 4) + 4; row++){
+        for (int col = col_offset * 4; col < (col_offset * 4) + 4; col++){
+          binarized_apriltag(row, col) = apriltag(row, col) > threshold ? (255 / 2) + 50 : (255 / 2 - 50);
+        }
+      }
+    } else{
+      for (int row = row_offset * 4; row < (row_offset * 4) + 4; row++){
+        for (int col = col_offset * 4; col < (col_offset * 4) + 4; col++){
+          binarized_apriltag(row, col) = apriltag(row, col) > threshold ? 255 : 0;
+        }
+      }
+    }
+    return;
+  }
 }
 
 namespace apriltag{
-  void GpuApriltagDetector::PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max){
+  void GpuApriltagDetector::PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max, cudaStream_t stream){
     ImageViewGPU apriltag_gpu(apriltag);
     ImageViewGPU min_gpu(min);
     ImageViewGPU max_gpu(max);
 
-
     dim3 threads(32, 8);
     dim3 blocks(cuda::ceil_div(min.width, threads.x), cuda::ceil_div(min.height, threads.y));
-    PopulateMinMaxKernal<<<blocks, threads>>>(apriltag_gpu, min_gpu, max_gpu);
-    CUDA_CHECK(cudaDeviceSynchronize());
+    PopulateMinMaxKernal<<<blocks, threads, 0, stream>>>(apriltag_gpu, min_gpu, max_gpu);
+  }
+
+  void GpuApriltagDetector::PopulateThresholdValidGPU(ImageView apriltag, ImageView min, ImageView max, ImageView binarized_apriltag,
+                                 cudaStream_t stream){
+    ImageView d_apriltag(apriltag);
+    ImageViewGPU d_min(min);
+    ImageViewGPU d_max(max);
+    ImageViewGPU d_binarized_apriltag(binarized_apriltag);
+    dim3 threads(8, 8);
+    dim3 blocks(cuda::ceil_div(min.width, threads.x), cuda::ceil_div(min.height, threads.y));
+    PopulateBinarizedApriltagKernal<<<blocks, threads, 0, stream>>>(d_apriltag, d_min, d_max, d_binarized_apriltag);
   }
 
 
@@ -107,4 +151,9 @@ namespace apriltag{
   void GpuApriltagDetector::UnregisterApriltagViewToGPU(ImageView apriltag){
     cudaHostUnregister(apriltag.data);
   }
+
+  void GpuApriltagDetector::SyncStream(){
+    CUDA_CHECK(cudaStreamSynchronize(stream_));
+  }
+
 }

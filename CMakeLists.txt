@@ -22,6 +22,7 @@ add_compile_options($<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-psabi>)
 
 set(CMAKE_CUDA_STANDARD 23)
 set(CMAKE_CUDA_ARCHITECTURES 87)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
 
 add_compile_options(-march=armv8-a+simd)
 

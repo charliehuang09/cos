@@ -1,6 +1,7 @@
 #pragma once
 
 #include <apriltag.h>
+#include <cuda_runtime.h>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -91,6 +92,8 @@ class GpuApriltagDetector {
                          const std::vector<ApriltagDetection>& detections);
 
  private:
+  void SyncStream();
+
   void FreeBuffers();
   void ClearBuffers();
 
@@ -105,10 +108,14 @@ class GpuApriltagDetector {
   void UnregisterApriltagViewToGPU(ImageView apriltag);
 
   void PopulateMinMax(ImageView apriltag, ImageView min, ImageView max);
-  void PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max);
+  void PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max,
+                         cudaStream_t stream);
 
   void PopulateThresholdValid(ImageView min, ImageView max, ImageView threshold,
                               ImageView valid);
+  void PopulateThresholdValidGPU(ImageView apriltag, ImageView min,
+                                 ImageView max, ImageView binarized_apriltag,
+                                 cudaStream_t stream);
 
   void PopulateBinarizedApriltag(ImageView threshold, ImageView valid,
                                  ImageView apriltag,
@@ -220,6 +227,7 @@ class GpuApriltagDetector {
   std::vector<ApriltagDetection> detections_;
   std::vector<std::array<std::vector<WeightedPoint>, 4>> refined_points_;
   std::vector<Quad> refined_quads_;
+  cudaStream_t stream_;
 };
 
 }  // namespace apriltag

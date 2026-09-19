@@ -98,6 +98,8 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
   CHECK_GT(height_, 0);
   CHECK_EQ(width_ % 4, 0);
   CHECK_EQ(height_ % 4, 0);
+  CHECK(cudaStreamCreate(&stream_) == cudaSuccess);
+
   const size_t pixels = static_cast<size_t>(width_) * height_;
 
   {
@@ -108,7 +110,6 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
                       (pixels / 16) * sizeof(uint8_t));
     std::memset(min_buffer_, 0, (pixels / 16) * sizeof(uint8_t));
   }
-
   std::memset(min_buffer_, 0, (pixels / 16) * sizeof(uint8_t));
   threshold_buffer_ =
       static_cast<uint8_t*>(std::malloc((pixels / 16) * sizeof(uint8_t)));
@@ -116,9 +117,13 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
   valid_buffer_ =
       static_cast<uint8_t*>(std::malloc((pixels / 16) * sizeof(uint8_t)));
   std::memset(valid_buffer_, 0, (pixels / 16) * sizeof(uint8_t));
-  binarized_apriltag_buffer_ =
-      static_cast<uint8_t*>(std::malloc(pixels * sizeof(uint8_t)));
-  std::memset(binarized_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
+
+  {
+    cudaMallocManaged(reinterpret_cast<void**>(&binarized_apriltag_buffer_),
+                      pixels * sizeof(uint8_t));
+    std::memset(binarized_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
+  }
+
   segmented_apriltag_buffer_ =
       static_cast<uint32_t*>(std::malloc(pixels * sizeof(uint32_t)));
   std::memset(segmented_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
@@ -156,6 +161,7 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
 
 GpuApriltagDetector::~GpuApriltagDetector() {
   FreeBuffers();
+  CHECK(cudaStreamDestroy(stream_) == cudaSuccess);
 }
 
 void GpuApriltagDetector::FreeBuffers() {
@@ -163,7 +169,7 @@ void GpuApriltagDetector::FreeBuffers() {
   cudaFree(min_buffer_);
   std::free(threshold_buffer_);
   std::free(valid_buffer_);
-  std::free(binarized_apriltag_buffer_);
+  cudaFree(binarized_apriltag_buffer_);
   std::free(segmented_apriltag_buffer_);
   std::free(boundary_segmented_apriltag_buffer_);
   std::free(sorted_boundary_segmented_apriltag_buffer_);
@@ -1208,34 +1214,40 @@ auto GpuApriltagDetector::DetectAprilTag(
                 .stride = apriltag.width / 4,
                 .height = apriltag.height / 4,
                 .width = apriltag.width / 4};
-  PopulateMinMax(apriltag, min, max);
-  if (!output_directory.empty()) {
-    ImWrite((output_directory / "max.png").string(), max);
-    ImWrite((output_directory / "min.png").string(), min);
-  }
-
-  ImageView threshold{.data = threshold_buffer_,
-                      .stride = apriltag.width / 4,
-                      .height = apriltag.height / 4,
-                      .width = apriltag.width / 4};
-
-  ImageView valid{.data = valid_buffer_,
-                  .stride = apriltag.width / 4,
-                  .height = apriltag.height / 4,
-                  .width = apriltag.width / 4};
-  PopulateThresholdValid(min, max, threshold, valid);
-  if (!output_directory.empty()) {
-    ImWrite((output_directory / "threshold.png").string(), threshold);
-    ImWrite((output_directory / "valid.png").string(), valid);
-  }
-
   ImageView binarized_apriltag{.data = binarized_apriltag_buffer_,
                                .stride = apriltag.width,
                                .height = apriltag.height,
                                .width = apriltag.width};
 
-  PopulateBinarizedApriltag(threshold, valid, apriltag, binarized_apriltag);
+  {
+    PopulateMinMaxGPU(apriltag, min, max, stream_);
+    SyncStream();
+
+    PopulateThresholdValidGPU(apriltag, min, max, binarized_apriltag, stream_);
+    SyncStream();
+  }
+
+  // {
+  //   PopulateMinMax(apriltag, min, max);
+  //   ImageView threshold{.data = threshold_buffer_,
+  //                       .stride = apriltag.width / 4,
+  //                       .height = apriltag.height / 4,
+  //                       .width = apriltag.width / 4};
+  //   ImageView valid{.data = valid_buffer_,
+  //                   .stride = apriltag.width / 4,
+  //                   .height = apriltag.height / 4,
+  //                   .width = apriltag.width / 4};
+  //   PopulateThresholdValid(min, max, threshold, valid);
+  //   PopulateBinarizedApriltag(threshold, valid, apriltag, binarized_apriltag);
+  //   if (!output_directory.empty()) {
+  //     ImWrite((output_directory / "threshold.png").string(), threshold);
+  //     ImWrite((output_directory / "valid.png").string(), valid);
+  //   }
+  // }
+
   if (!output_directory.empty()) {
+    ImWrite((output_directory / "max.png").string(), max);
+    ImWrite((output_directory / "min.png").string(), min);
     ImWrite((output_directory / "binarized_apriltag.png").string(),
             binarized_apriltag);
   }

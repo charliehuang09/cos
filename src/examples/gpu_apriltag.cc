@@ -51,4 +51,5 @@ auto main(int argc, char** argv) -> int {
     average_run_time += timer.Stop().count();
   }
   LOG(INFO) << average_run_time / runs;
+  LOG(INFO) << detections.size();
 }
