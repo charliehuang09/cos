@@ -34,7 +34,7 @@
 
 namespace {
   struct ImageViewGPU {
-    ImageViewGPU(apriltag::ImageView image_view) : data(image_view.data), stride(image_view.stride), height(image_view.height), width(image_view.width) {
+    ImageViewGPU(apriltag::ImageView<uint8_t> image_view) : data(image_view.data), stride(image_view.stride), height(image_view.height), width(image_view.width) {
       cudaPointerAttributes attributes{};
       CUDA_CHECK(cudaPointerGetAttributes(&attributes, image_view.data));
       if (attributes.type == cudaMemoryTypeHost){
@@ -119,7 +119,7 @@ namespace{
 }
 
 namespace apriltag{
-  void GpuApriltagDetector::PopulateMinMaxGPU(ImageView apriltag, ImageView min, ImageView max, cudaStream_t stream){
+  void GpuApriltagDetector::PopulateMinMaxGPU(ImageView<uint8_t> apriltag, ImageView<uint8_t> min, ImageView<uint8_t> max, cudaStream_t stream){
     ImageViewGPU apriltag_gpu(apriltag);
     ImageViewGPU min_gpu(min);
     ImageViewGPU max_gpu(max);
@@ -129,9 +129,9 @@ namespace apriltag{
     PopulateMinMaxKernal<<<blocks, threads, 0, stream>>>(apriltag_gpu, min_gpu, max_gpu);
   }
 
-  void GpuApriltagDetector::PopulateThresholdValidGPU(ImageView apriltag, ImageView min, ImageView max, ImageView binarized_apriltag,
+  void GpuApriltagDetector::PopulateThresholdValidGPU(ImageView<uint8_t> apriltag, ImageView<uint8_t> min, ImageView<uint8_t> max, ImageView<uint8_t> binarized_apriltag,
                                  cudaStream_t stream){
-    ImageView d_apriltag(apriltag);
+    ImageView<uint8_t> d_apriltag(apriltag);
     ImageViewGPU d_min(min);
     ImageViewGPU d_max(max);
     ImageViewGPU d_binarized_apriltag(binarized_apriltag);
@@ -141,14 +141,14 @@ namespace apriltag{
   }
 
 
-  void GpuApriltagDetector::RegisterApriltagViewToGPU(ImageView apriltag){
+  void GpuApriltagDetector::RegisterApriltagViewToGPU(ImageView<uint8_t> apriltag){
     CUDA_CHECK(cudaHostRegister(
           apriltag.data, apriltag.stride * apriltag.height * sizeof(uint8_t),
           cudaHostRegisterMapped));
   }
 
 
-  void GpuApriltagDetector::UnregisterApriltagViewToGPU(ImageView apriltag){
+  void GpuApriltagDetector::UnregisterApriltagViewToGPU(ImageView<uint8_t> apriltag){
     cudaHostUnregister(apriltag.data);
   }
 

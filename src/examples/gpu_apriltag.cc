@@ -33,7 +33,7 @@ auto main(int argc, char** argv) -> int {
       absl::GetFlag(FLAGS_output_directory);
   apriltag::GpuApriltagDetector detector(width, height);
   auto detections = detector.DetectAprilTag(
-      apriltag::ImageView{
+      apriltag::ImageView<uint8_t>{
           .data = pixels, .stride = width, .height = height, .width = width},
       output_directory);
   if (!output_directory.empty()) {
@@ -46,7 +46,7 @@ auto main(int argc, char** argv) -> int {
   double average_run_time = 0.0;
   for (int i = 0; i < runs; i++) {
     control_loop::Timer timer;
-    auto detections = detector.DetectAprilTag(apriltag::ImageView{
+    auto detections = detector.DetectAprilTag(apriltag::ImageView<uint8_t>{
         .data = pixels, .stride = width, .height = height, .width = width});
     average_run_time += timer.Stop().count();
   }

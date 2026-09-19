@@ -30,7 +30,7 @@ auto inline SolveQuadratic(float a, float b, float c)
 }
 
 [[gnu::always_inline]]
-void inline GetMinMax(apriltag::ImageView apriltag, int row, int col,
+void inline GetMinMax(apriltag::ImageView<uint8_t> apriltag, int row, int col,
                       uint8_t& min, uint8_t& max) {
   row *= 4;
   col *= 4;
@@ -46,8 +46,8 @@ void inline GetMinMax(apriltag::ImageView apriltag, int row, int col,
 
 [[gnu::always_inline]]
 void inline ApplyThreshold(uint8_t threshold, uint8_t valid,
-                           apriltag::ImageView apriltag,
-                           apriltag::ImageView binarized_apriltag, int row,
+                           apriltag::ImageView<uint8_t> apriltag,
+                           apriltag::ImageView<uint8_t> binarized_apriltag, int row,
                            int col) {
   row *= 4;
   col *= 4;
@@ -69,7 +69,7 @@ void inline ApplyThreshold(uint8_t threshold, uint8_t valid,
 
 [[maybe_unused]]
 void PrintCode(const apriltag::BitLocation& bit_location,
-               apriltag::ImageView binarized_apriltag) {
+               apriltag::ImageView<uint8_t> binarized_apriltag) {
   for (int i = 1; i <= 8; i++) {
     for (int j = 1; j <= 8; j++) {
       std::cout << static_cast<int>(binarized_apriltag(bit_location[i][j].row,
@@ -85,10 +85,6 @@ void PrintCode(const apriltag::BitLocation& bit_location,
 }  // namespace
 
 namespace apriltag {
-
-auto ImageView::operator()(size_t row, size_t col) -> uint8_t& {
-  return data[row * stride + col];
-}
 
 GpuApriltagDetector::GpuApriltagDetector(int width, int height)
     : width_(width),
@@ -260,15 +256,15 @@ void GpuApriltagDetector::FreeBuffers() {
 }
 
 void GpuApriltagDetector::ImWrite(const std::string& path,
-                                  const ImageView& image) {
+                                  const ImageView<uint8_t>& image) {
   cv::Mat mat(image.height, image.width, CV_8UC1, image.data, image.stride);
   cv::imwrite(path, mat);
 }
 
 void GpuApriltagDetector::ImWrite(const std::string& path,
-                                  const ImageView& image_r,
-                                  const ImageView& image_g,
-                                  const ImageView& image_b) {
+                                  const ImageView<uint8_t>& image_r,
+                                  const ImageView<uint8_t>& image_g,
+                                  const ImageView<uint8_t>& image_b) {
   CHECK_EQ(image_r.width, image_g.width);
   CHECK_EQ(image_r.width, image_b.width);
   CHECK_EQ(image_r.height, image_g.height);
@@ -288,7 +284,7 @@ void GpuApriltagDetector::ImWrite(const std::string& path,
 }
 
 void GpuApriltagDetector::ImWrite(const std::string& path,
-                                  ImageView32 segmented_apriltag) {
+                                  ImageView<uint32_t> segmented_apriltag) {
   const size_t pixels = static_cast<size_t>(width_) * height_;
   std::memset(debug_r_buffer_, 0, pixels * sizeof(uint8_t));
   std::memset(debug_g_buffer_, 0, pixels * sizeof(uint8_t));
@@ -311,8 +307,8 @@ void GpuApriltagDetector::ImWrite(const std::string& path,
           segmented_apriltag_b_view_);
 }
 
-void GpuApriltagDetector::PopulateMinMax(ImageView apriltag, ImageView min,
-                                         ImageView max) {
+void GpuApriltagDetector::PopulateMinMax(ImageView<uint8_t> apriltag, ImageView<uint8_t> min,
+                                         ImageView<uint8_t> max) {
   for (int i = 0; i < min.height; i++) {
     for (int j = 0; j < min.width; j++) {
       GetMinMax(apriltag, i, j, min(i, j), max(i, j));
@@ -320,9 +316,9 @@ void GpuApriltagDetector::PopulateMinMax(ImageView apriltag, ImageView min,
   }
 }
 
-void GpuApriltagDetector::PopulateThresholdValid(ImageView min, ImageView max,
-                                                 ImageView threshold,
-                                                 ImageView valid) {
+void GpuApriltagDetector::PopulateThresholdValid(ImageView<uint8_t> min, ImageView<uint8_t> max,
+                                                 ImageView<uint8_t> threshold,
+                                                 ImageView<uint8_t> valid) {
   CHECK_EQ(min.width, threshold.width);
   CHECK_EQ(min.height, threshold.height);
   CHECK_EQ(valid.width, threshold.width);
@@ -374,8 +370,8 @@ void GpuApriltagDetector::PopulateThresholdValid(ImageView min, ImageView max,
 }
 
 void GpuApriltagDetector::PopulateBinarizedApriltag(
-    ImageView threshold, ImageView valid, ImageView apriltag,
-    ImageView binarized_apriltag) {
+    ImageView<uint8_t> threshold, ImageView<uint8_t> valid, ImageView<uint8_t> apriltag,
+    ImageView<uint8_t> binarized_apriltag) {
   CHECK_EQ(threshold.height * 4, apriltag.height);
   CHECK_EQ(threshold.width * 4, apriltag.width);
   CHECK_EQ(threshold.height * 4, binarized_apriltag.height);
@@ -392,8 +388,8 @@ void GpuApriltagDetector::PopulateBinarizedApriltag(
 }
 
 void GpuApriltagDetector::Segment(int row, int col,
-                                  ImageView binarized_apriltag,
-                                  ImageView32 segmented_apriltag, int32_t id) {
+                                  ImageView<uint8_t> binarized_apriltag,
+                                  ImageView<uint32_t> segmented_apriltag, int32_t id) {
   std::queue<Coord<int>> q;
   q.emplace(row, col);
   uint8_t color = binarized_apriltag(row, col);
@@ -423,7 +419,7 @@ void GpuApriltagDetector::Segment(int row, int col,
 }
 
 void GpuApriltagDetector::PopulateSegmentedApriltag(
-    ImageView binarized_apriltag, ImageView32 segmented_apriltag) {
+    ImageView<uint8_t> binarized_apriltag, ImageView<uint32_t> segmented_apriltag) {
   CHECK_EQ(binarized_apriltag.width, segmented_apriltag.width);
   CHECK_EQ(binarized_apriltag.height, segmented_apriltag.height);
   int id = 1;
@@ -437,7 +433,7 @@ void GpuApriltagDetector::PopulateSegmentedApriltag(
   }
 }
 
-auto GpuApriltagDetector::GetSegments(ImageView32 segmented_apriltag)
+auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
     -> std::vector<std::vector<Coord<int>>> {
   absl::flat_hash_map<std::pair<uint32_t, uint32_t>,
                       absl::flat_hash_set<Coord<int>>>
@@ -488,7 +484,7 @@ auto GpuApriltagDetector::GetSegments(ImageView32 segmented_apriltag)
 
 void GpuApriltagDetector::PopulateBoundarySegmentedApriltag(
     std::vector<std::vector<Coord<int>>>& segments,
-    ImageView32 boundary_segmented_apriltag) {
+    ImageView<uint32_t> boundary_segmented_apriltag) {
   int id = 1;
   for (const auto& pixel_coords : segments) {
     for (const auto& pixel_coord : pixel_coords) {
@@ -543,7 +539,7 @@ auto GpuApriltagDetector::SortSegments(
 
 void GpuApriltagDetector::PopulateSortedBoundarySegmentedApriltag(
     std::vector<std::vector<Coord<int>>>& segments,
-    ImageView sorted_boundary_segmented_apriltag) {
+    ImageView<uint8_t> sorted_boundary_segmented_apriltag) {
   for (auto& segment : segments) {
     float size = segment.size();
     for (size_t i = 0; i < segment.size(); i++) {
@@ -670,7 +666,7 @@ auto GpuApriltagDetector::GetCandidatesQuadCorners(
 
 void GpuApriltagDetector::PopulateCandidateQuadCornersApriltagBuffer(
     std::vector<CandidatesQuad>& quads,
-    ImageView candidates_quad_corners_apriltag) {
+    ImageView<uint8_t> candidates_quad_corners_apriltag) {
   for (const auto& quad : quads) {
     int color = 255;
     for (const auto& corner : quad.corners) {
@@ -748,7 +744,7 @@ void GpuApriltagDetector::OrderQuads(std::vector<Quad>& quads) {
 }
 
 void GpuApriltagDetector::PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
-                                                     ImageView quad_apriltag) {
+                                                     ImageView<uint8_t> quad_apriltag) {
   for (const auto& quad : quads) {
     CHECK(quad.corners.size() == 4);
     int color = 255;
@@ -876,7 +872,7 @@ auto GpuApriltagDetector::GetBitLocations(std::vector<Quad>& quads)
 
 void GpuApriltagDetector::PopulateBitLocationsApriltag(
     std::vector<BitLocation>& bit_locations,
-    ImageView32 bit_locations_apriltag) {
+    ImageView<uint32_t> bit_locations_apriltag) {
   int idx = 0;
   for (const auto& bit_location : bit_locations) {
     for (int i = 0; i < 10; i++) {
@@ -890,7 +886,7 @@ void GpuApriltagDetector::PopulateBitLocationsApriltag(
 }
 
 auto GpuApriltagDetector::GetBlackWhiteThreshold(
-    ImageView apriltag, const BitLocation& bit_location) {
+    ImageView<uint8_t> apriltag, const BitLocation& bit_location) {
   float white = 0;
   for (int i = 0; i < 10; i++) {
     white += apriltag(bit_location[0][i].row, bit_location[0][i].col);
@@ -913,7 +909,7 @@ auto GpuApriltagDetector::GetBlackWhiteThreshold(
 }
 
 auto GpuApriltagDetector::GetTagIds(std::vector<BitLocation>& bit_locations,
-                                    ImageView apriltag)
+                                    ImageView<uint8_t> apriltag)
     -> std::pair<std::vector<int>, std::vector<int>> {
   std::vector<int> tag_ids;
   std::vector<int> rotations;
@@ -995,7 +991,7 @@ void GpuApriltagDetector::DrawTagDetections(
   }
 }
 
-auto GpuApriltagDetector::GradientCol(Coord<int> point, ImageView& apriltag)
+auto GpuApriltagDetector::GradientCol(Coord<int> point, ImageView<uint8_t>& apriltag)
     -> float {
   constexpr std::array<std::array<int, 5>, 5> gradient_x{{
       {{-1, -2, 0, 2, 1}},
@@ -1015,7 +1011,7 @@ auto GpuApriltagDetector::GradientCol(Coord<int> point, ImageView& apriltag)
   return output;
 }
 
-auto GpuApriltagDetector::GradientRow(Coord<int> point, ImageView& apriltag)
+auto GpuApriltagDetector::GradientRow(Coord<int> point, ImageView<uint8_t>& apriltag)
     -> float {
   constexpr std::array<std::array<int, 5>, 5> gradient_y{{
       {{-1, -4, -6, -4, -1}},
@@ -1037,7 +1033,7 @@ auto GpuApriltagDetector::GradientRow(Coord<int> point, ImageView& apriltag)
 
 auto GpuApriltagDetector::GetRefinedPoints(
     const std::vector<ApriltagDetection>& apriltag_detections,
-    ImageView& apriltag)
+    ImageView<uint8_t>& apriltag)
     -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
 
   constexpr int num_samples = 10;
@@ -1128,7 +1124,7 @@ auto GpuApriltagDetector::GetRefinedPoints(
 void GpuApriltagDetector::PopulateRefinedPointsApriltag(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
         refined_points,
-    ImageView& refined_points_apriltag) {
+    ImageView<uint8_t>& refined_points_apriltag) {
   constexpr int marker_half_size = 2;
   for (const auto& quad : refined_points) {
     for (const auto& segment : quad) {
@@ -1258,7 +1254,7 @@ void GpuApriltagDetector::ClearBuffers() {
 }
 
 auto GpuApriltagDetector::DetectAprilTag(
-    ImageView apriltag, const std::filesystem::path& output_directory)
+    ImageView<uint8_t> apriltag, const std::filesystem::path& output_directory)
     -> std::vector<ApriltagDetection> {
   CHECK(apriltag.data != nullptr);
   CHECK_EQ(apriltag.height, height_);
