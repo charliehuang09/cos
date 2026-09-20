@@ -4,6 +4,7 @@
 [submodule "third_party/cpp-mjpeg-streamer"]
 	path = third_party/cpp-mjpeg-streamer
 	url = https://github.com/charliehuang09/cpp-mjpeg-streamer
+	branch = master
 [submodule "third_party/json"]
 	path = third_party/json
 	url = https://github.com/nlohmann/json
