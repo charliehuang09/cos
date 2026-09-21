@@ -33,8 +33,13 @@
     } while (false)
 
 namespace {
+  __host__ __device__ constexpr auto ceil_div(int n, int divisor) -> int {
+      return n / divisor + (n % divisor != 0);
+  }
+
+  template <typename T>
   struct ImageViewGPU {
-    ImageViewGPU(apriltag::ImageView<uint8_t> image_view) : data(image_view.data), stride(image_view.stride), height(image_view.height), width(image_view.width) {
+    ImageViewGPU(apriltag::ImageView<T> image_view) : data(image_view.data), stride(image_view.stride), height(image_view.height), width(image_view.width) {
       cudaPointerAttributes attributes{};
       CUDA_CHECK(cudaPointerGetAttributes(&attributes, image_view.data));
       if (attributes.type == cudaMemoryTypeHost){
@@ -45,19 +50,19 @@ namespace {
       );
       }
     }
-    uint8_t* data;
+    T* data;
     int stride;
     int height;
     int width;
 
-    __device__ auto operator()(size_t row, size_t col) -> uint8_t&{
+    __device__ auto operator()(size_t row, size_t col) -> T&{
       return data[row * stride + col];
     }
   };
 }
 
 namespace{
-  __global__ void PopulateMinMaxKernal(ImageViewGPU apriltag, ImageViewGPU min_view, ImageViewGPU max_view){
+  __global__ void PopulateMinMaxKernal(ImageViewGPU<uint8_t> apriltag, ImageViewGPU<uint8_t> min_view, ImageViewGPU<uint8_t> max_view){
     int min_max_col_index = threadIdx.x + blockIdx.x * blockDim.x;
     int min_max_row_index = threadIdx.y + blockIdx.y * blockDim.y;
 
@@ -82,7 +87,7 @@ namespace{
     max_view(min_max_row_index, min_max_col_index) = max_value;
   }
 
-  __global__ void PopulateBinarizedApriltagKernal(ImageViewGPU apriltag, ImageViewGPU min_view, ImageViewGPU max_view, ImageViewGPU binarized_apriltag){
+  __global__ void PopulateBinarizedApriltagKernal(ImageViewGPU<uint8_t> apriltag, ImageViewGPU<uint8_t> min_view, ImageViewGPU<uint8_t> max_view, ImageViewGPU<uint8_t> binarized_apriltag){
     int col_offset = threadIdx.x + blockIdx.x * blockDim.x;
     int row_offset = threadIdx.y + blockIdx.y * blockDim.y;
 
@@ -116,28 +121,135 @@ namespace{
     }
     return;
   }
+  __global__ void InitDSUKernel(ImageViewGPU<uint8_t> binarized_apriltag, ImageViewGPU<uint32_t> dsu){
+    uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
+    uint32_t col = threadIdx.x + blockIdx.x * blockDim.x;
+    if (row >= dsu.height || col >= dsu.width){
+      return;
+    }
+
+    uint8_t value = binarized_apriltag(row, col);
+    if (value != 255 && value != 0){
+      // Invalid
+      dsu(row, col) = 0;
+      return;
+    }
+    int stride = dsu.stride;
+    if (row + 1 < binarized_apriltag.height && binarized_apriltag(row + 1, col) == value){
+      dsu(row, col) = (row + 1) * stride + col; 
+      return;
+    }
+    if (col + 1 < binarized_apriltag.width && binarized_apriltag(row, col + 1) == value){
+      dsu(row, col) = row * stride + col + 1; 
+      return;
+    }
+
+    dsu(row, col) = row * stride + col; 
+  }
+  __global__ void FlattenDSUKernel(ImageViewGPU<uint32_t> dsu){
+    uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
+    uint32_t col = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (row >= dsu.height || col >= dsu.width){
+      return;
+    }
+
+    uint32_t dsu_value = dsu(row, col);
+    if (dsu_value == 0){
+      // Invalid
+      return;
+    }
+    if (dsu_value != row * dsu.stride + col){
+      dsu(row, col) = dsu.data[dsu_value];
+    }
+  }
+
+  __device__ auto GetRoot(uint32_t curr_row, uint32_t curr_col, ImageViewGPU<uint32_t> dsu) -> uint32_t{
+      while (true){
+        uint32_t dsu_value = dsu(curr_row, curr_col);
+        uint32_t next_row = dsu_value / dsu.stride;
+        uint32_t next_col = dsu_value % dsu.stride;
+        if (next_row == curr_row && next_col == curr_col){
+          break;
+        }
+        curr_row = next_row;
+        curr_col = next_col;
+      }
+      return curr_row * dsu.stride + curr_col;
+  }
+
+  __global__ void JoinDSUKernel(ImageViewGPU<uint8_t> binarized_apriltag, ImageViewGPU<uint32_t> dsu){
+    uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
+    uint32_t col = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (row + 1 >= dsu.height || col + 1 >= dsu.width){
+      return;
+    }
+
+    if (dsu(row, col) == 0){
+      // Invalid
+      return;
+    }
+
+    uint8_t value = binarized_apriltag(row, col);
+    if (value == binarized_apriltag(row + 1, col) && value == binarized_apriltag(row, col + 1)){
+      while(true){
+        uint32_t larger_index = GetRoot(row, col + 1, dsu);
+        uint32_t smaller_index = GetRoot(row + 1, col, dsu);
+        if (larger_index == smaller_index){
+          return;
+        }
+        if (larger_index < smaller_index){
+          cuda::std::swap(larger_index, smaller_index);
+        }
+        if(atomicCAS(dsu.data + smaller_index, smaller_index, larger_index) == smaller_index){
+          // Set succesfully
+          break;
+        }
+      }
+    }
+  }
 }
 
 namespace apriltag{
   void GpuApriltagDetector::PopulateMinMaxGPU(ImageView<uint8_t> apriltag, ImageView<uint8_t> min, ImageView<uint8_t> max, cudaStream_t stream){
-    ImageViewGPU apriltag_gpu(apriltag);
-    ImageViewGPU min_gpu(min);
-    ImageViewGPU max_gpu(max);
+    ImageViewGPU<uint8_t> apriltag_gpu(apriltag);
+    ImageViewGPU<uint8_t> min_gpu(min);
+    ImageViewGPU<uint8_t> max_gpu(max);
 
     dim3 threads(32, 8);
-    dim3 blocks(cuda::ceil_div(min.width, threads.x), cuda::ceil_div(min.height, threads.y));
+    dim3 blocks(ceil_div(min.width, threads.x), ceil_div(min.height, threads.y));
     PopulateMinMaxKernal<<<blocks, threads, 0, stream>>>(apriltag_gpu, min_gpu, max_gpu);
   }
 
   void GpuApriltagDetector::PopulateThresholdValidGPU(ImageView<uint8_t> apriltag, ImageView<uint8_t> min, ImageView<uint8_t> max, ImageView<uint8_t> binarized_apriltag,
                                  cudaStream_t stream){
-    ImageView<uint8_t> d_apriltag(apriltag);
-    ImageViewGPU d_min(min);
-    ImageViewGPU d_max(max);
-    ImageViewGPU d_binarized_apriltag(binarized_apriltag);
+    ImageViewGPU<uint8_t> d_apriltag(apriltag);
+    ImageViewGPU<uint8_t> d_min(min);
+    ImageViewGPU<uint8_t> d_max(max);
+    ImageViewGPU<uint8_t> d_binarized_apriltag(binarized_apriltag);
     dim3 threads(8, 8);
-    dim3 blocks(cuda::ceil_div(min.width, threads.x), cuda::ceil_div(min.height, threads.y));
+    dim3 blocks(ceil_div(min.width, threads.x), ceil_div(min.height, threads.y));
     PopulateBinarizedApriltagKernal<<<blocks, threads, 0, stream>>>(d_apriltag, d_min, d_max, d_binarized_apriltag);
+  }
+
+  void GpuApriltagDetector::PopulateSegmentedApriltagGPU(ImageView<uint8_t> binarized_apriltag,
+                                    ImageView<uint32_t> segmented_apriltag, ImageView<uint32_t> dsu, cudaStream_t stream){
+    ImageViewGPU<uint8_t> d_binarized_apriltag(binarized_apriltag);
+    ImageViewGPU<uint32_t> d_segmented_apriltag(segmented_apriltag);
+    ImageViewGPU<uint32_t> d_dsu(dsu);
+    dim3 threads(8, 32);
+    dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
+    InitDSUKernel<<<blocks, threads, 0, stream>>>(d_binarized_apriltag, d_dsu);
+
+    for (int i = 0; i < 8; i++){
+      FlattenDSUKernel<<<blocks, threads, 0, stream>>>(d_dsu);
+    }
+    JoinDSUKernel<<<blocks, threads, 0, stream>>>(binarized_apriltag, dsu);
+    for (int i = 0; i < 4; i++){
+      FlattenDSUKernel<<<blocks, threads, 0, stream>>>(d_dsu);
+    }
+    return;
   }
 
 

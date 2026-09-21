@@ -124,6 +124,10 @@ class GpuApriltagDetector {
 
   void PopulateSegmentedApriltag(ImageView<uint8_t> binarized_apriltag,
                                  ImageView<uint32_t> segmented_apriltag);
+  void PopulateSegmentedApriltagGPU(ImageView<uint8_t> binarized_apriltag,
+                                    ImageView<uint32_t> segmented_apriltag,
+                                    ImageView<uint32_t> dsu,
+                                    cudaStream_t stream);
 
   auto GetSegments(ImageView<uint32_t> segmented_apriltag)
       -> std::vector<std::vector<Coord<int>>>;
@@ -217,6 +221,7 @@ class GpuApriltagDetector {
   uint8_t* debug_r_buffer_ = nullptr;
   uint8_t* debug_g_buffer_ = nullptr;
   uint8_t* debug_b_buffer_ = nullptr;
+  uint32_t* dsu_buffer_;
 
   // Reuse views into the owned image buffers.
   ImageView<uint8_t> segmented_apriltag_r_view_{};
@@ -234,6 +239,7 @@ class GpuApriltagDetector {
   ImageView<uint8_t> quad_apriltag_view_{};
   ImageView<uint32_t> bit_locations_apriltag_view_{};
   ImageView<uint8_t> refined_points_apriltag_view_{};
+  ImageView<uint32_t> dsu_view_{};
 
   std::vector<std::vector<Coord<int>>> segments_;
   std::vector<std::vector<float>> mses_;
