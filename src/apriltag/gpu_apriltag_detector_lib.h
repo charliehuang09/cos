@@ -163,18 +163,21 @@ class GpuApriltagDetector {
                                   ImageView<uint8_t> quad_apriltag);
 
   auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation>;
+  auto GetBitLocationsHomography(std::vector<Quad>& quads, int width,
+                                 int height) -> std::vector<BitLocation>;
 
   void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
                                     ImageView<uint32_t> bit_locations_apriltag);
 
   auto GetBlackWhiteThreshold(ImageView<uint8_t> apriltag,
-                              const BitLocation& bit_location);
+                              const BitLocation& bit_location)
+      -> std::array<float, 3>;
 
   auto GetTagIds(std::vector<BitLocation>& bit_locations,
                  ImageView<uint8_t> apriltag)
       -> std::pair<std::vector<int>, std::vector<int>>;
 
-  void RotateQuads(std::vector<Quad>& quads, std::vector<int>& rotations);
+  void RotateQuads(std::vector<Quad>& quads, const std::vector<int>& rotations);
 
   auto GradientCol(Coord<int> point, ImageView<uint8_t>& apriltag) -> float;
 

@@ -104,7 +104,7 @@ namespace{
       }
     }
     uint8_t threshold = (max_value / 2) + (min_value / 2);
-    uint8_t valid = max_value - min_value > 50 ? 255 : 0;
+    uint8_t valid = max_value - min_value > 10 ? 255 : 0;
 
     if (valid == 0){
       for (int row = row_offset * 4; row < (row_offset * 4) + 4; row++){
@@ -121,7 +121,7 @@ namespace{
     }
     return;
   }
-  __global__ void InitDSUKernel(ImageViewGPU<uint8_t> binarized_apriltag, ImageViewGPU<uint32_t> dsu){
+  __global__ void InitDSUValidKernel(ImageViewGPU<uint8_t> binarized_apriltag, ImageViewGPU<uint32_t> dsu){
     uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
     uint32_t col = threadIdx.x + blockIdx.x * blockDim.x;
     if (row >= dsu.height || col >= dsu.width){
@@ -129,17 +129,46 @@ namespace{
     }
 
     uint8_t value = binarized_apriltag(row, col);
-    if (value != 255 && value != 0){
+    if (value != 0){
       // Invalid
-      dsu(row, col) = 0;
+      dsu(row, col) = UINT32_MAX;
       return;
     }
+
+    bool valid = false;
+    for (int i = cuda::std::max(0, static_cast<int>(row) - 1); i <= cuda::std::min(static_cast<int>(dsu.height - 1), static_cast<int>(row) + 1); i++){
+      for (int j = cuda::std::max(0, static_cast<int>(col) - 1); j <= cuda::std::min(static_cast<int>(dsu.width - 1), static_cast<int>(col) + 1); j++){
+        if (binarized_apriltag(i, j) != value){
+          valid = true;
+          break;
+        }
+      }
+    }
+    if (!valid){
+      // Invalid
+      dsu(row, col) = UINT32_MAX;
+      return;
+    }
+    dsu(row, col) = 0;
+  }
+  __global__ void InitDSUKernel(ImageViewGPU<uint8_t> binarized_apriltag, ImageViewGPU<uint32_t> dsu){
+    uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
+    uint32_t col = threadIdx.x + blockIdx.x * blockDim.x;
+    if (row >= dsu.height || col >= dsu.width){
+      return;
+    }
+
+    if (dsu(row, col) == UINT32_MAX){
+      return;
+    }
+
+    uint8_t value = binarized_apriltag(row, col);
     int stride = dsu.stride;
-    if (row + 1 < binarized_apriltag.height && binarized_apriltag(row + 1, col) == value){
+    if (row + 1 < binarized_apriltag.height && binarized_apriltag(row + 1, col) == value && dsu(row + 1, col) != UINT32_MAX){
       dsu(row, col) = (row + 1) * stride + col; 
       return;
     }
-    if (col + 1 < binarized_apriltag.width && binarized_apriltag(row, col + 1) == value){
+    if (col + 1 < binarized_apriltag.width && binarized_apriltag(row, col + 1) == value && dsu(row, col + 1) != UINT32_MAX){
       dsu(row, col) = row * stride + col + 1; 
       return;
     }
@@ -155,7 +184,7 @@ namespace{
     }
 
     uint32_t dsu_value = dsu(row, col);
-    if (dsu_value == 0){
+    if (dsu_value == UINT32_MAX){
       // Invalid
       return;
     }
@@ -186,13 +215,15 @@ namespace{
       return;
     }
 
-    if (dsu(row, col) == 0){
+    if (dsu(row, col) == UINT32_MAX){
       // Invalid
       return;
     }
 
     uint8_t value = binarized_apriltag(row, col);
-    if (value == binarized_apriltag(row + 1, col) && value == binarized_apriltag(row, col + 1)){
+    // if (0 != dsu(row + 1, col) && 0 != dsu(row, col + 1)){
+    // if (value == binarized_apriltag(row + 1, col) && value == binarized_apriltag(row, col + 1)){
+    if (UINT32_MAX != dsu(row + 1, col) && UINT32_MAX != dsu(row, col + 1)){
       while(true){
         uint32_t larger_index = GetRoot(row, col + 1, dsu);
         uint32_t smaller_index = GetRoot(row + 1, col, dsu);
@@ -238,15 +269,16 @@ namespace apriltag{
     ImageViewGPU<uint8_t> d_binarized_apriltag(binarized_apriltag);
     ImageViewGPU<uint32_t> d_segmented_apriltag(segmented_apriltag);
     ImageViewGPU<uint32_t> d_dsu(dsu);
-    dim3 threads(8, 32);
+    dim3 threads(4, 32);
     dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
+    InitDSUValidKernel<<<blocks, threads, 0, stream>>>(d_binarized_apriltag, d_dsu);
     InitDSUKernel<<<blocks, threads, 0, stream>>>(d_binarized_apriltag, d_dsu);
 
     for (int i = 0; i < 8; i++){
       FlattenDSUKernel<<<blocks, threads, 0, stream>>>(d_dsu);
     }
     JoinDSUKernel<<<blocks, threads, 0, stream>>>(binarized_apriltag, dsu);
-    for (int i = 0; i < 4; i++){
+    for (int i = 0; i < 8; i++){
       FlattenDSUKernel<<<blocks, threads, 0, stream>>>(d_dsu);
     }
     return;

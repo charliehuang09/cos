@@ -16,7 +16,13 @@
 
 namespace {
 [[gnu::always_inline]]
-void inline PopulateColor(int id, uint8_t& r, uint8_t& g, uint8_t& b) {
+void inline PopulateColor(uint32_t id, uint8_t& r, uint8_t& g, uint8_t& b) {
+  if (UINT32_MAX == id) {
+    r = 0;
+    g = 0;
+    b = 0;
+    return;
+  }
   r = (id * 2222009) % 256;
   g = (id * 2222022) % 256;
   b = (id * 2222222) % 256;
@@ -291,7 +297,7 @@ void GpuApriltagDetector::ImWrite(const std::string& path,
 
   for (int i = 0; i < segmented_apriltag.height; i++) {
     for (int j = 0; j < segmented_apriltag.width; j++) {
-      int8_t id = segmented_apriltag(i, j);
+      uint32_t id = segmented_apriltag(i, j);
       if (id != 0) {
         uint8_t r, g, b;
         PopulateColor(id, r, g, b);
@@ -438,48 +444,21 @@ void GpuApriltagDetector::PopulateSegmentedApriltag(
 
 auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
     -> std::vector<std::vector<Coord<int>>> {
-  absl::flat_hash_map<std::pair<uint32_t, uint32_t>,
-                      absl::flat_hash_set<Coord<int>>>
-      segments_set;
-  for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
-    for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
-      if (segmented_apriltag(i, j) != 0) {
-        constexpr int dx = 0;
-        constexpr int dy = 1;
-        auto id = segmented_apriltag(i, j);
-        auto neighbor_id = segmented_apriltag(i + dx, j + dy);
-        if (neighbor_id != 0 && neighbor_id != id) {
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i + dx, j + dy);
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i, j);
-        }
-      }
-    }
-  }
-  for (int i = 0; i < segmented_apriltag.height - 1; i += 1) {
-    for (int j = 0; j < segmented_apriltag.width - 1; j += 1) {
-      if (segmented_apriltag(i, j) != 0) {
-        constexpr int dx = 1;
-        constexpr int dy = 0;
-        auto id = segmented_apriltag(i, j);
-        auto neighbor_id = segmented_apriltag(i + dx, j + dy);
-        if (neighbor_id != 0 && neighbor_id != id) {
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i + dx, j + dy);
-          segments_set[{std::max(id, neighbor_id), std::min(id, neighbor_id)}]
-              .emplace(i, j);
-        }
+  absl::flat_hash_map<uint32_t, std::vector<Coord<int>>> segments_set;
+  for (int i = 0; i < segmented_apriltag.height; i += 1) {
+    for (int j = 0; j < segmented_apriltag.width; j += 1) {
+      if (segmented_apriltag(i, j) != UINT32_MAX) {
+        segments_set[segmented_apriltag(i, j)].emplace_back(i, j);
       }
     }
   }
   std::vector<std::vector<Coord<int>>> segments;
   for (const auto& [ids, pixel_coords_set] : segments_set) {
-    constexpr size_t min_segment_size = 100;
-    if (pixel_coords_set.size() >= min_segment_size) {
-      std::vector<Coord<int>> pixel_coords_vector(pixel_coords_set.begin(),
-                                                  pixel_coords_set.end());
-      segments.push_back(std::move(pixel_coords_vector));
+    constexpr size_t min_segment_size = 128;
+    constexpr size_t max_segment_size = 1024;
+    if (max_segment_size > pixel_coords_set.size() &&
+        pixel_coords_set.size() > min_segment_size) {
+      segments.push_back(pixel_coords_set);
     }
   }
   return segments;
@@ -635,14 +614,22 @@ auto GpuApriltagDetector::GetCandidatesQuadCorners(
     const auto& segment = segments[idx];
     const auto& mse = mse_map[idx];
     CHECK_EQ(segment.size(), mse.size());
-    constexpr int window_size = 100;
+
+    size_t window_size = std::max<size_t>(3, mse.size() / 8);
+    if (window_size % 2 == 0) {
+      ++window_size;
+    }
+
     CandidatesQuad quad{};
     std::array<float, quad.corners.size()> max_mse{};
+
     for (size_t i = 0; i < mse.size(); i++) {
-      const float middle_mse = mse[(i + (window_size / 2)) % mse.size()];
+      const size_t center = (i + window_size / 2) % mse.size();
+      const float middle_mse = mse[center];
       if (middle_mse < max_mse[0]) {
         continue;
       }
+
       bool peak = true;
       for (size_t j = i; j < i + window_size; j++) {
         if (middle_mse < mse[(j + (window_size / 2)) % mse.size()]) {
@@ -676,8 +663,8 @@ void GpuApriltagDetector::PopulateCandidateQuadCornersApriltagBuffer(
       if (corner.row == 0 && corner.col == 0) {
         continue;
       }
-      for (int i = -5; i <= 5; i++) {
-        for (int j = -5; j <= 5; j++) {
+      for (int i = -3; i <= 3; i++) {
+        for (int j = -3; j <= 3; j++) {
           candidates_quad_corners_apriltag(corner.row + i, corner.col + j) =
               color;
         }
@@ -763,6 +750,54 @@ void GpuApriltagDetector::PopulateQuadApriltagBuffer(
       color -= 50;
     }
   }
+}
+
+auto GpuApriltagDetector::GetBitLocationsHomography(std::vector<Quad>& quads,
+                                                    int width, int height)
+    -> std::vector<BitLocation> {
+  std::vector<BitLocation> bit_locations;
+  cv::Mat H;
+  for (const auto& quad : quads) {
+    if (quad.corners[3].row == 0) {
+      bit_locations.push_back({});
+      continue;
+    }
+    const std::array<Coord<int>, 4>& corners = quad.corners;
+    BitLocation bit_location;
+    {
+      // Coordinates are (row, col). Match OrderQuads' winding; swapping
+      // these axes reflects the bit grid, which rotations cannot decode.
+      std::vector<cv::Point2f> srcPoints{
+          {0.5, 0.5}, {8.5, 0.5}, {8.5, 8.5}, {0.5, 8.5}};
+      std::vector<cv::Point2f> dstPoints{{static_cast<float>(corners[0].row),
+                                          static_cast<float>(corners[0].col)},
+                                         {static_cast<float>(corners[1].row),
+                                          static_cast<float>(corners[1].col)},
+                                         {static_cast<float>(corners[2].row),
+                                          static_cast<float>(corners[2].col)},
+                                         {static_cast<float>(corners[3].row),
+                                          static_cast<float>(corners[3].col)}};
+      H = cv::getPerspectiveTransform(srcPoints, dstPoints);
+    }
+    {
+      for (int i = 0; i < 10; ++i) {
+        for (int j = 0; j < 10; ++j) {
+          std::vector<cv::Point2f> src{
+              cv::Point2f(static_cast<float>(i), static_cast<float>(j))};
+          std::vector<cv::Point2f> dst;
+          cv::perspectiveTransform(src, dst, H);
+          bit_location[i][j] = {.row = static_cast<int>(dst[0].x),
+                                .col = static_cast<int>(dst[0].y)};
+          bit_location[i][j].row =
+              std::clamp(bit_location[i][j].row, 0, height - 1);
+          bit_location[i][j].col =
+              std::clamp(bit_location[i][j].col, 0, width - 1);
+        }
+      }
+    }
+    bit_locations.push_back(bit_location);
+  }
+  return bit_locations;
 }
 
 auto GpuApriltagDetector::GetBitLocations(std::vector<Quad>& quads)
@@ -889,26 +924,44 @@ void GpuApriltagDetector::PopulateBitLocationsApriltag(
 }
 
 auto GpuApriltagDetector::GetBlackWhiteThreshold(
-    ImageView<uint8_t> apriltag, const BitLocation& bit_location) {
-  float white = 0;
-  for (int i = 0; i < 10; i++) {
-    white += apriltag(bit_location[0][i].row, bit_location[0][i].col);
-    white += apriltag(bit_location[9][i].row, bit_location[9][i].col);
-    white += apriltag(bit_location[i][0].row, bit_location[i][0].col);
-    white += apriltag(bit_location[i][9].row, bit_location[i][9].col);
-  }
-  white /= 40;
-
-  float black = 0;
-  for (int i = 1; i < 9; i++) {
-    black += apriltag(bit_location[1][i].row, bit_location[1][i].col);
-    black += apriltag(bit_location[8][i].row, bit_location[8][i].col);
-    black += apriltag(bit_location[i][1].row, bit_location[i][1].col);
-    black += apriltag(bit_location[i][8].row, bit_location[i][8].col);
-  }
-  black /= 40;
-
-  return (white + black) / 2;
+    ImageView<uint8_t> apriltag, const BitLocation& bit_location)
+    -> std::array<float, 3> {
+  // Fit intensity = row_slope * (row - 4.5) + col_slope * (col - 4.5)
+  // + mean independently on the white and black borders. A single mean
+  // threshold misclassifies bits when illumination varies across the tag.
+  auto fit_border = [&](int first, int last) -> std::array<float, 3> {
+    float row_intensity = 0;
+    float col_intensity = 0;
+    float row_squared = 0;
+    float col_squared = 0;
+    float intensity_sum = 0;
+    int count = 0;
+    for (int row = first; row <= last; ++row) {
+      for (int col = first; col <= last; ++col) {
+        if (row != first && row != last && col != first && col != last) {
+          continue;
+        }
+        const auto& point = bit_location[row][col];
+        const float intensity = apriltag(point.row, point.col);
+        const float r = row - 4.5f;
+        const float c = col - 4.5f;
+        row_intensity += r * intensity;
+        col_intensity += c * intensity;
+        row_squared += r * r;
+        col_squared += c * c;
+        intensity_sum += intensity;
+        ++count;
+      }
+    }
+    // The centered, symmetric border makes the normal matrix diagonal.
+    return std::array<float, 3>{row_intensity / row_squared,
+                                col_intensity / col_squared,
+                                intensity_sum / count};
+  };
+  const auto white = fit_border(0, 9);
+  const auto black = fit_border(1, 8);
+  return {(white[0] + black[0]) / 2, (white[1] + black[1]) / 2,
+          (white[2] + black[2]) / 2};
 }
 
 auto GpuApriltagDetector::GetTagIds(std::vector<BitLocation>& bit_locations,
@@ -920,11 +973,15 @@ auto GpuApriltagDetector::GetTagIds(std::vector<BitLocation>& bit_locations,
   rotations.reserve(bit_locations.size());
   for (const auto& bit_location : bit_locations) {
     uint64_t code = 0;
-    auto threshold = GetBlackWhiteThreshold(apriltag, bit_location);
+    const auto threshold_plane = GetBlackWhiteThreshold(apriltag, bit_location);
     for (uint32_t j = 0; j < family_->nbits; j++) {
       const auto x = family_->bit_x[j];
       const auto y = family_->bit_y[j];
 
+      const float threshold =
+          threshold_plane[0] * (static_cast<float>(y) - 3.5f) +
+          threshold_plane[1] * (static_cast<float>(x) - 3.5f) +
+          threshold_plane[2];
       code <<= 1;
       if (apriltag(bit_location[y + 1][x + 1].row,
                    bit_location[y + 1][x + 1].col) > threshold) {
@@ -955,7 +1012,7 @@ auto GpuApriltagDetector::GetTagIds(std::vector<BitLocation>& bit_locations,
 }
 
 void GpuApriltagDetector::RotateQuads(std::vector<Quad>& quads,
-                                      std::vector<int>& rotations) {
+                                      const std::vector<int>& rotations) {
   CHECK_EQ(quads.size(), rotations.size());
   Quad tmp_quad;
   for (size_t i = 0; i < quads.size(); i++) {
@@ -1259,6 +1316,7 @@ void GpuApriltagDetector::ClearBuffers() {
 auto GpuApriltagDetector::DetectAprilTag(
     ImageView<uint8_t> apriltag, const std::filesystem::path& output_directory)
     -> std::vector<ApriltagDetection> {
+  control_loop::Timer timer;
   CHECK(apriltag.data != nullptr);
   CHECK_EQ(apriltag.height, height_);
   CHECK_EQ(apriltag.width, width_);
@@ -1274,7 +1332,6 @@ auto GpuApriltagDetector::DetectAprilTag(
     PopulateMinMaxGPU(apriltag, min_view_, max_view_, stream_);
     PopulateThresholdValidGPU(apriltag, min_view_, max_view_,
                               binarized_apriltag_view_, stream_);
-    SyncStream();
   }
 
   // {
@@ -1288,26 +1345,23 @@ auto GpuApriltagDetector::DetectAprilTag(
   //   }
   // }
 
-  if (!output_directory.empty()) {
-    ImWrite((output_directory / "max.png").string(), max_view_);
-    ImWrite((output_directory / "min.png").string(), min_view_);
-    ImWrite((output_directory / "binarized_apriltag.png").string(),
-            binarized_apriltag_view_);
-  }
-
   // {
   //   control_loop::Timer timer;
   //   PopulateSegmentedApriltag(binarized_apriltag_view_,
   //                             segmented_apriltag_view_);
-  //   LOG(INFO) << timer.Stop();
   // }
   {
     PopulateSegmentedApriltagGPU(binarized_apriltag_view_,
                                  segmented_apriltag_view_, dsu_view_, stream_);
     SyncStream();
   }
+  LOG(INFO) << timer.Stop();
 
   if (!output_directory.empty()) {
+    ImWrite((output_directory / "max.png").string(), max_view_);
+    ImWrite((output_directory / "min.png").string(), min_view_);
+    ImWrite((output_directory / "binarized_apriltag.png").string(),
+            binarized_apriltag_view_);
     ImWrite((output_directory / "segmented_apriltag.png").string(),
             segmented_apriltag_view_);
     ImWrite((output_directory / "dsu.png").string(), dsu_view_);
@@ -1316,16 +1370,16 @@ auto GpuApriltagDetector::DetectAprilTag(
   segments_ = GetSegments(dsu_view_);
   SortSegments(segments_);
 
-  PopulateBoundarySegmentedApriltag(segments_,
-                                    boundary_segmented_apriltag_view_);
   if (!output_directory.empty()) {
+    PopulateBoundarySegmentedApriltag(segments_,
+                                      boundary_segmented_apriltag_view_);
     ImWrite((output_directory / "boundary_segmented_apriltag.png").string(),
             boundary_segmented_apriltag_view_);
   }
 
-  PopulateSortedBoundarySegmentedApriltag(
-      segments_, sorted_boundary_segmented_apriltag_view_);
   if (!output_directory.empty()) {
+    PopulateSortedBoundarySegmentedApriltag(
+        segments_, sorted_boundary_segmented_apriltag_view_);
     ImWrite(
         (output_directory / "sorted_boundary_segmented_apriltag.png").string(),
         sorted_boundary_segmented_apriltag_view_);
@@ -1340,9 +1394,9 @@ auto GpuApriltagDetector::DetectAprilTag(
   memcpy(candidate_quad_corners_apriltag_buffer_,
          sorted_boundary_segmented_apriltag_buffer_,
          sizeof(uint8_t) * apriltag.width * apriltag.height);
-  PopulateCandidateQuadCornersApriltagBuffer(
-      candidate_quad_corners_, candidate_quad_corners_apriltag_view_);
   if (!output_directory.empty()) {
+    PopulateCandidateQuadCornersApriltagBuffer(
+        candidate_quad_corners_, candidate_quad_corners_apriltag_view_);
     ImWrite((output_directory / "candidate_quad_corners_apriltag.png").string(),
             candidate_quad_corners_apriltag_view_);
   }
@@ -1358,12 +1412,14 @@ auto GpuApriltagDetector::DetectAprilTag(
             quad_apriltag_view_);
   }
 
-  bit_locations_ = GetBitLocations(quads_);
+  bit_locations_ =
+      GetBitLocationsHomography(quads_, apriltag.width, apriltag.height);
+  // bit_locations_ = GetBitLocations(quads_);
 
-  memcpy(bit_locations_apriltag_buffer_, boundary_segmented_apriltag_buffer_,
-         sizeof(uint32_t) * apriltag.width * apriltag.height);
-  PopulateBitLocationsApriltag(bit_locations_, bit_locations_apriltag_view_);
   if (!output_directory.empty()) {
+    memcpy(bit_locations_apriltag_buffer_, boundary_segmented_apriltag_buffer_,
+           sizeof(uint32_t) * apriltag.width * apriltag.height);
+    PopulateBitLocationsApriltag(bit_locations_, bit_locations_apriltag_view_);
     ImWrite((output_directory / "bit_locations_apriltag.png").string(),
             bit_locations_apriltag_view_);
   }
@@ -1379,12 +1435,12 @@ auto GpuApriltagDetector::DetectAprilTag(
     }
   }
 
-  memcpy(refined_points_apriltag_buffer_,
-         sorted_boundary_segmented_apriltag_buffer_,
-         sizeof(uint8_t) * apriltag.width * apriltag.height);
   refined_points_ = GetRefinedPoints(detections_, apriltag);
 
   if (!output_directory.empty()) {
+    memcpy(refined_points_apriltag_buffer_,
+           sorted_boundary_segmented_apriltag_buffer_,
+           sizeof(uint8_t) * apriltag.width * apriltag.height);
     PopulateRefinedPointsApriltag(refined_points_,
                                   refined_points_apriltag_view_);
     ImWrite((output_directory / "refined_points_apriltag.png").string(),
