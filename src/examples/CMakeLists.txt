@@ -19,7 +19,7 @@ target_sources(control_loop_example
     control_loop_example.cc
 )
 target_link_libraries(control_loop_example PRIVATE
-  control_loop
+  cos::control_loop
   absl::log_initialize
   absl::flags_parse
   $<LINK_LIBRARY:WHOLE_ARCHIVE,absl::log_flags>
@@ -33,7 +33,7 @@ target_sources(nvidia_apriltag_detect
     nvidia_apriltag_detect.cc
 )
 target_link_libraries(nvidia_apriltag_detect PRIVATE
-  nvidia_apriltag_detector_node
+  cos::nvidia_apriltag_detector_node
   absl::flags_parse
   absl::log
   absl::log_initialize
@@ -46,4 +46,15 @@ target_sources(visualization_backend PRIVATE
 )
 target_link_libraries(visualization_backend PRIVATE
   ixwebsocket
+)
+
+add_executable(connect_to_rio)
+target_sources(connect_to_rio PRIVATE
+  connect_to_rio.cc
+)
+target_link_libraries(connect_to_rio PRIVATE
+  absl::flags_parse
+  absl::log
+  absl::log_initialize
+  cos::connect_to_rio
 )

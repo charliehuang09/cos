@@ -29,6 +29,7 @@ class UnambiguousSolverNode final : public control_loop::INode {
       -> const std::vector<control_loop::MessageDescriptor>& override;
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
+  void SetRejectFarTags(bool reject_far_tags);
 
   auto Solve(const std::vector<ambiguous_estimate_t*>& estimates,
              bool reject_far_tags = true) -> std::optional<position_estimate_t>;
@@ -39,13 +40,13 @@ class UnambiguousSolverNode final : public control_loop::INode {
 
  private:
   static auto Cost(const frc::Pose3d& a, const frc::Pose3d& b) -> double;
-  auto ComputeCost(const std::vector<position_estimate_t>& poses) -> double;
+  auto ComputeCost(const std::vector<solver_estimate_t>& poses) -> double;
   static auto WeightedAveragePose(
-      const std::vector<position_estimate_t>& solutions) -> frc::Pose3d;
+      const std::vector<solver_estimate_t>& solutions) -> frc::Pose3d;
   auto SearchSolutions(
       const std::vector<ambiguous_estimate_t*>& all_pose_estimates,
-      size_t index, std::vector<position_estimate_t>& current_solution,
-      std::vector<position_estimate_t>& best_solution, double& best_cost)
+      size_t index, std::vector<solver_estimate_t>& current_solution,
+      std::vector<solver_estimate_t>& best_solution, double& best_cost)
       -> double;
   auto GetAmbiguousEstimates(
       const std::vector<std::vector<tag_detection_t>>& detection_batches,
@@ -68,6 +69,7 @@ class UnambiguousSolverNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   std::optional<position_estimate_t> prev_pose_estimate_;
+  bool reject_far_tags_ = true;
 };
 
 }  // namespace localization

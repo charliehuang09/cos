@@ -1,5 +1,3 @@
-include_directories(.)
-
 add_subdirectory(utils)
 add_subdirectory(logging)
 add_subdirectory(control_loop)

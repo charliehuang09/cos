@@ -95,19 +95,15 @@ auto ComputeRobotPose(const cv::Mat& tvec, const cv::Mat& rvec, int tag_id,
 }
 
 auto Pose3dToCvMat(frc::Pose3d pose) -> cv::Mat {
-  frc::Pose3d opencv_pose(
-      frc::Translation3d(-pose.Y(), -pose.Z(), pose.X()),
-      frc::Rotation3d(-pose.Rotation().Y(), -pose.Rotation().Z(),
-                      pose.Rotation().X()));
-  return EigenToCvMat(opencv_pose.ToMatrix());
+  cv::Mat matrix = EigenToCvMat(pose.ToMatrix());
+  ChangeBasis(matrix, Basis::kWpiToCv);
+  return matrix;
 }
 
 auto Transform3dToCvMat(frc::Transform3d transform) -> cv::Mat {
-  frc::Pose3d opencv_pose(
-      frc::Translation3d(-transform.Y(), -transform.Z(), transform.X()),
-      frc::Rotation3d(-transform.Rotation().Y(),
-                      -transform.Rotation().Z(), transform.Rotation().X()));
-  return EigenToCvMat(opencv_pose.ToMatrix());
+  cv::Mat matrix = EigenToCvMat(transform.ToMatrix());
+  ChangeBasis(matrix, Basis::kWpiToCv);
+  return matrix;
 }
 
 }  // namespace utils

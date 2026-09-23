@@ -25,10 +25,9 @@
 ABSL_FLAG(std::string, config_path, "",         // NOLINT
           "path to the uvc config json file");  // NOLINT
 
-ABSL_FLAG(                                                  // NOLINT
-    std::optional<std::string>, stream_path, std::nullopt,  // NOLINT
-    "Path for the stream. eg url is 10.9.71.101:4971/path. No stream if "  // NOLINT
-    "left blank");  // NOLINT
+ABSL_FLAG(                                                     // NOLINT
+    std::string, stream_path, "/stream",                       // NOLINT
+    "Path for the stream. eg url is 10.9.71.101:4971/path.");  // NOLINT
 
 ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT
           "Streaming port. No stream if left blank");  // NOLINT
@@ -71,11 +70,10 @@ auto main(int argc, char* argv[]) -> int {
     control_loop.RegisterNode(jpeg_buffer_logger_node);
   }
 
-  if (absl::GetFlag(FLAGS_stream_path).has_value() &&
-      absl::GetFlag(FLAGS_port).has_value()) {
+  if (absl::GetFlag(FLAGS_port).has_value()) {
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>(
-            "jpeg_stream", absl::GetFlag(FLAGS_stream_path).value(),
+            "jpeg_stream", absl::GetFlag(FLAGS_stream_path),
             absl::GetFlag(FLAGS_port).value());
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
   }

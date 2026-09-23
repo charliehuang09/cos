@@ -1,13 +1,16 @@
 #include "localization/unambiguous_solver_node.h"
 #include "absl/base/log_severity.h"
+#include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/check.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "apriltag/nvidia_apriltag_detector_node.h"
-#include "camera/jpeg_disk_camera.h"
+#include "camera/get_earliest_timestamp.h"
 #include "camera/nvjpeg_decode_node.h"
+#include "camera/uvc_disk_camera_node.h"
 #include "control_loop/control_loop.h"
+#include "control_loop/rio_clock.h"
 #include "control_loop/thread_pool.h"
 #include "simulation/simulation_position_sender_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
@@ -15,23 +18,28 @@
 
 using namespace std::chrono_literals;
 
+ABSL_FLAG(bool, reject_far_tags, true,                            // NOLINT
+          "Reject tags and estimates that fail sanity checks.");  // NOLINT
+
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   stop::RegisterHandler();
+  control_loop::RioClock::EnableSimulation();
 
   control_loop::ControlLoop control_loop(1ms);
   control_loop::ThreadPool thread_pool;
   control_loop.SetMaxContext(1);
   control_loop.EnableLatencyLog();
 
-  const std::string path = "/root/constants/dev-orin/camera.json";
+  const std::string path = "/root/constants/second_bot/left_camera.json";
+  const std::string log_path = "/cos-logs/second_bot/log102/left";
 
   {
-    auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-        "/cos-logs/log102/left", "jpeg_buffer");
-    control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
+    auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
+        log_path, "jpeg_buffer", camera::GetEarliestTimestamp(log_path));
+    control_loop.RegisterDependancyNode(disk_camera_node);
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
@@ -51,6 +59,7 @@ auto main(int argc, char** argv) -> int {
 
     auto solver_node =
         std::make_shared<localization::UnambiguousSolverNode>("pose");
+    solver_node->SetRejectFarTags(absl::GetFlag(FLAGS_reject_far_tags));
     solver_node->AddCamera("gpu_apriltag_detections", camera::Intrinsics{path},
                            camera::Extrinsics{path}, control_loop);
     solver_node->RegisterCallback(

@@ -1,18 +1,31 @@
-add_library(jpeg_buffer_log_node)
-target_sources(jpeg_buffer_log_node
+add_library(cos.jpeg_buffer_log_node)
+add_library(cos::jpeg_buffer_log_node ALIAS cos.jpeg_buffer_log_node)
+target_sources(cos.jpeg_buffer_log_node
   PRIVATE
     jpeg_buffer_log_node.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      jpeg_buffer_log_node.h
 )
-target_link_libraries(jpeg_buffer_log_node PRIVATE
+target_link_libraries(cos.jpeg_buffer_log_node PRIVATE
   absl::log
 )
 
-add_library(wpilog_writer)
-target_sources(wpilog_writer PRIVATE
-  wpilog_writer.cc
-  tag_detections_log.cc
+add_library(cos.wpilog_writer)
+add_library(cos::wpilog_writer ALIAS cos.wpilog_writer)
+target_sources(cos.wpilog_writer
+  PRIVATE
+    wpilog_writer.cc
+    tag_detections_log.cc
+  PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/src
+    FILES
+      wpilog_writer.h
 )
-target_link_libraries(wpilog_writer PUBLIC
+target_link_libraries(cos.wpilog_writer PUBLIC
   absl::log
   wpilibc
 )

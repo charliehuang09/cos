@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16) 
+cmake_minimum_required(VERSION 3.23)
 set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "" FORCE)
 
 project(COS CXX C CUDA)
@@ -18,7 +18,7 @@ include(cmake/Clangd.cmake)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O3")
 add_compile_options($<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-psabi>)
 
 set(CMAKE_CUDA_STANDARD 23)
@@ -62,3 +62,4 @@ target_compile_options(ixwebsocket PRIVATE
 add_subdirectory(src)
 
 include(cmake/DevOrin.cmake)
+include(cmake/VisionBot.cmake)

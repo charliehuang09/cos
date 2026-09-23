@@ -1,7 +1,7 @@
 #include <fstream>
 #include <iostream>
 
-#include "camera/uvc_camera_node.h"
+#include "camera/jpeg_buffer.h"
 #include "logging/jpeg_buffer_log_node.h"
 
 namespace logging {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <ostream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,9 +20,33 @@ namespace localization {
 
 using tag_detection_t = apriltag::TagDetections::tag_detection;
 
+struct SolverEstimate {
+  std::vector<int> tag_ids;
+  std::vector<double> distances;
+  frc::Pose3d pose;
+  double variance = 0.0;
+  double distance = 0.0;
+
+  friend auto operator<<(std::ostream& os, const SolverEstimate& estimate)
+      -> std::ostream& {
+    const auto& translation = estimate.pose.Translation();
+    const auto& rotation = estimate.pose.Rotation();
+    return os << "pose(x=" << translation.X().value()
+              << " y=" << translation.Y().value()
+              << " z=" << translation.Z().value()
+              << " roll=" << rotation.X().value()
+              << " pitch=" << rotation.Y().value()
+              << " yaw=" << rotation.Z().value() << ")"
+              << " variance=" << estimate.variance
+              << " distance=" << estimate.distance;
+  }
+};
+
+using solver_estimate_t = SolverEstimate;
+
 struct AmbiguousEstimate {
-  position_estimate_t pos1;
-  std::optional<position_estimate_t> pos2;
+  solver_estimate_t pos1;
+  std::optional<solver_estimate_t> pos2;
 };
 
 using ambiguous_estimate_t = AmbiguousEstimate;

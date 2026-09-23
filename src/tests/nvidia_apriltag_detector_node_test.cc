@@ -4,10 +4,13 @@
 #include "absl/log/check.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
-#include "camera/jpeg_disk_camera.h"
+#include "camera/get_earliest_timestamp.h"
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/nvjpeg_fd_decode_node.h"
+#include "camera/uvc_camera_node.h"
+#include "camera/uvc_disk_camera_node.h"
 #include "control_loop/control_loop.h"
+#include "control_loop/rio_clock.h"
 #include "control_loop/thread_pool.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
@@ -36,6 +39,8 @@ ABSL_FLAG(uint, max_context, 1, "");                                // NOLINT
 ABSL_FLAG(uint, instances, 1,                                       // NOLINT
           "Number of concurrent decode and detection pipelines.");  // NOLINT
 ABSL_FLAG(std::optional<std::string>, log_path, std::nullopt, "");  // NOLINT
+ABSL_FLAG(bool, pva_detection, true,                                // NOLINT
+          "Use PVA detection, will use cpu if set to false");       // NOLINT
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -56,13 +61,15 @@ auto main(int argc, char** argv) -> int {
   {
     auto log_path = absl::GetFlag(FLAGS_log_path);
     if (log_path.has_value()) {
-      auto jpeg_disk_camera_node = std::make_shared<camera::JpegDiskCamera>(
-          log_path.value(), "jpeg_buffer");
-      control_loop.RegisterDependancyNode(jpeg_disk_camera_node);
+      control_loop::RioClock::EnableSimulation();
+      auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
+          log_path.value(), "jpeg_buffer",
+          camera::GetEarliestTimestamp(log_path.value()));
+      control_loop.RegisterDependancyNode(disk_camera_node);
     } else {
       auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
           "jpeg_buffer",
-          camera::UVCCameraConfig{"/root/constants/dev-orin/camera.json"});
+          camera::UVCCameraConfig{"/root/constants/dev-orin/first.json"});
       uvc_camera_node->Start();
       control_loop.RegisterDependancyNode(uvc_camera_node);
     }
@@ -103,7 +110,8 @@ auto main(int argc, char** argv) -> int {
         auto gpu_apriltag_detector_node =
             std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
                 decoded_image_channel, detections_channel,
-                "/root/constants/dev-orin/camera.json", thread_pool);
+                "/root/constants/dev-orin/first.json", thread_pool,
+                absl::GetFlag(FLAGS_pva_detection));
         control_loop.RegisterNode(gpu_apriltag_detector_node);
         gpu_apriltag_detector_node->EnableTiming(detection_latency_channel);
         gpu_apriltag_detector_node->RegisterCallback(
@@ -156,7 +164,8 @@ auto main(int argc, char** argv) -> int {
         auto hardware_apriltag_detector_node =
             std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
                 decoded_image_channel, detections_channel,
-                "/root/constants/dev-orin/camera.json", thread_pool);
+                "/root/constants/dev-orin/first.json", thread_pool,
+                absl::GetFlag(FLAGS_pva_detection));
         control_loop.RegisterNode(hardware_apriltag_detector_node);
         hardware_apriltag_detector_node->EnableTiming(
             detection_latency_channel);

@@ -1,0 +1,16 @@
+[Unit]
+Description=Max clock speed and fan max speed
+Wants=nvpmodel.service nvfancontrol.service
+After=nvpmodel.service nvfancontrol.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+WorkingDirectory=/root
+ExecStart=/usr/bin/jetson_clocks --fan
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
