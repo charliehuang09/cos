@@ -118,6 +118,13 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
 
   const size_t pixels = static_cast<size_t>(width_) * height_;
 
+  CHECK(cudaMallocManaged(reinterpret_cast<void**>(&graph_input_buffer_),
+                          pixels * sizeof(uint8_t)) == cudaSuccess);
+  graph_input_view_ = {.data = graph_input_buffer_,
+                       .stride = width_,
+                       .height = height_,
+                       .width = width_};
+
   {
     cudaMallocManaged(reinterpret_cast<void**>(&max_buffer_),
                       (pixels / 16) * sizeof(uint8_t));
@@ -248,14 +255,19 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
       .height = height_,
       .width = width_,
   };
+
+  CreateCudaGraph();
 }
 
 GpuApriltagDetector::~GpuApriltagDetector() {
+  CHECK(cudaGraphExecDestroy(graph_exec_) == cudaSuccess);
+  CHECK(cudaGraphDestroy(graph_) == cudaSuccess);
   FreeBuffers();
   CHECK(cudaStreamDestroy(stream_) == cudaSuccess);
 }
 
 void GpuApriltagDetector::FreeBuffers() {
+  cudaFree(graph_input_buffer_);
   cudaFree(max_buffer_);
   cudaFree(min_buffer_);
   std::free(threshold_buffer_);
@@ -1334,19 +1346,16 @@ auto GpuApriltagDetector::DetectAprilTag(
   CHECK(apriltag.data != nullptr);
   CHECK_EQ(apriltag.height, height_);
   CHECK_EQ(apriltag.width, width_);
-  CHECK_GE(apriltag.stride, apriltag.width);
+  CHECK_EQ(apriltag.stride, apriltag.width);
   if (!output_directory.empty()) {
     std::filesystem::create_directories(output_directory);
   }
   ClearBuffers();
 
-  RegisterApriltagViewToGPU(apriltag);
-
-  {
-    PopulateMinMaxGPU(apriltag, min_view_, max_view_, stream_);
-    PopulateThresholdValidGPU(apriltag, min_view_, max_view_,
-                              binarized_apriltag_view_, stream_);
-  }
+  // The graph captures a fixed device-accessible address and packed stride.
+  // Refresh its contents from the packed input image for every call.
+  std::memcpy(graph_input_buffer_, apriltag.data,
+              static_cast<size_t>(width_) * height_ * sizeof(uint8_t));
 
   // {
   //   PopulateMinMax(apriltag, min_view_, max_view_);
@@ -1365,9 +1374,8 @@ auto GpuApriltagDetector::DetectAprilTag(
   //                             segmented_apriltag_view_);
   // }
   {
-    PopulateSegmentedApriltagGPU(binarized_apriltag_view_,
-                                 segmented_apriltag_view_, dsu_view_, stream_);
-    SyncStream();
+    CHECK(cudaGraphLaunch(graph_exec_, stream_) == cudaSuccess);
+    CHECK(cudaStreamSynchronize(stream_) == cudaSuccess);
   }
 
   if (!output_directory.empty()) {
@@ -1471,9 +1479,26 @@ auto GpuApriltagDetector::DetectAprilTag(
     }
   }
 
-  UnregisterApriltagViewToGPU(apriltag);
-
   return refined_detections;
+}
+
+void GpuApriltagDetector::CreateCudaGraph() {
+  cudaStream_t stream;
+
+  CHECK(cudaStreamCreate(&stream) == cudaSuccess);
+  CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal) ==
+        cudaSuccess);
+
+  PopulateMinMaxGPU(graph_input_view_, min_view_, max_view_, stream);
+  PopulateThresholdValidGPU(graph_input_view_, min_view_, max_view_,
+                            binarized_apriltag_view_, stream);
+  PopulateSegmentedApriltagGPU(binarized_apriltag_view_,
+                               segmented_apriltag_view_, dsu_view_, stream);
+
+  CHECK(cudaStreamEndCapture(stream, &graph_) == cudaSuccess);
+  CHECK(cudaStreamDestroy(stream) == cudaSuccess);
+
+  CHECK(cudaGraphInstantiate(&graph_exec_, graph_, 0) == cudaSuccess);
 }
 
 }  // namespace apriltag

@@ -203,12 +203,17 @@ class GpuApriltagDetector {
   auto GetRefinedQuads(
       const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
           refined_points) -> std::vector<Quad>;
+  void CreateCudaGraph();
 
   int width_;
   int height_;
   std::unique_ptr<apriltag_family_t, void (*)(apriltag_family_t*)> family_;
 
+  cudaGraph_t graph_;
+  cudaGraphExec_t graph_exec_;
+
   // Packed image buffers; their stride is independent of the input stride.
+  uint8_t* graph_input_buffer_ = nullptr;
   uint8_t* max_buffer_ = nullptr;
   uint8_t* min_buffer_ = nullptr;
   uint8_t* threshold_buffer_ = nullptr;
@@ -243,6 +248,7 @@ class GpuApriltagDetector {
   ImageView<uint32_t> bit_locations_apriltag_view_{};
   ImageView<uint8_t> refined_points_apriltag_view_{};
   ImageView<uint32_t> dsu_view_{};
+  ImageView<uint8_t> graph_input_view_{};
 
   std::vector<std::vector<Coord<int>>> segments_;
   std::vector<std::vector<float>> mses_;
