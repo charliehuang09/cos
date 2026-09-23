@@ -1412,10 +1412,10 @@ auto GpuApriltagDetector::DetectAprilTag(
   candidate_quad_corners_ = GetCandidatesQuadCorners(segments_, mses_);
   CHECK_EQ(candidate_quad_corners_.size(), segments_.size());
 
-  memcpy(candidate_quad_corners_apriltag_buffer_,
-         sorted_boundary_segmented_apriltag_buffer_,
-         sizeof(uint8_t) * apriltag.width * apriltag.height);
   if (!output_directory.empty()) {
+    memcpy(candidate_quad_corners_apriltag_buffer_,
+           sorted_boundary_segmented_apriltag_buffer_,
+           sizeof(uint8_t) * apriltag.width * apriltag.height);
     PopulateCandidateQuadCornersApriltagBuffer(
         candidate_quad_corners_, candidate_quad_corners_apriltag_view_);
     ImWrite((output_directory / "candidate_quad_corners_apriltag.png").string(),
