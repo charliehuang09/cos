@@ -138,7 +138,7 @@ namespace{
     bool valid = false;
     for (int i = cuda::std::max(0, static_cast<int>(row) - 1); i <= cuda::std::min(static_cast<int>(dsu.height - 1), static_cast<int>(row) + 1); i++){
       for (int j = cuda::std::max(0, static_cast<int>(col) - 1); j <= cuda::std::min(static_cast<int>(dsu.width - 1), static_cast<int>(col) + 1); j++){
-        if (binarized_apriltag(i, j) != value){
+        if (binarized_apriltag(i, j) == 255){
           valid = true;
           break;
         }
