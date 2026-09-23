@@ -149,7 +149,7 @@ namespace{
       dsu(row, col) = UINT32_MAX;
       return;
     }
-    dsu(row, col) = 0;
+    dsu(row, col) = 0; // Valid
   }
   __global__ void InitDSUKernel(ImageViewGPU<uint8_t> binarized_apriltag, ImageViewGPU<uint32_t> dsu){
     uint32_t row = threadIdx.y + blockIdx.y * blockDim.y;
@@ -165,12 +165,38 @@ namespace{
     uint8_t value = binarized_apriltag(row, col);
     int stride = dsu.stride;
     if (row + 1 < binarized_apriltag.height && binarized_apriltag(row + 1, col) == value && dsu(row + 1, col) != UINT32_MAX){
-      dsu(row, col) = (row + 1) * stride + col; 
-      return;
+      bool valid_join = false;
+      if (col > 0){
+        if (binarized_apriltag(row, col - 1) == 255 || binarized_apriltag(row + 1, col - 1) == 255){
+          valid_join = true;
+        }
+      }
+      if (col + 1 < binarized_apriltag.width){
+        if (binarized_apriltag(row, col + 1) == 255 || binarized_apriltag(row + 1, col + 1) == 255){
+          valid_join = true;
+        }
+      }
+      if (valid_join){
+        dsu(row, col) = (row + 1) * stride + col; 
+        return;
+      }
     }
     if (col + 1 < binarized_apriltag.width && binarized_apriltag(row, col + 1) == value && dsu(row, col + 1) != UINT32_MAX){
-      dsu(row, col) = row * stride + col + 1; 
-      return;
+      bool valid_join = false;
+      if (row > 0){
+        if (binarized_apriltag(row - 1, col) == 255 || binarized_apriltag(row - 1, col + 1) == 255){
+          valid_join = true;
+        }
+      }
+      if (row + 1 < binarized_apriltag.height){
+        if (binarized_apriltag(row + 1, col) == 255 || binarized_apriltag(row + 1, col + 1) == 255){
+          valid_join = true;
+        }
+      }
+      if (valid_join){
+        dsu(row, col) = row * stride + col + 1; 
+        return;
+      }
     }
 
     dsu(row, col) = row * stride + col; 
@@ -224,18 +250,31 @@ namespace{
     // if (0 != dsu(row + 1, col) && 0 != dsu(row, col + 1)){
     // if (value == binarized_apriltag(row + 1, col) && value == binarized_apriltag(row, col + 1)){
     if (UINT32_MAX != dsu(row + 1, col) && UINT32_MAX != dsu(row, col + 1)){
-      while(true){
-        uint32_t larger_index = GetRoot(row, col + 1, dsu);
-        uint32_t smaller_index = GetRoot(row + 1, col, dsu);
-        if (larger_index == smaller_index){
-          return;
+      bool valid_join = false;
+      if (row > 0){
+        if (binarized_apriltag(row - 1, col) == 255 || binarized_apriltag(row - 1, col + 1) == 255){
+          valid_join = true;
         }
-        if (larger_index < smaller_index){
-          cuda::std::swap(larger_index, smaller_index);
+      }
+      if (row + 1 < binarized_apriltag.height){
+        if (binarized_apriltag(row + 1, col) == 255 || binarized_apriltag(row + 1, col + 1) == 255){
+          valid_join = true;
         }
-        if(atomicCAS(dsu.data + smaller_index, smaller_index, larger_index) == smaller_index){
-          // Set succesfully
-          break;
+      }
+      if (valid_join){
+        while(true){
+          uint32_t larger_index = GetRoot(row, col + 1, dsu);
+          uint32_t smaller_index = GetRoot(row + 1, col, dsu);
+          if (larger_index == smaller_index){
+            return;
+          }
+          if (larger_index < smaller_index){
+            cuda::std::swap(larger_index, smaller_index);
+          }
+          if(atomicCAS(dsu.data + smaller_index, smaller_index, larger_index) == smaller_index){
+            // Set succesfully
+            break;
+          }
         }
       }
     }

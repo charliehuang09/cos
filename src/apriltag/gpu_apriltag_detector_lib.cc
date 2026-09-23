@@ -12,20 +12,34 @@
 #include "absl/log/log.h"
 #include "control_loop/timer.h"
 
+#include <climits>
+#include <cstdint>
 #include <opencv2/opencv.hpp>
 
 namespace {
 [[gnu::always_inline]]
-void inline PopulateColor(uint32_t id, uint8_t& r, uint8_t& g, uint8_t& b) {
-  if (UINT32_MAX == id) {
+inline auto Mix(uint32_t value) -> uint32_t {
+  value ^= value >> 16;
+  value *= 0x7FEB352Du;
+  value ^= value >> 15;
+  value *= 0x846CA68Bu;
+  value ^= value >> 16;
+  return value;
+}
+
+inline void PopulateColor(uint32_t id, uint8_t& r, uint8_t& g, uint8_t& b) {
+  if (id == UINT32_MAX) {
     r = 0;
     g = 0;
     b = 0;
     return;
   }
-  r = (id * 2222009) % 256;
-  g = (id * 2222022) % 256;
-  b = (id * 2222222) % 256;
+
+  const uint32_t value = Mix(id);
+
+  r = static_cast<uint8_t>(value);
+  g = static_cast<uint8_t>(value >> 8);
+  b = static_cast<uint8_t>(value >> 16);
 }
 
 [[gnu::always_inline]]
@@ -536,7 +550,7 @@ auto GpuApriltagDetector::GetMses(
     std::vector<std::vector<Coord<int>>>& segments)
     -> std::vector<std::vector<float>> {
   std::vector<std::vector<float>> mses;
-  constexpr int window_size = 100;
+  constexpr int window_size = 50;
   constexpr float window_size_float = window_size;
   for (const auto& segment : segments) {
     Coord<int64_t> first_moment{.row = 0, .col = 0};
@@ -742,8 +756,8 @@ void GpuApriltagDetector::PopulateQuadApriltagBuffer(
       if (corner.row == 0 && corner.col == 0) {
         continue;
       }
-      for (int i = -5; i <= 5; i++) {
-        for (int j = -5; j <= 5; j++) {
+      for (int i = -3; i <= 3; i++) {
+        for (int j = -3; j <= 3; j++) {
           quad_apriltag(corner.row + i, corner.col + j) = color;
         }
       }
@@ -1355,7 +1369,6 @@ auto GpuApriltagDetector::DetectAprilTag(
                                  segmented_apriltag_view_, dsu_view_, stream_);
     SyncStream();
   }
-  LOG(INFO) << timer.Stop();
 
   if (!output_directory.empty()) {
     ImWrite((output_directory / "max.png").string(), max_view_);
