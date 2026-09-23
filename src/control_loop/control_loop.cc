@@ -119,6 +119,18 @@ void ControlLoop::EnableLatencyLog() {
 
 void ControlLoop::ValidateNodeGraph() {
   std::unordered_map<std::string, std::type_index> publishers;
+  for (const auto& node : dependancy_nodes_) {
+    for (const auto& message_descriptor : node->GetPublications()) {
+      PCHECK(!publishers.contains(message_descriptor.GetChannel()))
+          << "Multiple publishers to the same channel. Channel is: "
+          << message_descriptor.GetChannel();
+      PCHECK(message_descriptor.GetTypes().size() == 1)
+          << "Publisher message descriptor has multiple types. Channel is: "
+          << message_descriptor.GetChannel();
+      publishers.insert({message_descriptor.GetChannel(),
+                         *message_descriptor.GetTypes().begin()});
+    }
+  }
   for (const auto& node : nodes_) {
     for (const auto& message_descriptor : node->GetPublications()) {
       PCHECK(!publishers.contains(message_descriptor.GetChannel()))
@@ -129,6 +141,19 @@ void ControlLoop::ValidateNodeGraph() {
           << message_descriptor.GetChannel();
       publishers.insert({message_descriptor.GetChannel(),
                          *message_descriptor.GetTypes().begin()});
+    }
+  }
+  for (const auto& node : nodes_) {
+    for (const auto& message_descriptor : node->GetDependencies()) {
+      PCHECK(publishers.contains(message_descriptor.GetChannel()))
+          << "Node channel dependancy does has not been registered. Channel "
+             "is: "
+          << message_descriptor.GetChannel();
+      PCHECK(message_descriptor.GetTypes().contains(
+          publishers.at(message_descriptor.GetChannel())))
+          << "Publisher and subscriber channel type does not match. Channel "
+             "is: "
+          << message_descriptor.GetChannel();
     }
   }
 }
