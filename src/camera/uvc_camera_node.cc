@@ -108,7 +108,8 @@ void UVCCameraNode::Callback(const control_loop::Context& context) {
     if (buffer_ == nullptr) {
       context->include_in_perfomance_metrics = false;
       context->SetMessage(output_path_, nullptr);
-      LOG(WARNING) << name_ << " did not produce a frame for this cycle";
+      LOG_EVERY_N_SEC(WARNING, 2)
+          << name_ << " did not produce a frame for this cycle";
     } else {
       context->SetMessage(output_path_, std::move(buffer_));
     }

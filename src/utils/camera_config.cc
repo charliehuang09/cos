@@ -2,6 +2,7 @@
 
 #include <frc/geometry/Pose3d.h>
 #include <frc/geometry/Rotation3d.h>
+#include <units/angle.h>
 
 namespace utils {
 
@@ -26,9 +27,12 @@ auto ExtrinsicsJsonToCameraToRobot(const nlohmann::json& extrinsics)
       units::meter_t{extrinsics.at("translation_y").get<double>()},
       units::meter_t{extrinsics.at("translation_z").get<double>()},
       frc::Rotation3d(
-          units::radian_t{extrinsics.at("rotation_x").get<double>()},
-          units::radian_t{extrinsics.at("rotation_y").get<double>()},
-          units::radian_t{extrinsics.at("rotation_z").get<double>()}));
+          units::radian_t{units::degree_t{
+              extrinsics.at("rotation_x").get<double>()}},
+          units::radian_t{units::degree_t{
+              extrinsics.at("rotation_y").get<double>()}},
+          units::radian_t{units::degree_t{
+              extrinsics.at("rotation_z").get<double>()}}));
   frc::Transform3d robot_to_camera(frc::Pose3d{}, camera_pose);
   return robot_to_camera.Inverse();
 }
