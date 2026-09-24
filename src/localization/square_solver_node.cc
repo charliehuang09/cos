@@ -1,4 +1,5 @@
 #include "localization/square_solver_node.h"
+#include "logging/estimate_log.h"
 
 #include <utility>
 
@@ -24,8 +25,8 @@ SquareSolverNode::SquareSolverNode(std::string_view input_channel,
       camera_to_robot_(extrinsics.ToCameraToRobot<cv::Mat>()),
       dependencies_({control_loop::MessageDescriptor(
           input_channel_, typeid(apriltag::TagDetections))}),
-      publications_({control_loop::MessageDescriptor(
-          output_channel_, typeid(AmbiguousEstimateMessage))}) {}
+      publications_({control_loop::MessageDescriptor::For<
+          AmbiguousEstimateMessage>(output_channel_)}) {}
 
 void SquareSolverNode::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {

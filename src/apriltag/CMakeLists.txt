@@ -29,6 +29,9 @@ target_link_libraries(cos.cpu_apriltag_detector_node PUBLIC
   nlohmann_json::nlohmann_json
   absl::log
 )
+target_link_libraries(cos.cpu_apriltag_detector_node PRIVATE
+  cos::wpilog_writer
+)
 target_link_libraries(cos.nvidia_apriltag_detector_node
   PUBLIC
     ${OpenCV_LIBS}
@@ -38,5 +41,6 @@ target_link_libraries(cos.nvidia_apriltag_detector_node
   PRIVATE
     cos::cuda_utils
     nlohmann_json::nlohmann_json
+    cos::wpilog_writer
 
 )

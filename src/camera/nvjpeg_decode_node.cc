@@ -1,4 +1,5 @@
 #include "camera/nvjpeg_decode_node.h"
+#include "logging/latency_log.h"
 #include "control_loop/timer.h"
 
 #include <array>
@@ -113,7 +114,8 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
       output_format_(output_format),
       thread_pool_(thread_pool),
       dependencies_({{input_path_, typeid(JpegBuffer)}}),
-      publications_({{output_path_, typeid(DecodedJpegBuffer)}}) {
+      publications_({control_loop::MessageDescriptor::For<DecodedJpegBuffer>(
+          output_path_)}) {
   CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
   CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
@@ -257,8 +259,9 @@ auto NvjpegDecodeNode::GetPublications() const
 }
 
 void NvjpegDecodeNode::EnableTiming(std::string_view latency_channel) {
-  publications_.emplace_back(latency_channel,
-                             typeid(control_loop::LatencyMessage));
+  publications_.push_back(
+      control_loop::MessageDescriptor::For<control_loop::LatencyMessage>(
+          latency_channel));
   latency_channel_ = latency_channel;
 }
 

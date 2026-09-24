@@ -1,9 +1,11 @@
 #include "camera/uvc_disk_camera_node.h"
+#include "logging/publication.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "control_loop/rio_clock.h"
 #include "utils/stop.h"
@@ -12,9 +14,13 @@ namespace camera {
 
 UVCDiskCameraNode::UVCDiskCameraNode(std::string_view log_path,
                                      std::string_view output_path,
-                                     double offset)
-    : publications_({{std::string(output_path), typeid(JpegBuffer)}}),
-      output_path_(output_path) {
+                                     double offset, bool stop_on_complete,
+                                     bool start_immediately)
+    : publications_({control_loop::MessageDescriptor::For<JpegBuffer>(
+          output_path)}),
+      output_path_(output_path),
+      stop_on_complete_(stop_on_complete),
+      offset_(offset) {
   for (const auto& entry : std::filesystem::directory_iterator(log_path)) {
     if (!entry.is_regular_file()) {
       continue;
@@ -40,11 +46,17 @@ UVCDiskCameraNode::UVCDiskCameraNode(std::string_view log_path,
   std::ranges::sort(file_paths_, {},
                     [](const auto& file) -> auto { return file.second; });
 
-  thread_ = std::jthread([this,
-                          offset](const std::stop_token& stop_token) -> void {
+  if (start_immediately) {
+    StartPlayback();
+  }
+}
+
+void UVCDiskCameraNode::StartPlayback() {
+  CHECK(!thread_.joinable()) << "Disk camera playback already started";
+  thread_ = std::jthread([this](const std::stop_token& stop_token) -> void {
     for (std::size_t index = 0;
          index < file_paths_.size() && !stop_token.stop_requested(); ++index) {
-      const double replay_timestamp = file_paths_[index].second - offset;
+      const double replay_timestamp = file_paths_[index].second - offset_;
       while (!stop_token.stop_requested() &&
              control_loop::RioClock::GetTime() < replay_timestamp) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -84,6 +96,11 @@ UVCDiskCameraNode::~UVCDiskCameraNode() {
   }
 }
 
+auto UVCDiskCameraNode::IsPlaybackComplete() -> bool {
+  std::lock_guard lock(mutex_);
+  return playback_complete_ && buffer_ == nullptr;
+}
+
 auto UVCDiskCameraNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
@@ -101,7 +118,7 @@ auto UVCDiskCameraNode::CreateCallback()
     for (const auto& callback : callbacks_) {
       callback(context);
     }
-    if (request_stop) {
+    if (request_stop && stop_on_complete_) {
       stop::RequestStop();
     }
   };

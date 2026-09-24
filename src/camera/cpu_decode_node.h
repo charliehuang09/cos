@@ -13,6 +13,7 @@ namespace camera {
 
 class DecodedImageBuffer final : public control_loop::IMessage {
  public:
+  static constexpr bool loggable = false;
   auto GetType() -> const std::type_info& override {
     return typeid(DecodedImageBuffer);
   }

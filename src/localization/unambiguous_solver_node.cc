@@ -1,4 +1,5 @@
 #include "localization/unambiguous_solver_node.h"
+#include "logging/estimate_log.h"
 
 #include <algorithm>
 #include <cmath>
@@ -55,8 +56,8 @@ UnambiguousSolverNode::UnambiguousSolverNode(std::string_view output_channel,
                                              frc::AprilTagFieldLayout layout)
     : output_channel_(output_channel),
       layout_(std::move(layout)),
-      publications_({control_loop::MessageDescriptor(
-          output_channel_, typeid(PositionEstimateMessage))}) {}
+      publications_({control_loop::MessageDescriptor::For<
+          PositionEstimateMessage>(output_channel_)}) {}
 
 void UnambiguousSolverNode::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {

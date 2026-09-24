@@ -14,15 +14,17 @@ namespace control_loop {
 
 ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
                                  ControlLoop* control_loop,
-                                 std::stop_token stop_token, std::uint64_t id)
+                                 std::stop_token stop_token, std::uint64_t id,
+                                 std::shared_ptr<logging::WPILogWriter> wpilog_writer)
     : start(start),
       control_loop(control_loop),
       stop_token(std::move(stop_token)),
-      id(id) {}
+      id(id),
+      wpilog_writer_(std::move(wpilog_writer)) {}
 
 ContextInternal::~ContextInternal() {
-  if (control_loop != nullptr) {
-    control_loop->LogContext(*this);
+  if (wpilog_writer_ != nullptr) {
+    wpilog_writer_->Write(*this);
   }
 }
 
@@ -30,16 +32,16 @@ ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
 
 ControlLoop::~ControlLoop() {
   Stop();
-  contexts_.clear();
-  if (wpilog_writer_ != nullptr) {
-    wpilog_writer_->Close();
-  }
 }
 
 void ControlLoop::Start() {
   ValidateNodeGraph();
   RegisterNodeCallbacks();
-  wpilog_writer_ = std::make_unique<logging::WPILogWriter>(*this);
+  if (wpilog_writer_ == nullptr) {
+    wpilog_writer_ =
+        std::make_shared<logging::WPILogWriter>("output_file.wpilog");
+  }
+  wpilog_writer_->Configure(GetPublications());
 
   contexts_.reserve(max_contexts_);
   for (size_t i = 0; i < max_contexts_; i++) {
@@ -72,7 +74,7 @@ void ControlLoop::Start() {
           std::stop_source stop_source;
           Context context(new ContextInternal(std::chrono::steady_clock::now(),
                                               this, stop_source.get_token(),
-                                              ++loop_count_));
+                                              ++loop_count_, wpilog_writer_));
           for (const auto& dependancy : dependencies_) {
             dependancy(context);
           }
@@ -93,6 +95,7 @@ void ControlLoop::Stop() {
   if (thread_.joinable()) {
     thread_.join();
   }
+  contexts_.clear();
 }
 
 void ControlLoop::RegisterCallback(
@@ -111,6 +114,11 @@ void ControlLoop::RegisterNode(const std::shared_ptr<INode>& node) {
 void ControlLoop::RegisterDependancyNode(const std::shared_ptr<INode>& node) {
   dependancy_nodes_.emplace_back(node);
   dependencies_.emplace_back(node->CreateCallback());
+}
+
+void ControlLoop::SetWPILogWriter(
+    std::shared_ptr<logging::WPILogWriter> writer) {
+  wpilog_writer_ = std::move(writer);
 }
 
 void ControlLoop::EnableLatencyLog() {
@@ -198,12 +206,6 @@ auto ControlLoop::GetPublications() const -> std::vector<MessageDescriptor> {
     publications.insert(publications.end(), node_pubs.begin(), node_pubs.end());
   }
   return publications;
-}
-
-void ControlLoop::LogContext(const ContextInternal& context) {
-  if (wpilog_writer_ != nullptr) {
-    wpilog_writer_->Write(context);
-  }
 }
 
 }  // namespace control_loop

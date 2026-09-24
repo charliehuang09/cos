@@ -18,6 +18,7 @@ namespace camera {
 
 class DecodedJpegFdBuffer final : public control_loop::IMessage {
  public:
+  static constexpr bool loggable = false;
   DecodedJpegFdBuffer() = default;
   ~DecodedJpegFdBuffer() override;
   DecodedJpegFdBuffer(DecodedJpegFdBuffer&& other) noexcept;

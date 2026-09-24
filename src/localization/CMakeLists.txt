@@ -34,6 +34,7 @@ target_link_libraries(cos.square_solver_node PUBLIC
   cos::cv_geometry_utils
   cos::json_utils
 )
+target_link_libraries(cos.square_solver_node PRIVATE cos::wpilog_writer)
 
 add_library(cos.multi_tag_solver_node)
 add_library(cos::multi_tag_solver_node ALIAS cos.multi_tag_solver_node)
@@ -53,6 +54,7 @@ target_link_libraries(cos.multi_tag_solver_node PUBLIC
   cos::json_utils
   absl::log
 )
+target_link_libraries(cos.multi_tag_solver_node PRIVATE cos::wpilog_writer)
 
 add_library(cos.unambiguous_solver_node)
 add_library(cos::unambiguous_solver_node ALIAS cos.unambiguous_solver_node)
@@ -71,6 +73,7 @@ target_link_libraries(cos.unambiguous_solver_node PUBLIC
 )
 target_link_libraries(cos.unambiguous_solver_node PRIVATE
   absl::log
+  cos::wpilog_writer
 )
 
 add_library(cos.variance_calculator_node)
@@ -86,6 +89,9 @@ target_sources(cos.variance_calculator_node
 )
 target_link_libraries(cos.variance_calculator_node PUBLIC
   cos::localization_solver_common
+)
+target_link_libraries(cos.variance_calculator_node PRIVATE
+  cos::wpilog_writer
 )
 
 add_library(cos.position_estimate_sender_node)

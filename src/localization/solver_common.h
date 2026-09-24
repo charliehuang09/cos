@@ -13,7 +13,7 @@
 #include <frc/geometry/Pose3d.h>
 #include <opencv2/core/types.hpp>
 
-#include "apriltag/nvidia_apriltag_detector_node.h"
+#include "apriltag/tag_detections.h"
 #include "localization/position.h"
 
 namespace localization {

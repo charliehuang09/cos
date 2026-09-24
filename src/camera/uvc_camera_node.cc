@@ -2,6 +2,7 @@
 #include "absl/log/log.h"
 
 #include "camera/uvc_camera_node.h"
+#include "logging/publication.h"
 #include "control_loop/rio_clock.h"
 
 #include <cmath>
@@ -21,7 +22,8 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
                              const UVCCameraConfig& config)
     : output_path_(output_path),
       name_(config.name),
-      publications_({{output_path_, typeid(JpegBuffer)}}) {
+      publications_({control_loop::MessageDescriptor::For<JpegBuffer>(
+          output_path_)}) {
   {
     uvc_error_t code = uvc_init(&context_, nullptr);
     CHECK(!code) << "UVC failed to init will error code: " << code;

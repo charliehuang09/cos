@@ -10,6 +10,7 @@ namespace camera {
 
 class JpegBuffer final : public control_loop::IMessage {
  public:
+  static constexpr bool loggable = false;
   JpegBuffer() : size(0), timestamp(0), ptr(nullptr) {}
   JpegBuffer(size_t size, double timestamp)
       : size(size),

@@ -15,8 +15,11 @@ namespace camera {
 class UVCDiskCameraNode final : public control_loop::INode {
  public:
   UVCDiskCameraNode(std::string_view log_path, std::string_view output_path,
-                    double offset);
+                    double offset, bool stop_on_complete = true,
+                    bool start_immediately = true);
   ~UVCDiskCameraNode() override;
+  void StartPlayback();
+  [[nodiscard]] auto IsPlaybackComplete() -> bool;
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
   void Callback(const control_loop::Context& context);
@@ -37,5 +40,7 @@ class UVCDiskCameraNode final : public control_loop::INode {
   std::string output_path_;
   std::unique_ptr<JpegBuffer> buffer_ = nullptr;
   bool playback_complete_ = false;
+  bool stop_on_complete_;
+  double offset_;
 };
 }  // namespace camera

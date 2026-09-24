@@ -26,6 +26,7 @@ class ControlLoop {
   void RegisterDependancy(const std::function<void(const Context&)>&);
   void RegisterNode(const std::shared_ptr<INode>& node);
   void RegisterDependancyNode(const std::shared_ptr<INode>& node);
+  void SetWPILogWriter(std::shared_ptr<logging::WPILogWriter> writer);
   void EnableLatencyLog();
   void Start();
   void Stop();
@@ -34,11 +35,8 @@ class ControlLoop {
   [[nodiscard]] auto GetPublications() const -> std::vector<MessageDescriptor>;
 
  private:
-  friend struct ContextInternal;
-
   void ValidateNodeGraph();
   void RegisterNodeCallbacks();
-  void LogContext(const ContextInternal& context);
 
  private:
   std::jthread thread_;
@@ -50,7 +48,7 @@ class ControlLoop {
   bool log_latency_ = false;
   std::queue<std::chrono::steady_clock::time_point> timestamp_queue_;
   std::atomic<double> loops_per_second_ = -1;
-  std::unique_ptr<logging::WPILogWriter> wpilog_writer_;
+  std::shared_ptr<logging::WPILogWriter> wpilog_writer_;
   std::vector<std::shared_ptr<ContextInternal>> contexts_;
   size_t max_contexts_ = 1;
   std::uint64_t loop_count_ = 0;

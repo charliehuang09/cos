@@ -1,3 +1,13 @@
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <nlohmann/json.hpp>
+
 #include "localization/unambiguous_solver_node.h"
 #include "absl/base/log_severity.h"
 #include "absl/flags/flag.h"
@@ -20,6 +30,91 @@ using namespace std::chrono_literals;
 
 ABSL_FLAG(bool, reject_far_tags, true,                            // NOLINT
           "Reject tags and estimates that fail sanity checks.");  // NOLINT
+ABSL_FLAG(std::string, log_path, "/cos-logs/second_bot/chezychamps",  // NOLINT
+          "Directory containing one timestamped JPEG folder per camera");
+ABSL_FLAG(std::string, camera_config_dir,                       // NOLINT
+          "/root/constants/second_bot",                         // NOLINT
+          "Directory containing camera calibration JSON files");
+
+namespace {
+
+namespace fs = std::filesystem;
+
+struct CameraReplay {
+  fs::path image_dir;
+  fs::path config_path;
+  std::string name;
+};
+
+auto MatchesCamera(const std::string& directory_name,
+                   const std::string& config_name,
+                   const std::string& config_stem) -> bool {
+  const auto matches = [&directory_name](const std::string& config) {
+    constexpr std::string_view kCameraSuffix = "_camera";
+    const std::string camera_name =
+        config.ends_with(kCameraSuffix)
+            ? config.substr(0, config.size() - kCameraSuffix.size())
+            : config;
+    return directory_name == config || directory_name == camera_name ||
+           directory_name.ends_with("_" + camera_name) ||
+           camera_name.ends_with("_" + directory_name);
+  };
+  return matches(config_name) || matches(config_stem);
+}
+
+auto FindCameraReplays(const fs::path& image_root, const fs::path& config_dir)
+    -> std::vector<CameraReplay> {
+  CHECK(fs::is_directory(image_root))
+      << "Missing image directory: " << image_root;
+  CHECK(fs::is_directory(config_dir))
+      << "Missing camera constants: " << config_dir;
+
+  struct CameraConfig {
+    fs::path path;
+    std::string name;
+  };
+  std::vector<CameraConfig> configs;
+  for (const auto& entry : fs::directory_iterator(config_dir)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".json") {
+      continue;
+    }
+    std::ifstream file(entry.path());
+    CHECK(file.is_open()) << "Cannot read camera constants: " << entry.path();
+    const auto json = nlohmann::json::parse(file);
+    configs.push_back({entry.path(), json.at("name").get<std::string>()});
+  }
+
+  std::vector<fs::path> image_dirs;
+  for (const auto& entry : fs::directory_iterator(image_root)) {
+    if (entry.is_directory()) {
+      image_dirs.push_back(entry.path());
+    }
+  }
+  std::ranges::sort(image_dirs);
+  CHECK(!image_dirs.empty()) << "No camera folders in " << image_root;
+
+  std::vector<CameraReplay> replays;
+  std::set<fs::path> used_configs;
+  for (const auto& image_dir : image_dirs) {
+    const std::string directory_name = image_dir.filename().string();
+    const CameraConfig* match = nullptr;
+    for (const auto& config : configs) {
+      if (MatchesCamera(directory_name, config.name,
+                        config.path.stem().string())) {
+        CHECK(match == nullptr)
+            << "Multiple camera constants match " << image_dir;
+        match = &config;
+      }
+    }
+    CHECK(match != nullptr) << "No camera constants match " << image_dir;
+    CHECK(used_configs.insert(match->path).second)
+        << "Camera constants used by multiple folders: " << match->path;
+    replays.push_back({image_dir, match->path, directory_name});
+  }
+  return replays;
+}
+
+}  // namespace
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -33,35 +128,55 @@ auto main(int argc, char** argv) -> int {
   control_loop.SetMaxContext(1);
   control_loop.EnableLatencyLog();
 
-  const std::string path = "/root/constants/second_bot/left_camera.json";
-  const std::string log_path = "/cos-logs/second_bot/log102/left";
+  const auto replays =
+      FindCameraReplays(absl::GetFlag(FLAGS_log_path),
+                        absl::GetFlag(FLAGS_camera_config_dir));
+  std::vector<std::string> image_paths;
+  for (const auto& replay : replays) {
+    image_paths.push_back(replay.image_dir.string());
+    LOG(INFO) << "Using " << replay.image_dir << " with " << replay.config_path;
+  }
+  const double first_timestamp = camera::GetEarliestTimestamp(image_paths);
+  std::vector<std::shared_ptr<camera::UVCDiskCameraNode>> disk_cameras;
 
   {
-    auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
-        log_path, "jpeg_buffer", camera::GetEarliestTimestamp(log_path));
-    control_loop.RegisterDependancyNode(disk_camera_node);
-
-    auto jpeg_buffer_streamer_node =
-        std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",
-                                                           "stream", 4971);
-    control_loop.RegisterNode(jpeg_buffer_streamer_node);
-
-    auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
-        "jpeg_buffer", "gpu_decoded_image", NVJPEG_OUTPUT_Y, thread_pool);
-    control_loop.RegisterNode(gpu_decode_node);
-    gpu_decode_node->EnableTiming("gpu_decoded_image:latency");
-
-    auto gpu_apriltag_detector_node =
-        std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
-            "gpu_decoded_image", "gpu_apriltag_detections", path, thread_pool);
-    control_loop.RegisterNode(gpu_apriltag_detector_node);
-    gpu_apriltag_detector_node->EnableTiming("gpu_apriltag_detections:latency");
-
     auto solver_node =
         std::make_shared<localization::UnambiguousSolverNode>("pose");
     solver_node->SetRejectFarTags(absl::GetFlag(FLAGS_reject_far_tags));
-    solver_node->AddCamera("gpu_apriltag_detections", camera::Intrinsics{path},
-                           camera::Extrinsics{path}, control_loop);
+
+    int stream_port = 4971;
+    for (const auto& replay : replays) {
+      const std::string jpeg_channel = "jpeg_buffer:" + replay.name;
+      const std::string decoded_channel = "gpu_decoded_image:" + replay.name;
+      const std::string detections_channel =
+          "gpu_apriltag_detections:" + replay.name;
+      const std::string config_path = replay.config_path.string();
+
+      auto disk_camera = std::make_shared<camera::UVCDiskCameraNode>(
+          replay.image_dir.string(), jpeg_channel, first_timestamp,
+          /*stop_on_complete=*/false, /*start_immediately=*/false);
+      control_loop.RegisterDependancyNode(disk_camera);
+      disk_cameras.push_back(disk_camera);
+
+      auto jpeg_streamer = std::make_shared<streamer::JpegBufferStreamerNode>(
+          jpeg_channel, "stream", stream_port++);
+      control_loop.RegisterNode(jpeg_streamer);
+
+      auto decoder = std::make_shared<camera::NvjpegDecodeNode>(
+          jpeg_channel, decoded_channel, NVJPEG_OUTPUT_Y, thread_pool);
+      control_loop.RegisterNode(decoder);
+      decoder->EnableTiming(decoded_channel + ":latency");
+
+      auto detector = std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
+          decoded_channel, detections_channel, config_path, thread_pool);
+      control_loop.RegisterNode(detector);
+      detector->EnableTiming(detections_channel + ":latency");
+
+      solver_node->AddCamera(detections_channel,
+                             camera::Intrinsics{config_path},
+                             camera::Extrinsics{config_path}, control_loop);
+    }
+
     solver_node->RegisterCallback(
         [](const control_loop::Context& context) -> void {
           auto pose =
@@ -78,9 +193,22 @@ auto main(int argc, char** argv) -> int {
     control_loop.RegisterNode(simulation_position_sender_node);
   }
 
+  control_loop::RioClock::Restart();
   control_loop.Start();
+  for (const auto& camera : disk_cameras) {
+    camera->StartPlayback();
+  }
 
-  stop::WaitUntilStop();
+  while (!stop::StopRequested()) {
+    const bool complete =
+        std::ranges::all_of(disk_cameras, [](const auto& camera) {
+          return camera->IsPlaybackComplete();
+        });
+    if (complete) {
+      break;
+    }
+    std::this_thread::sleep_for(10ms);
+  }
 
   control_loop.Stop();
   thread_pool.Shutdown();

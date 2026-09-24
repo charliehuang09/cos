@@ -96,6 +96,7 @@ target_link_libraries(cos.nvjpeg_decode_node
     absl::log
   PRIVATE
     cos::timer
+    cos::wpilog_writer
 )
 
 add_library(cos.nvjpeg_fd_decode_node)
@@ -121,6 +122,7 @@ target_link_libraries(cos.nvjpeg_fd_decode_node
     absl::log
   PRIVATE
     cos::timer
+    cos::wpilog_writer
 )
 
 add_library(cos.cpu_decode_node)
