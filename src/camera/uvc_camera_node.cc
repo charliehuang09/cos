@@ -30,8 +30,12 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
     const char* serial_id =
         config.serial_id.has_value() ? config.serial_id->c_str() : nullptr;
     uvc_error_t code = uvc_find_device(context_, &device_, 0, 0, serial_id);
-    CHECK(!code) << "UVC failed to find device with error code: " << code
-                 << " camera_name: " << config.name;
+    if (code != UVC_SUCCESS) {
+      LOG(WARNING) << "UVC failed to find device with error code: " << code
+                   << " camera_name: " << config.name;
+      valid_ = false;
+      return;
+    }
   }
   {
     uvc_error_t code = uvc_open(device_, &device_handle_);
@@ -60,6 +64,7 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
     ctrl_.dwMaxPayloadTransferSize = config.max_payload_size;
     ctrl_.dwMaxVideoFrameSize = config.max_frame_size;
   }
+  valid_ = true;
 }
 
 auto UVCCameraNode::CreateCallback()
@@ -75,9 +80,8 @@ void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   if (!std::isfinite(timestamp)) {
     return;
   }
-  auto buffer =
-      std::make_unique<JpegBuffer>(frame->data_bytes + (2 * terminate_jpeg_),
-                                   timestamp);
+  auto buffer = std::make_unique<JpegBuffer>(
+      frame->data_bytes + (2 * terminate_jpeg_), timestamp);
   std::memcpy(buffer->ptr, frame->data, frame->data_bytes);
   if (terminate_jpeg_) {
     buffer->ptr[frame->data_bytes + 0] = 0xFFU;
@@ -91,6 +95,14 @@ void UVCCameraNode::CallBack(uvc_frame_t* frame) {
 }
 
 void UVCCameraNode::Callback(const control_loop::Context& context) {
+  if (!valid_) {
+    context->include_in_perfomance_metrics = false;
+    context->SetMessage(output_path_, nullptr);
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
+    return;
+  }
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (buffer_ == nullptr) {
@@ -107,22 +119,30 @@ void UVCCameraNode::Callback(const control_loop::Context& context) {
 }
 
 void UVCCameraNode::Start() {
-  int code = uvc_start_streaming(
-      device_handle_, &ctrl_,
-      [](uvc_frame_t* frame, void* ptr) -> void {
-        auto uvc_camera_node = static_cast<UVCCameraNode*>(ptr);
-        uvc_camera_node->CallBack(frame);
-      },
-      this, 0);
-  CHECK(!code) << "UVC failed to start streaming with exit code: " << code
-               << " camera name: " << name_;
+  if (valid_) {
+    int code = uvc_start_streaming(
+        device_handle_, &ctrl_,
+        [](uvc_frame_t* frame, void* ptr) -> void {
+          auto uvc_camera_node = static_cast<UVCCameraNode*>(ptr);
+          uvc_camera_node->CallBack(frame);
+        },
+        this, 0);
+    CHECK(!code) << "UVC failed to start streaming with exit code: " << code
+                 << " camera name: " << name_;
+  }
 }
 
 UVCCameraNode::~UVCCameraNode() {
-  uvc_stop_streaming(device_handle_);
-  uvc_close(device_handle_);
-  uvc_unref_device(device_);
-  uvc_exit(context_);
+  if (device_handle_ != nullptr) {
+    uvc_stop_streaming(device_handle_);
+    uvc_close(device_handle_);
+  }
+  if (device_ != nullptr) {
+    uvc_unref_device(device_);
+  }
+  if (context_ != nullptr) {
+    uvc_exit(context_);
+  }
   LOG(INFO) << name_ << " has been destructed";
 }
 
