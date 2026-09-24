@@ -10,6 +10,9 @@
 #include "absl/log/log.h"
 
 namespace logging {
+namespace {
+constexpr auto kFlushInterval = std::chrono::milliseconds(250);
+}  // namespace
 
 WPILogWriter::WPILogWriter(std::string path) : path_(std::move(path)) {}
 
@@ -46,6 +49,7 @@ void WPILogWriter::Configure(
                      LogEntry{std::move(entries), type,
                               publication.GetAppendWPILog()});
   }
+  last_flush_ = std::chrono::steady_clock::now();
 }
 
 void WPILogWriter::Write(
@@ -70,6 +74,11 @@ void WPILogWriter::Write(
       continue;
     }
     entry->second.append(*this, entry->second.indices, *message, timestamp);
+  }
+  const auto now = std::chrono::steady_clock::now();
+  if (now - last_flush_ >= kFlushInterval) {
+    writer_->Flush();
+    last_flush_ = now;
   }
 }
 

@@ -1,14 +1,26 @@
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include <frc/geometry/struct/Pose3dStruct.h>
 #include <nlohmann/json.hpp>
+#include <wpi/DataLogReader.h>
+#include <wpi/MemoryBuffer.h>
+#include <wpi/struct/Struct.h>
 
-#include "localization/unambiguous_solver_node.h"
 #include "absl/base/log_severity.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -22,6 +34,9 @@
 #include "control_loop/control_loop.h"
 #include "control_loop/rio_clock.h"
 #include "control_loop/thread_pool.h"
+#include "localization/unambiguous_solver_node.h"
+#include "localization/variance_calculator_node.h"
+#include "logging/wpilog_writer.h"
 #include "simulation/simulation_position_sender_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
@@ -35,6 +50,8 @@ ABSL_FLAG(std::string, log_path, "/cos-logs/second_bot/chezychamps",  // NOLINT
 ABSL_FLAG(std::string, camera_config_dir,                       // NOLINT
           "/root/constants/second_bot",                         // NOLINT
           "Directory containing camera calibration JSON files");
+ABSL_FLAG(std::string, wpilog_path, "output_file.wpilog",  // NOLINT
+          "Output WPILOG file");
 
 namespace {
 
@@ -114,6 +131,117 @@ auto FindCameraReplays(const fs::path& image_root, const fs::path& config_dir)
   return replays;
 }
 
+void ValidateWPILog(const std::string& path,
+                    const std::vector<CameraReplay>& replays) {
+  CHECK(fs::exists(path));
+  CHECK_GT(fs::file_size(path), 128U);
+  auto buffer = wpi::MemoryBuffer::GetFile(path);
+  CHECK(buffer.has_value());
+  wpi::log::DataLogReader reader(std::move(buffer.value()));
+  CHECK(reader.IsValid());
+
+  std::unordered_map<int, std::string> entry_names;
+  std::unordered_map<std::string, std::string> entry_types;
+  std::unordered_map<std::string, size_t> records;
+  std::set<std::string> detection_channels;
+  for (const auto& replay : replays) {
+    detection_channels.insert("gpu_apriltag_detections:" + replay.name);
+  }
+  for (const auto& record : reader) {
+    if (record.IsStart()) {
+      wpi::log::StartRecordData start;
+      CHECK(record.GetStartData(&start));
+      entry_names[start.entry] = start.name;
+      entry_types[std::string(start.name)] = start.type;
+      continue;
+    }
+    if (record.IsControl()) {
+      continue;
+    }
+
+    const auto entry = entry_names.find(record.GetEntry());
+    CHECK(entry != entry_names.end());
+    const std::string& channel = entry->second;
+    ++records[channel];
+    if (detection_channels.contains(channel)) {
+      constexpr size_t kDetectionBytes =
+          wpi::GetStructSize<int32_t>() + 8 * wpi::GetStructSize<double>();
+      CHECK_EQ(record.GetSize() % kDetectionBytes, 0U);
+      if (record.GetSize() != 0) {
+        const auto bytes = record.GetRaw();
+        CHECK_GT(wpi::UnpackStruct<int32_t>(bytes), 0);
+        CHECK(std::isfinite(wpi::UnpackStruct<double>(
+            bytes.subspan(wpi::GetStructSize<int32_t>()))));
+      }
+    } else if (channel == "pose" || channel == "pose_with_variance") {
+      CHECK_EQ(record.GetSize(), wpi::GetStructSize<frc::Pose3d>());
+      const frc::Pose3d pose = wpi::UnpackStruct<frc::Pose3d>(record.GetRaw());
+      CHECK(std::isfinite(pose.X().value()));
+      CHECK(std::isfinite(pose.Y().value()));
+    } else if (channel == "pose/tag_ids" ||
+               channel == "pose_with_variance/tag_ids") {
+      std::vector<int64_t> values;
+      CHECK(record.GetIntegerArray(&values));
+      CHECK(!values.empty());
+    } else if (channel == "pose/distances" ||
+               channel == "pose_with_variance/distances") {
+      std::vector<double> values;
+      CHECK(record.GetDoubleArray(&values));
+      CHECK(!values.empty());
+    } else if (channel == "pose/variance" ||
+               channel == "pose_with_variance/variance") {
+      double value = 0.0;
+      CHECK(record.GetDouble(&value));
+      CHECK(std::isfinite(value));
+    } else if (channel.ends_with(":multitag_solver/pos1") ||
+               channel.ends_with(":multitag_solver/pos2")) {
+      CHECK_EQ(record.GetSize() % wpi::GetStructSize<frc::Pose3d>(), 0U);
+      if (record.GetSize() != 0) {
+        const frc::Pose3d pose =
+            wpi::UnpackStruct<frc::Pose3d>(record.GetRaw());
+        CHECK(std::isfinite(pose.X().value()));
+      }
+    }
+  }
+
+  for (const auto& replay : replays) {
+    const std::string jpeg = "jpeg_buffer:" + replay.name;
+    const std::string decoded = "gpu_decoded_image:" + replay.name;
+    const std::string detections = "gpu_apriltag_detections:" + replay.name;
+    const std::string solver = detections + ":multitag_solver";
+    CHECK(!entry_types.contains(jpeg));
+    CHECK(!entry_types.contains(decoded));
+    CHECK_EQ(entry_types.at(detections), "struct:TagDetection[]");
+    CHECK_GT(records.at(decoded + ":latency"), 0U);
+    CHECK_GT(records.at(detections), 0U);
+    CHECK_GT(records.at(detections + ":latency"), 0U);
+    CHECK_EQ(entry_types.at(solver), "string");
+    CHECK_EQ(entry_types.at(solver + "/pos1"), "struct:Pose3d[]");
+    CHECK_EQ(entry_types.at(solver + "/pos2"), "struct:Pose3d[]");
+    CHECK_EQ(entry_types.at(solver + "/pos2_indices"), "int64[]");
+    for (const std::string_view suffix : {"/pos1", "/pos2", "/pos2_indices",
+                                          "/pos1_variance", "/pos2_variance",
+                                          "/pos1_distance", "/pos2_distance"}) {
+      const std::string field = solver + std::string(suffix);
+      if (suffix != "/pos1" && suffix != "/pos2" &&
+          suffix != "/pos2_indices") {
+        CHECK_EQ(entry_types.at(field), "double[]");
+      }
+      CHECK_EQ(records[solver], records[field]);
+    }
+  }
+  for (const std::string_view channel : {"pose", "pose_with_variance"}) {
+    const std::string name(channel);
+    CHECK_EQ(entry_types.at(name), "struct:Pose3d");
+    CHECK_EQ(entry_types.at(name + "/tag_ids"), "int64[]");
+    CHECK_EQ(entry_types.at(name + "/distances"), "double[]");
+    CHECK_EQ(entry_types.at(name + "/variance"), "double");
+    CHECK_EQ(records[name], records[name + "/tag_ids"]);
+    CHECK_EQ(records[name], records[name + "/distances"]);
+    CHECK_EQ(records[name], records[name + "/variance"]);
+  }
+}
+
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
@@ -127,6 +255,9 @@ auto main(int argc, char** argv) -> int {
   control_loop::ThreadPool thread_pool;
   control_loop.SetMaxContext(1);
   control_loop.EnableLatencyLog();
+  auto wpilog = std::make_shared<logging::WPILogWriter>(
+      absl::GetFlag(FLAGS_wpilog_path));
+  control_loop.SetWPILogWriter(wpilog);
 
   const auto replays =
       FindCameraReplays(absl::GetFlag(FLAGS_log_path),
@@ -188,6 +319,10 @@ auto main(int argc, char** argv) -> int {
         });
     control_loop.RegisterNode(solver_node);
 
+    auto variance_node = std::make_shared<localization::VarianceCalculatorNode>(
+        "pose", "pose_with_variance");
+    control_loop.RegisterNode(variance_node);
+
     auto simulation_position_sender_node =
         std::make_shared<simulation::SimulationPositionSenderNode>("pose");
     control_loop.RegisterNode(simulation_position_sender_node);
@@ -212,6 +347,10 @@ auto main(int argc, char** argv) -> int {
 
   control_loop.Stop();
   thread_pool.Shutdown();
+  wpilog->Close();
+  if (!stop::StopRequested()) {
+    ValidateWPILog(absl::GetFlag(FLAGS_wpilog_path), replays);
+  }
 
   std::fflush(nullptr);
   std::_Exit(EXIT_SUCCESS);

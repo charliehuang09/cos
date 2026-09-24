@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -54,6 +55,7 @@ class WPILogWriter final {
   std::unique_ptr<wpi::log::DataLogWriter> writer_;
   std::unordered_map<std::string, LogEntry> entries_;
   std::mutex mutex_;
+  std::chrono::steady_clock::time_point last_flush_;
   bool closed_ = false;
 };
 

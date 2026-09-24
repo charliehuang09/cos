@@ -106,23 +106,9 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   cos::camera_config
   absl::flags_parse
   cos::unambiguous_solver_node
-  cos::simulation_position_sender_node
-)
-
-add_executable(localization_wpilog_test localization_wpilog_test.cc)
-target_link_libraries(localization_wpilog_test PRIVATE
-  cos::nvidia_apriltag_detector_node
-  cos::nvjpeg_decode_node
-  cos::control_loop
-  cos::thread_pool
-  cos::get_earliest_timestamp
-  cos::uvc_disk_camera_node
-  cos::camera_config
-  cos::unambiguous_solver_node
   cos::variance_calculator_node
   cos::wpilog_writer
-  absl::flags_parse
-  absl::log_initialize
+  cos::simulation_position_sender_node
 )
 
 add_executable(wpilog_writer_lifetime_test wpilog_writer_lifetime_test.cc)
