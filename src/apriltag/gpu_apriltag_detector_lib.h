@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <memory_resource>
 #include <opencv2/core/mat.hpp>
 #include <string>
 #include <utility>
@@ -130,25 +131,25 @@ class GpuApriltagDetector {
                                     cudaStream_t stream);
 
   auto GetSegment(ImageView<uint32_t>& segmented_apriltag, int row, int col,
-                  size_t max_size) -> std::vector<Coord<int>>;
+                  size_t max_size) -> std::pmr::vector<Coord<int>>;
   auto GetSegments(ImageView<uint32_t> segmented_apriltag)
-      -> std::vector<std::vector<Coord<int>>>;
+      -> std::pmr::vector<std::pmr::vector<Coord<int>>>;
 
   void PopulateBoundarySegmentedApriltag(
-      std::vector<std::vector<Coord<int>>>& segments,
+      std::pmr::vector<std::pmr::vector<Coord<int>>>& segments,
       ImageView<uint32_t> boundary_segmented_apriltag);
 
-  auto SortSegments(std::vector<std::vector<Coord<int>>>& segments);
+  auto SortSegments(std::pmr::vector<std::pmr::vector<Coord<int>>>& segments);
 
   void PopulateSortedBoundarySegmentedApriltag(
-      std::vector<std::vector<Coord<int>>>& segments,
+      std::pmr::vector<std::pmr::vector<Coord<int>>>& segments,
       ImageView<uint8_t> sorted_boundary_segmented_apriltag);
 
-  auto GetMses(std::vector<std::vector<Coord<int>>>& segments)
+  auto GetMses(std::pmr::vector<std::pmr::vector<Coord<int>>>& segments)
       -> std::vector<std::vector<float>>;
 
   auto GetCandidatesQuadCorners(
-      const std::vector<std::vector<Coord<int>>>& segments,
+      const std::pmr::vector<std::pmr::vector<Coord<int>>>& segments,
       const std::vector<std::vector<float>>& mse_map)
       -> std::vector<CandidatesQuad>;
 
@@ -164,12 +165,14 @@ class GpuApriltagDetector {
   void PopulateQuadApriltagBuffer(std::vector<Quad>& quads,
                                   ImageView<uint8_t> quad_apriltag);
 
-  auto GetBitLocations(std::vector<Quad>& quads) -> std::vector<BitLocation>;
+  auto GetBitLocations(std::vector<Quad>& quads)
+      -> std::vector<BitLocation>;
   auto GetBitLocationsHomography(std::vector<Quad>& quads, int width,
                                  int height) -> std::vector<BitLocation>;
 
-  void PopulateBitLocationsApriltag(std::vector<BitLocation>& bit_locations,
-                                    ImageView<uint32_t> bit_locations_apriltag);
+  void PopulateBitLocationsApriltag(
+      std::vector<BitLocation>& bit_locations,
+      ImageView<uint32_t> bit_locations_apriltag);
 
   auto GetBlackWhiteThreshold(ImageView<uint8_t> apriltag,
                               const BitLocation& bit_location)
@@ -179,7 +182,8 @@ class GpuApriltagDetector {
                  ImageView<uint8_t> apriltag)
       -> std::pair<std::vector<int>, std::vector<int>>;
 
-  void RotateQuads(std::vector<Quad>& quads, const std::vector<int>& rotations);
+  void RotateQuads(std::vector<Quad>& quads,
+                   const std::vector<int>& rotations);
 
   auto GradientCol(Coord<int> point, ImageView<uint8_t>& apriltag) -> float;
 
@@ -252,13 +256,20 @@ class GpuApriltagDetector {
   ImageView<uint32_t> dsu_view_{};
   ImageView<uint8_t> graph_input_view_{};
 
-  std::vector<std::vector<Coord<int>>> segments_;
+  // Declared before segments_ so the pool outlives the segment allocations.
+  // Calls on this detector are serialized, so the pool needs no locking.
+  // The constructor sizes the block limit for one coordinate per image pixel,
+  // with a floor covering the 1024-point reservation's 2048-point growth.
+  std::pmr::unsynchronized_pool_resource segment_resource_;
+
+  std::pmr::vector<std::pmr::vector<Coord<int>>> segments_{&segment_resource_};
   std::vector<std::vector<float>> mses_;
   std::vector<CandidatesQuad> candidate_quad_corners_;
   std::vector<Quad> quads_;
   std::vector<BitLocation> bit_locations_;
   std::vector<ApriltagDetection> detections_;
-  std::vector<std::array<std::vector<WeightedPoint>, 4>> refined_points_;
+  std::vector<std::array<std::vector<WeightedPoint>, 4>>
+      refined_points_;
   std::vector<Quad> refined_quads_;
   cudaStream_t stream_;
 };
