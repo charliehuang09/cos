@@ -20,6 +20,7 @@ namespace localization {
 class PositionEstimateSenderNode final : public control_loop::INode {
  public:
   PositionEstimateSenderNode(std::string_view input_channel,
+                             std::string_view variance_channel,
                              std::string_view networktables_channel,
                              const nt::NetworkTableInstance& instance);
   auto CreateCallback()
@@ -39,6 +40,7 @@ class PositionEstimateSenderNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::string input_channel_;
+  std::string variance_channel_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
   bool log_estimate_ = false;
 };

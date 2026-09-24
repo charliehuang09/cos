@@ -14,6 +14,7 @@
 #include <wpi/DataLogReader.h>
 #include <wpi/MemoryBuffer.h>
 
+#include "camera/jpeg_buffer.h"
 #include "control_loop/context.h"
 #include "control_loop/control_loop.h"
 #include "logging/latency_log.h"
@@ -58,12 +59,15 @@ TEST(WPILogWriter, ContextRetainsWriterUntilLastMessage) {
   constexpr std::string_view path = "/tmp/cos_wpilog_writer_lifetime_test.wpilog";
   auto writer = std::make_shared<logging::WPILogWriter>(std::string(path));
   writer->Configure({control_loop::MessageDescriptor::For<
-      control_loop::LatencyMessage>("latency")});
+      control_loop::LatencyMessage>("latency"),
+      control_loop::MessageDescriptor::For<camera::JpegBuffer>("frame")});
 
   {
     auto context = std::make_shared<control_loop::ContextInternal>(
         std::chrono::steady_clock::now(), nullptr, std::stop_token{}, 1,
         writer);
+    context->SetMessage("frame",
+                        std::make_unique<camera::JpegBuffer>(0, 123.456));
     context->SetMessage(
         "latency", std::make_unique<control_loop::LatencyMessage>(
                        std::chrono::duration<double>{0.25}));
@@ -80,6 +84,7 @@ TEST(WPILogWriter, ContextRetainsWriterUntilLastMessage) {
       double value = 0.0;
       ASSERT_TRUE(record.GetDouble(&value));
       EXPECT_DOUBLE_EQ(value, 0.25);
+      EXPECT_EQ(record.GetTimestamp(), 123'456'000);
       ++samples;
     }
   }

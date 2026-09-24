@@ -12,6 +12,7 @@ namespace streamer {
 class PositionEstimateRioStreamerNode final : public control_loop::INode {
  public:
   PositionEstimateRioStreamerNode(std::string_view input_path,
+                                  std::string_view variance_path,
                                   std::string_view networktable_path);
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
@@ -29,6 +30,7 @@ class PositionEstimateRioStreamerNode final : public control_loop::INode {
 
  private:
   std::string input_path_;
+  std::string variance_path_;
   std::string networktable_path_;
   nt::NetworkTableInstance instance_;
   nt::DoubleArrayPublisher position_estimate_publisher_;

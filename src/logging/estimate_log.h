@@ -4,6 +4,7 @@
 
 namespace localization {
 struct PositionEstimateMessage;
+struct VarianceMessage;
 class AmbiguousEstimateMessage;
 }
 
@@ -17,6 +18,15 @@ template <>
 void AppendLog<localization::PositionEstimateMessage>(
     WPILogWriter& writer, std::span<const int> entries,
     const localization::PositionEstimateMessage& message, int64_t timestamp);
+
+template <>
+std::vector<int> StartLog<localization::VarianceMessage>(
+    WPILogWriter& writer, std::string_view channel);
+
+template <>
+void AppendLog<localization::VarianceMessage>(
+    WPILogWriter& writer, std::span<const int> entries,
+    const localization::VarianceMessage& message, int64_t timestamp);
 
 template <>
 std::vector<int> StartLog<localization::AmbiguousEstimateMessage>(

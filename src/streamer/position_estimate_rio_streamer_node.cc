@@ -11,12 +11,13 @@ constexpr nt::PubSubOptions publish_options = {.pollStorage = 200,
 
 namespace streamer {
 PositionEstimateRioStreamerNode::PositionEstimateRioStreamerNode(
-    std::string_view input_path, std::string_view networktable_path)
+    std::string_view input_path, std::string_view variance_path,
+    std::string_view networktable_path)
     : input_path_(input_path),
+      variance_path_(variance_path),
       networktable_path_(networktable_path),
       instance_(nt::NetworkTableInstance::GetDefault()),
-      dependencies_(
-          {{input_path_, typeid(localization::PositionEstimateMessage)}}),
+      dependencies_({{variance_path_, typeid(localization::VarianceMessage)}}),
       publications_() {
   std::shared_ptr<nt::NetworkTable> table =
       instance_.GetTable(networktable_path_);
@@ -55,7 +56,9 @@ auto PositionEstimateRioStreamerNode::CreateCallback()
     }
     auto position_estimate_message =
         context->GetMessage<localization::PositionEstimateMessage>(input_path_);
-    if (position_estimate_message == nullptr) {
+    auto variance_message =
+        context->GetMessage<localization::VarianceMessage>(variance_path_);
+    if (position_estimate_message == nullptr || variance_message == nullptr) {
       for (const auto& callback : callbacks_) {
         callback(context);
       }
@@ -68,7 +71,7 @@ auto PositionEstimateRioStreamerNode::CreateCallback()
 
     std::array<double, 5> position_estimate_array{
         pose.X().value(), pose.Y().value(), pose.Rotation().Z().value(),
-        position_estimate_message->variance, GetTimestamp(context)};
+        variance_message->value, GetTimestamp(context)};
     position_estimate_publisher_.Set(position_estimate_array);
     instance_.Flush();
 

@@ -173,23 +173,20 @@ void ValidateWPILog(const std::string& path,
         CHECK(std::isfinite(wpi::UnpackStruct<double>(
             bytes.subspan(wpi::GetStructSize<int32_t>()))));
       }
-    } else if (channel == "pose" || channel == "pose_with_variance") {
+    } else if (channel == "pose") {
       CHECK_EQ(record.GetSize(), wpi::GetStructSize<frc::Pose3d>());
       const frc::Pose3d pose = wpi::UnpackStruct<frc::Pose3d>(record.GetRaw());
       CHECK(std::isfinite(pose.X().value()));
       CHECK(std::isfinite(pose.Y().value()));
-    } else if (channel == "pose/tag_ids" ||
-               channel == "pose_with_variance/tag_ids") {
+    } else if (channel == "pose/tag_ids") {
       std::vector<int64_t> values;
       CHECK(record.GetIntegerArray(&values));
       CHECK(!values.empty());
-    } else if (channel == "pose/distances" ||
-               channel == "pose_with_variance/distances") {
+    } else if (channel == "pose/distances") {
       std::vector<double> values;
       CHECK(record.GetDoubleArray(&values));
       CHECK(!values.empty());
-    } else if (channel == "pose/variance" ||
-               channel == "pose_with_variance/variance") {
+    } else if (channel == "variance") {
       double value = 0.0;
       CHECK(record.GetDouble(&value));
       CHECK(std::isfinite(value));
@@ -230,16 +227,15 @@ void ValidateWPILog(const std::string& path,
       CHECK_EQ(records[solver], records[field]);
     }
   }
-  for (const std::string_view channel : {"pose", "pose_with_variance"}) {
-    const std::string name(channel);
-    CHECK_EQ(entry_types.at(name), "struct:Pose3d");
-    CHECK_EQ(entry_types.at(name + "/tag_ids"), "int64[]");
-    CHECK_EQ(entry_types.at(name + "/distances"), "double[]");
-    CHECK_EQ(entry_types.at(name + "/variance"), "double");
-    CHECK_EQ(records[name], records[name + "/tag_ids"]);
-    CHECK_EQ(records[name], records[name + "/distances"]);
-    CHECK_EQ(records[name], records[name + "/variance"]);
-  }
+  CHECK_EQ(entry_types.at("pose"), "struct:Pose3d");
+  CHECK_EQ(entry_types.at("pose/tag_ids"), "int64[]");
+  CHECK_EQ(entry_types.at("pose/distances"), "double[]");
+  CHECK_EQ(entry_types.at("variance"), "double");
+  CHECK(!entry_types.contains("pose_with_variance"));
+  CHECK_GT(records["pose"], 0U);
+  CHECK_EQ(records["pose"], records["pose/tag_ids"]);
+  CHECK_EQ(records["pose"], records["pose/distances"]);
+  CHECK_EQ(records["pose"], records["variance"]);
 }
 
 }  // namespace
@@ -320,7 +316,7 @@ auto main(int argc, char** argv) -> int {
     control_loop.RegisterNode(solver_node);
 
     auto variance_node = std::make_shared<localization::VarianceCalculatorNode>(
-        "pose", "pose_with_variance");
+        "pose", "variance");
     control_loop.RegisterNode(variance_node);
 
     auto simulation_position_sender_node =

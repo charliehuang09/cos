@@ -19,7 +19,7 @@ VarianceCalculatorNode::VarianceCalculatorNode(std::string_view input_channel,
       min_variance_(min_variance),
       variance_scalar_(variance_scalar),
       dependencies_({{input_channel_, typeid(PositionEstimateMessage)}}),
-      publications_({control_loop::MessageDescriptor::For<PositionEstimateMessage>(
+      publications_({control_loop::MessageDescriptor::For<VarianceMessage>(
           output_channel_)}) {}
 
 auto VarianceCalculatorNode::CreateCallback()
@@ -40,14 +40,13 @@ auto VarianceCalculatorNode::CreateCallback()
       return;
     }
 
-    auto output = std::make_unique<PositionEstimateMessage>(*input);
     const double distance_sum =
         std::accumulate(input->distances.begin(), input->distances.end(), 0.0);
     const int num_tags = static_cast<int>(input->distances.size());
-    output->variance =
-        Variance(num_tags, distance_sum / num_tags, min_variance_,
-                 variance_scalar_);
-    context->SetMessage(output_channel_, std::move(output));
+    const double variance = Variance(num_tags, distance_sum / num_tags,
+                                     min_variance_, variance_scalar_);
+    context->SetMessage(output_channel_,
+                        std::make_unique<VarianceMessage>(variance));
     notify_callbacks();
   };
 }

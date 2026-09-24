@@ -46,8 +46,8 @@ void WPILogWriter::Configure(
     const auto type = *publication.GetTypes().begin();
     auto entries = start(*this, publication.GetChannel());
     entries_.emplace(publication.GetChannel(),
-                     LogEntry{std::move(entries), type,
-                              publication.GetAppendWPILog()});
+                     LogEntry{.indices=std::move(entries), .type=type,
+                              .append=publication.GetAppendWPILog()});
   }
   last_flush_ = std::chrono::steady_clock::now();
 }
@@ -58,8 +58,21 @@ void WPILogWriter::Write(
   if (writer_ == nullptr || closed_) {
     return;
   }
-  const int64_t timestamp = wpi::Now();
   std::lock_guard context_lock(context.messages_mutex_);
+  std::optional<int64_t> source_timestamp;
+  for (const auto& [channel, message] : context.messages_) {
+    static_cast<void>(channel);
+    if (message == nullptr) {
+      continue;
+    }
+    const auto message_timestamp = message->GetTimestamp();
+    if (
+        !source_timestamp.has_value() ||
+         *message_timestamp > *source_timestamp) {
+      source_timestamp = message_timestamp;
+    }
+  }
+  const int64_t timestamp = source_timestamp.value_or(wpi::Now());
   for (const auto& [channel, message] : context.messages_) {
     if (message == nullptr) {
       continue;

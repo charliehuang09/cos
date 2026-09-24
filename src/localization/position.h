@@ -15,21 +15,18 @@ struct PositionEstimateMessage final : public control_loop::IMessage {
   std::vector<int> tag_ids;
   frc::Pose3d pose;
   std::vector<double> distances;
-  double variance = 0.0;
 
   PositionEstimateMessage() = default;
   PositionEstimateMessage(const PositionEstimateMessage& other)
       : control_loop::IMessage(),
         tag_ids(other.tag_ids),
         pose(other.pose),
-        distances(other.distances),
-        variance(other.variance) {}
+        distances(other.distances) {}
   PositionEstimateMessage(PositionEstimateMessage&& other) noexcept
       : control_loop::IMessage(),
         tag_ids(std::move(other.tag_ids)),
         pose(other.pose),
-        distances(std::move(other.distances)),
-        variance(other.variance) {}
+        distances(std::move(other.distances)) {}
   auto operator=(const PositionEstimateMessage& other)
       -> PositionEstimateMessage& {
     if (this == &other) {
@@ -38,7 +35,6 @@ struct PositionEstimateMessage final : public control_loop::IMessage {
     tag_ids = other.tag_ids;
     pose = other.pose;
     distances = other.distances;
-    variance = other.variance;
     return *this;
   }
   auto operator=(PositionEstimateMessage&& other) noexcept
@@ -49,7 +45,6 @@ struct PositionEstimateMessage final : public control_loop::IMessage {
     tag_ids = std::move(other.tag_ids);
     pose = other.pose;
     distances = std::move(other.distances);
-    variance = other.variance;
     return *this;
   }
 
@@ -84,8 +79,19 @@ struct PositionEstimateMessage final : public control_loop::IMessage {
       }
       os << estimate.tag_ids[i];
     }
-    return os << "] variance=" << estimate.variance;
+    return os << "]";
   }
+};
+
+struct VarianceMessage final : public control_loop::IMessage {
+  explicit VarianceMessage(double value) : value(value) {}
+
+  auto GetType() -> const std::type_info& override {
+    return typeid(VarianceMessage);
+  }
+  auto GetSize() -> std::size_t override { return sizeof(*this); }
+
+  double value;
 };
 
 using position_estimate_t = PositionEstimateMessage;

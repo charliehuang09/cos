@@ -25,7 +25,7 @@ void ExpectNullOutputAndCallback(
         ++callback_count;
         EXPECT_TRUE(callback_context->Exists("output"));
         EXPECT_EQ(callback_context
-                      ->GetMessage<localization::PositionEstimateMessage>(
+                      ->GetMessage<localization::VarianceMessage>(
                           "output"),
                   nullptr);
       });
@@ -75,11 +75,9 @@ TEST(VarianceCalculatorNodeTest, PublishesVarianceBeforeNotifyingCallback) {
         ++callback_count;
         const auto* output =
             callback_context
-                ->GetMessage<localization::PositionEstimateMessage>("output");
+                ->GetMessage<localization::VarianceMessage>("output");
         ASSERT_NE(output, nullptr);
-        EXPECT_EQ(output->tag_ids, (std::vector<int>{1, 2}));
-        EXPECT_EQ(output->distances, (std::vector<double>{2.0, 4.0}));
-        EXPECT_DOUBLE_EQ(output->variance, 1.525);
+        EXPECT_DOUBLE_EQ(output->value, 1.525);
       });
 
   node.CreateCallback()(context);

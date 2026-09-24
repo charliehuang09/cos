@@ -92,8 +92,8 @@ auto main(int argc, char** argv) -> int {
   control_loop.RegisterNode(solver_node);
 
   auto rio_sender_node =
-      std::make_shared<streamer::PositionEstimateRioStreamerNode>("pose",
-                                                                  "/COS");
+      std::make_shared<streamer::PositionEstimateRioStreamerNode>(
+          "pose", "variance", "/COS");
   control_loop.RegisterNode(rio_sender_node);
 
   int port = 4971;
@@ -107,11 +107,11 @@ auto main(int argc, char** argv) -> int {
   networktables_instance.StartServer();
   auto variance_calculator_node =
       std::make_shared<localization::VarianceCalculatorNode>(
-          "pose", "pose_with_variance");
+          "pose", "variance");
   control_loop.RegisterNode(variance_calculator_node);
   auto position_estimate_sender_node =
       std::make_shared<localization::PositionEstimateSenderNode>(
-          "pose_with_variance", "Orin/localization", networktables_instance);
+          "pose", "variance", "Orin/localization", networktables_instance);
   position_estimate_sender_node->SetLogEstimates(true);
   control_loop.RegisterNode(position_estimate_sender_node);
 

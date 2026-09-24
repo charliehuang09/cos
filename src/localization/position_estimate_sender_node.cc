@@ -6,10 +6,11 @@
 namespace localization {
 
 PositionEstimateSenderNode::PositionEstimateSenderNode(
-    std::string_view input_channel, std::string_view networktables_channel,
+    std::string_view input_channel, std::string_view variance_channel,
+    std::string_view networktables_channel,
     const nt::NetworkTableInstance& instance)
-    : input_channel_(input_channel) {
-  dependencies_.emplace_back(input_channel, typeid(PositionEstimateMessage));
+    : input_channel_(input_channel), variance_channel_(variance_channel) {
+  dependencies_.emplace_back(variance_channel, typeid(VarianceMessage));
   std::shared_ptr<nt::NetworkTable> table =
       instance.GetTable(networktables_channel);
 
@@ -45,20 +46,21 @@ auto PositionEstimateSenderNode::CreateCallback()
   return [this](const control_loop::Context& context) -> void {
     auto position_estimate =
         context->GetMessage<PositionEstimateMessage>(input_channel_);
-    if (position_estimate == nullptr) {
+    auto variance = context->GetMessage<VarianceMessage>(variance_channel_);
+    if (position_estimate == nullptr || variance == nullptr) {
       return;
     }
     std::array<double, 4> pose{
         position_estimate->pose.X().value(),
         position_estimate->pose.Y().value(),
         position_estimate->pose.Z().value(),
-        position_estimate->variance,
+        variance->value,
     };
     pose_publisher_.Set(pose);
     pose3d_publisher_.Set(position_estimate->pose);
     pose2d_publisher_.Set(position_estimate->pose.ToPose2d());
     if (log_estimate_) {
-      LOG(INFO) << *position_estimate;
+      LOG(INFO) << *position_estimate << " variance=" << variance->value;
     }
   };
 }

@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cmath>
 #include <cstdlib>
+#include <optional>
 #include <typeinfo>
 
 #include "control_loop/message.h"
@@ -30,6 +32,9 @@ class JpegBuffer final : public control_loop::IMessage {
     return typeid(JpegBuffer);
   }
   auto GetSize() -> size_t override { return sizeof(*this) + size; }
+  auto GetTimestamp() const -> int64_t override {
+    return std::llround(timestamp * 1'000'000.0);
+  }
 };
 
 }  // namespace camera

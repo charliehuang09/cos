@@ -58,8 +58,7 @@ std::vector<int> StartLog<localization::PositionEstimateMessage>(
   const std::string name(channel);
   return {writer.StartRaw(channel, wpi::GetStructTypeString<frc::Pose3d>()),
           writer.StartIntegerArray(name + "/tag_ids"),
-          writer.StartDoubleArray(name + "/distances"),
-          writer.StartDouble(name + "/variance")};
+          writer.StartDoubleArray(name + "/distances"), writer.StartDouble(name + "/num_tags")};
 }
 
 template <>
@@ -73,7 +72,20 @@ void AppendLog<localization::PositionEstimateMessage>(
                                      message.tag_ids.end());
   writer.AppendIntegerArray(entries[1], tag_ids, timestamp);
   writer.AppendDoubleArray(entries[2], message.distances, timestamp);
-  writer.AppendDouble(entries[3], message.variance, timestamp);
+  writer.AppendDouble(entries[3], message.tag_ids.size(), timestamp);
+}
+
+template <>
+std::vector<int> StartLog<localization::VarianceMessage>(
+    WPILogWriter& writer, std::string_view channel) {
+  return {writer.StartDouble(channel)};
+}
+
+template <>
+void AppendLog<localization::VarianceMessage>(
+    WPILogWriter& writer, std::span<const int> entries,
+    const localization::VarianceMessage& message, int64_t timestamp) {
+  writer.AppendDouble(entries[0], message.value, timestamp);
 }
 
 template <>
