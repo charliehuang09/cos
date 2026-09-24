@@ -468,23 +468,74 @@ void GpuApriltagDetector::PopulateSegmentedApriltag(
   }
 }
 
-auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
-    -> std::vector<std::vector<Coord<int>>> {
-  absl::flat_hash_map<uint32_t, std::vector<Coord<int>>> segments_set;
-  for (int i = 0; i < segmented_apriltag.height; i += 1) {
-    for (int j = 0; j < segmented_apriltag.width; j += 1) {
-      if (segmented_apriltag(i, j) != UINT32_MAX) {
-        segments_set[segmented_apriltag(i, j)].emplace_back(i, j);
+auto GpuApriltagDetector::GetSegment(ImageView<uint32_t>& segmented_apriltag,
+                                     int row, int col, size_t max_size)
+    -> std::vector<Coord<int>> {
+  constexpr int max_revisited = 4;
+  int num_revisited = 0;
+  int current_direction = 0;
+  std::vector<Coord<int>> segment;
+  segment.reserve(max_size);
+  Coord<int> curr{.row = row, .col = col};
+  const Coord<int> start{.row = row, .col = col};
+  segment.push_back({.row = row, .col = col});
+  const uint32_t id = segmented_apriltag(row, col);
+  while (segment.size() <= max_size && num_revisited < max_revisited) {
+    constexpr std::array<int, 4> drow = {0, 1, 0, -1};
+    constexpr std::array<int, 4> dcol = {1, 0, -1, 0};
+    bool has_neighbor = false;
+    for (int i = 0; i < 4; i++) {
+      int new_direction = (current_direction + i) % 4;
+      Coord<int> new_coord = {.row = curr.row + drow[new_direction],
+                              .col = curr.col + dcol[new_direction]};
+      if (new_coord.row >= 0 && new_coord.row < segmented_apriltag.height &&
+          new_coord.col >= 0 && new_coord.col < segmented_apriltag.width) {
+        if (segmented_apriltag(new_coord.row, new_coord.col) == id ||
+            segmented_apriltag(new_coord.row, new_coord.col) ==
+                UINT32_MAX - id) {
+          num_revisited += segmented_apriltag(new_coord.row, new_coord.col) ==
+                           UINT32_MAX - id;
+          segment.push_back(new_coord);
+          segmented_apriltag(new_coord.row, new_coord.col) = UINT32_MAX - id;
+          curr = new_coord;
+          current_direction = (new_direction + 3) % 4;
+          has_neighbor = true;
+          break;
+        }
       }
     }
+    if (!has_neighbor) {
+      return {};
+    }
+    if (start.row == curr.row && start.col == curr.col) {
+      return segment;
+    }
   }
+  return {};
+}
+
+auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
+    -> std::vector<std::vector<Coord<int>>> {
   std::vector<std::vector<Coord<int>>> segments;
-  for (const auto& [ids, pixel_coords_set] : segments_set) {
-    constexpr size_t min_segment_size = 128;
-    constexpr size_t max_segment_size = 1024;
-    if (max_segment_size > pixel_coords_set.size() &&
-        pixel_coords_set.size() > min_segment_size) {
-      segments.push_back(pixel_coords_set);
+  CHECK_LT(static_cast<uint32_t>(segmented_apriltag.width *
+                                 segmented_apriltag.height),
+           UINT32_MAX - static_cast<uint32_t>(segmented_apriltag.width *
+                                              segmented_apriltag.height));
+  uint32_t threshold =
+      UINT32_MAX - (segmented_apriltag.width * segmented_apriltag.height);
+  constexpr size_t min_segment_size = 128;
+  constexpr size_t max_segment_size = 1024;
+  std::unordered_set<uint32_t> visited_ids;
+  for (int i = 0; i < segmented_apriltag.height; i++) {
+    for (int j = 0; j < segmented_apriltag.width; j++) {
+      if (segmented_apriltag(i, j) < threshold) {
+        uint32_t value = segmented_apriltag(i, j);
+        auto segment = GetSegment(segmented_apriltag, i, j, max_segment_size);
+        if (segment.size() > min_segment_size) {
+          segments.push_back(std::move(segment));
+          visited_ids.insert(value);
+        }
+      }
     }
   }
   return segments;
@@ -1342,7 +1393,6 @@ void GpuApriltagDetector::ClearBuffers() {
 auto GpuApriltagDetector::DetectAprilTag(
     ImageView<uint8_t> apriltag, const std::filesystem::path& output_directory)
     -> std::vector<ApriltagDetection> {
-  control_loop::Timer timer;
   CHECK(apriltag.data != nullptr);
   CHECK_EQ(apriltag.height, height_);
   CHECK_EQ(apriltag.width, width_);
@@ -1369,7 +1419,6 @@ auto GpuApriltagDetector::DetectAprilTag(
   // }
 
   // {
-  //   control_loop::Timer timer;
   //   PopulateSegmentedApriltag(binarized_apriltag_view_,
   //                             segmented_apriltag_view_);
   // }

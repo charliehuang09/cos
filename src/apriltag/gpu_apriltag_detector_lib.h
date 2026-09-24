@@ -129,6 +129,8 @@ class GpuApriltagDetector {
                                     ImageView<uint32_t> dsu,
                                     cudaStream_t stream);
 
+  auto GetSegment(ImageView<uint32_t>& segmented_apriltag, int row, int col,
+                  size_t max_size) -> std::vector<Coord<int>>;
   auto GetSegments(ImageView<uint32_t> segmented_apriltag)
       -> std::vector<std::vector<Coord<int>>>;
 
