@@ -1450,7 +1450,7 @@ auto GpuApriltagDetector::DetectAprilTag(
   }
 
   segments_ = GetSegments(dsu_view_);
-  SortSegments(segments_);
+  // SortSegments(segments_);
 
   if (!output_directory.empty()) {
     PopulateBoundarySegmentedApriltag(segments_,

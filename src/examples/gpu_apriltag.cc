@@ -42,7 +42,7 @@ auto main(int argc, char** argv) -> int {
     cv::imwrite((output_directory / "annotated_apriltag.png").string(),
                 annotated_apriltag);
   }
-  constexpr int runs = 500;
+  constexpr int runs = 1000;
   double average_run_time = 0.0;
   for (int i = 0; i < runs; i++) {
     control_loop::Timer timer;

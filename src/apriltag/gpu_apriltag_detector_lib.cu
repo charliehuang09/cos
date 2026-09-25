@@ -309,16 +309,30 @@ namespace apriltag{
     ImageViewGPU<uint8_t> d_binarized_apriltag(binarized_apriltag);
     ImageViewGPU<uint32_t> d_segmented_apriltag(segmented_apriltag);
     ImageViewGPU<uint32_t> d_dsu(dsu);
-    dim3 threads(4, 32);
-    dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
-    InitDSUValidKernel<<<blocks, threads, 0, stream>>>(d_binarized_apriltag, d_dsu);
-    InitDSUKernel<<<blocks, threads, 0, stream>>>(d_binarized_apriltag, d_dsu);
+    {
+      dim3 threads(32, 32);
+      dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
+      InitDSUValidKernel<<<blocks, threads, 0, stream>>>(d_binarized_apriltag, d_dsu);
+    }
+    {
+      dim3 threads(32, 32);
+      dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
+      InitDSUKernel<<<blocks, threads, 0, stream>>>(d_binarized_apriltag, d_dsu);
+    }
 
-    for (int i = 0; i < 8; i++){
+    for (int i = 0; i < 2; i++){
+      dim3 threads(32, 32);
+      dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
       FlattenDSUKernel<<<blocks, threads, 0, stream>>>(d_dsu);
     }
-    JoinDSUKernel<<<blocks, threads, 0, stream>>>(binarized_apriltag, dsu);
-    for (int i = 0; i < 8; i++){
+    {
+      dim3 threads(32, 32);
+      dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
+      JoinDSUKernel<<<blocks, threads, 0, stream>>>(binarized_apriltag, dsu);
+    }
+    for (int i = 0; i < 6; i++){
+      dim3 threads(32, 32);
+      dim3 blocks(ceil_div(dsu.width, threads.x), ceil_div(dsu.height, threads.y));
       FlattenDSUKernel<<<blocks, threads, 0, stream>>>(d_dsu);
     }
     return;
