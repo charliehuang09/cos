@@ -103,8 +103,9 @@ namespace{
         max_value = cuda::std::max(max_value, max_view(row, col));
       }
     }
+    constexpr uint8_t min_contrast = 25;
     uint8_t threshold = (max_value / 2) + (min_value / 2);
-    uint8_t valid = max_value - min_value > 10 ? 255 : 0;
+    uint8_t valid = max_value - min_value > min_contrast ? 255 : 0;
 
     if (valid == 0){
       for (int row = row_offset * 4; row < (row_offset * 4) + 4; row++){
