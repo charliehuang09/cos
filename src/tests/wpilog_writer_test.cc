@@ -5,6 +5,7 @@
 #include <stop_token>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -25,14 +26,14 @@ auto LogPath() -> std::filesystem::path {
          ("cos-wpilog-writer-" + std::to_string(getpid()) + ".wpilog");
 }
 
-using Pose2dMessage = control_loop::ValueMessage<frc::Pose2d>;
+struct Pose2dSample {
+  frc::Pose2d pose;
+  LOG_FIELDS(Pose2dSample, pose)
+};
 
-auto RegisterPose2d(wpi::log::DataLogWriter& log,
-                    logging::FieldRegistrar& registrar, std::string_view)
-    -> std::vector<logging::index_t> {
-  return {registrar.Add<Pose2dMessage>(
-      log, "", [](const Pose2dMessage& message) { return message.value; })};
-}
+struct UnregisteredSample {
+  int value = 0;
+};
 
 TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
   const auto path = LogPath();
@@ -40,7 +41,7 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
       control_loop::MessageDescriptor::Publication<double>("temperature"),
       control_loop::MessageDescriptor::Publication<
           localization::PositionEstimateMessage>(
-          "pose", &localization::PositionEstimateMessage::RegisterWPILog),
+          "pose"),
   };
 
   {
@@ -117,10 +118,60 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
   std::filesystem::remove(path);
 }
 
+TEST(WPILogWriterTest, FlushesValuesWhileWriterIsActive) {
+  const auto path = LogPath();
+  const std::vector publications{
+      control_loop::MessageDescriptor::Publication<std::int64_t>("count")};
+
+  const auto has_value = [&](std::int64_t expected) {
+    auto buffer = wpi::MemoryBuffer::GetFile(path.string());
+    if (!buffer.has_value()) return false;
+    wpi::log::DataLogReader reader(std::move(*buffer));
+    if (!reader.IsValid()) return false;
+    int count_entry = -1;
+    for (const auto& record : reader) {
+      if (record.IsStart()) {
+        wpi::log::StartRecordData start;
+        if (record.GetStartData(&start) && start.name == "count") {
+          count_entry = start.entry;
+        }
+      } else if (!record.IsControl() && record.GetEntry() == count_entry) {
+        std::int64_t value = 0;
+        if (record.GetInteger(&value) && value == expected) return true;
+      }
+    }
+    return false;
+  };
+
+  {
+    logging::WPILogWriter writer(path.string(), publications);
+    control_loop::ContextInternal first(std::chrono::steady_clock::now(),
+                                        nullptr, std::stop_token{}, 1);
+    first.SetMessage(
+        "count", std::make_unique<control_loop::ValueMessage<std::int64_t>>(1));
+    writer.Log(first);
+    writer.Flush();
+    EXPECT_TRUE(has_value(1));
+
+    control_loop::ContextInternal second(std::chrono::steady_clock::now(),
+                                         nullptr, std::stop_token{}, 2);
+    second.SetMessage(
+        "count", std::make_unique<control_loop::ValueMessage<std::int64_t>>(2));
+    writer.Log(second);
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(3);
+    while (!has_value(2) && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    EXPECT_TRUE(has_value(2));
+  }
+  std::filesystem::remove(path);
+}
+
 TEST(WPILogWriterTest, RequiresRegistrationForClassPublications) {
   const std::vector publications{
-      control_loop::MessageDescriptor::Publication<
-          localization::PositionEstimateMessage>("pose"),
+      control_loop::MessageDescriptor::Publication<UnregisteredSample>(
+          "unregistered"),
   };
   EXPECT_THROW(logging::WPILogWriter(LogPath().string(), publications),
                std::invalid_argument);
@@ -133,8 +184,7 @@ TEST(WPILogWriterTest, WritesBuiltInTypesAndPose2d) {
       control_loop::MessageDescriptor::Publication<bool>("ready"),
       control_loop::MessageDescriptor::Publication<std::int64_t>("count"),
       control_loop::MessageDescriptor::Publication<std::string>("state"),
-      control_loop::MessageDescriptor::Publication<frc::Pose2d>(
-          "location", &RegisterPose2d),
+      control_loop::MessageDescriptor::Publication<Pose2dSample>("location"),
   };
   {
     logging::WPILogWriter writer(path.string(), publications);
@@ -151,7 +201,8 @@ TEST(WPILogWriterTest, WritesBuiltInTypesAndPose2d) {
                            "tracking"));
     context.SetMessage(
         "location",
-        std::make_unique<Pose2dMessage>(frc::Pose2d{}));
+        std::make_unique<control_loop::ValueMessage<Pose2dSample>>(
+            Pose2dSample{}));
     writer.Log(context);
   }
 
@@ -180,7 +231,7 @@ TEST(WPILogWriterTest, WritesBuiltInTypesAndPose2d) {
         std::string_view value;
         ASSERT_TRUE(record.GetString(&value));
         EXPECT_EQ(value, "tracking");
-      } else if (name == "location") {
+      } else if (name == "location/pose") {
         EXPECT_FALSE(record.GetRaw().empty());
       } else {
         continue;

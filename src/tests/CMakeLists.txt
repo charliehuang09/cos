@@ -5,6 +5,11 @@ target_link_libraries(log_fields_test PRIVATE cos::wpilog_writer
   cos::control_loop GTest::gtest_main)
 add_test(NAME log_fields_test COMMAND log_fields_test)
 
+add_executable(wpilog_writer_test wpilog_writer_test.cc)
+target_link_libraries(wpilog_writer_test PRIVATE cos::wpilog_writer
+  cos::control_loop GTest::gtest_main)
+add_test(NAME wpilog_writer_test COMMAND wpilog_writer_test)
+
 add_executable(nvjpeg_fd_decode_node_test nvjpeg_fd_decode_node_test.cc)
 target_link_libraries(nvjpeg_fd_decode_node_test PRIVATE
   cos::nvjpeg_fd_decode_node

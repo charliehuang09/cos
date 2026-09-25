@@ -1,5 +1,6 @@
 #include "logging/wpilog_writer.h"
 
+#include <chrono>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -9,6 +10,8 @@
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
+
+#include <wpi/raw_ostream.h>
 
 namespace logging {
 namespace {
@@ -100,9 +103,20 @@ WPILogWriter::WPILogWriter(
       }
     }
   }
+
+  flush_thread_ = std::jthread([this](std::stop_token stop_token) {
+    std::unique_lock wait_lock(flush_wait_mutex_);
+    while (!flush_cv_.wait_for(wait_lock, std::chrono::seconds(1),
+                               [&] { return stop_token.stop_requested(); })) {
+      Flush();
+    }
+  });
 }
 
 WPILogWriter::~WPILogWriter() {
+  flush_thread_.request_stop();
+  flush_cv_.notify_one();
+  flush_thread_.join();
   slots_.clear();
   log_->Flush();
   log_->Stop();
@@ -196,6 +210,7 @@ void WPILogWriter::Log(const control_loop::ContextInternal& context) {
 void WPILogWriter::Flush() {
   std::lock_guard lock(mutex_);
   log_->Flush();
+  log_->GetStream().flush();
 }
 
 }  // namespace logging

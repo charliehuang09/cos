@@ -1,9 +1,11 @@
 #pragma once
 
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -44,6 +46,9 @@ class WPILogWriter {
   std::vector<Slot> slots_;
   std::vector<std::pair<std::string, index_t>> log_paths_;
   std::mutex mutex_;
+  std::mutex flush_wait_mutex_;
+  std::condition_variable flush_cv_;
+  std::jthread flush_thread_;
 };
 
 }  // namespace logging
