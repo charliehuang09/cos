@@ -255,7 +255,7 @@ auto main(int argc, char* argv[]) -> int {
     }
 
     {
-      std::lock_guard lock(image_size_mutex);
+      std::scoped_lock lock(image_size_mutex);
       if (!observed_image_size.has_value()) {
         observed_image_size = frame.size();
       }
@@ -266,7 +266,7 @@ auto main(int argc, char* argv[]) -> int {
 
     size_t captured_count = 0;
     {
-      std::lock_guard lock(detections_mutex);
+      std::scoped_lock lock(detections_mutex);
       captured_count = detection_results.size();
     }
     cv::putText(annotated_frame,
@@ -287,7 +287,7 @@ auto main(int argc, char* argv[]) -> int {
     if (pending > 0) {
       const int entered_count = entered_frames.load();
       if (HasEnoughCorners(detection_result)) {
-        std::lock_guard lock(detections_mutex);
+        std::scoped_lock lock(detections_mutex);
         detection_results.push_back(std::move(detection_result));
         std::cout << "Captured frame " << detection_results.size() << " of "
                   << entered_count << " entered" << std::endl;
@@ -391,7 +391,7 @@ auto main(int argc, char* argv[]) -> int {
 
   cv::Size image_size;
   {
-    std::lock_guard lock(image_size_mutex);
+    std::scoped_lock lock(image_size_mutex);
     if (!observed_image_size.has_value()) {
       LOG(ERROR) << "No frames were decoded";
       return 1;
@@ -401,7 +401,7 @@ auto main(int argc, char* argv[]) -> int {
 
   std::vector<DetectionResult> results_snapshot;
   {
-    std::lock_guard lock(detections_mutex);
+    std::scoped_lock lock(detections_mutex);
     results_snapshot = detection_results;
   }
 

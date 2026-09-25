@@ -67,12 +67,12 @@ auto main() -> int {
                   return;
                 }
 
-                std::lock_guard lock(clientsMutex);
+                std::scoped_lock lock(clientsMutex);
                 clients.insert(socket);
                 std::cout << "Viewer connected from "
                           << connectionState->getRemoteIp() << "\n";
               } else if (message->type == ix::WebSocketMessageType::Close) {
-                std::lock_guard lock(clientsMutex);
+                std::scoped_lock lock(clientsMutex);
                 clients.erase(socket);
               }
             });
@@ -98,7 +98,7 @@ auto main() -> int {
     const std::string pose = makePose(seconds);
     std::set<std::shared_ptr<ix::WebSocket>> connectedClients;
     {
-      std::lock_guard lock(clientsMutex);
+      std::scoped_lock lock(clientsMutex);
       connectedClients = clients;
     }
     for (const auto& client : connectedClients)

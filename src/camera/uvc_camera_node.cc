@@ -89,7 +89,7 @@ void UVCCameraNode::CallBack(uvc_frame_t* frame) {
   }
 
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock<std::mutex> lock(mutex_);
     buffer_ = std::move(buffer);
   }
 }
@@ -104,7 +104,7 @@ void UVCCameraNode::Callback(const control_loop::Context& context) {
     return;
   }
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock<std::mutex> lock(mutex_);
     if (buffer_ == nullptr) {
       context->include_in_perfomance_metrics = false;
       context->SetMessage(output_path_, nullptr);

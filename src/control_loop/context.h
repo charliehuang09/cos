@@ -22,13 +22,13 @@ struct ContextInternal {
   ~ContextInternal();
 
   auto Exists(const std::string& path) const -> bool {
-    std::lock_guard lock(messages_mutex_);
+    std::scoped_lock lock(messages_mutex_);
     return messages_.contains(path);
   }
 
   template <typename T>
   auto GetMessage(std::string_view path) const -> T* {
-    std::lock_guard lock(messages_mutex_);
+    std::scoped_lock lock(messages_mutex_);
     const auto message_it = messages_.find(std::string(path));
     if (message_it == messages_.end()) {
       return nullptr;
@@ -38,7 +38,7 @@ struct ContextInternal {
 
   template <typename T>
   auto GetMessage(std::string& path, bool& exists) const -> T* {
-    std::lock_guard lock(messages_mutex_);
+    std::scoped_lock lock(messages_mutex_);
     exists = messages_.contains(path);
     const auto message_it = messages_.find(std::string(path));
     if (message_it == messages_.end()) {
@@ -48,12 +48,12 @@ struct ContextInternal {
   }
 
   void SetMessage(std::string_view path, std::unique_ptr<IMessage> message) {
-    std::lock_guard lock(messages_mutex_);
+    std::scoped_lock lock(messages_mutex_);
     messages_.emplace(path, std::move(message));
   }
 
   auto GetSize() -> size_t {
-    std::lock_guard lock(messages_mutex_);
+    std::scoped_lock lock(messages_mutex_);
     size_t size = 0;
     for (auto& message : messages_) {
       size += message.second->GetSize();

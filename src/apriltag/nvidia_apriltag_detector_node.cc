@@ -84,7 +84,7 @@ NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
 }
 
 void NvidiaApriltagDetectorNode::WarmUp() {
-  std::lock_guard lock(detect_mutex_);
+  std::scoped_lock lock(detect_mutex_);
   VPIImageData image_data{};
   CHECK(!vpiImageLockData(input_, VPI_LOCK_WRITE,
                           VPI_IMAGE_BUFFER_HOST_PITCH_LINEAR, &image_data));
@@ -174,7 +174,7 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
                                             int width, int height,
                                             size_t stride)
     -> std::vector<TagDetections::tag_detection> {
-  std::lock_guard lock(detect_mutex_);
+  std::scoped_lock lock(detect_mutex_);
   CHECK_EQ(width, width_);
   CHECK_EQ(height, height_);
   CHECK_GE(stride, static_cast<size_t>(width));

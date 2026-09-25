@@ -28,7 +28,7 @@ void ThreadPool::Submit(std::function<void()> task, std::uint64_t priority) {
   }
 
   {
-    std::lock_guard lock(mutex_);
+    std::scoped_lock lock(mutex_);
     tasks_.emplace(std::move(task), priority);
   }
   work_available_.notify_one();
@@ -36,7 +36,7 @@ void ThreadPool::Submit(std::function<void()> task, std::uint64_t priority) {
 
 void ThreadPool::Shutdown() {
   {
-    std::lock_guard lock(mutex_);
+    std::scoped_lock lock(mutex_);
     accepting_tasks_ = false;
   }
   work_available_.notify_all();
@@ -50,7 +50,7 @@ void ThreadPool::Shutdown() {
 }
 
 auto ThreadPool::Size() const noexcept -> std::size_t {
-  std::lock_guard lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return workers_.size();
 }
 
