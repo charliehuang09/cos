@@ -116,9 +116,9 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
         CHECK_GT(height, 0);
         const size_t pixels = static_cast<size_t>(width) * height;
         CHECK_LE(pixels, SIZE_MAX / sizeof(Coord<int>));
-        return std::pmr::pool_options{
-            .largest_required_pool_block =
-                std::max(pixels, size_t{2048}) * sizeof(Coord<int>)};
+        return std::pmr::pool_options{.largest_required_pool_block =
+                                          std::max(pixels, size_t{2048}) *
+                                          sizeof(Coord<int>)};
       }()) {
   CHECK_GT(width_, 0);
   CHECK_GT(height_, 0);
@@ -538,12 +538,13 @@ auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
   std::pmr::unordered_set<uint32_t> visited_ids{&segment_resource_};
   for (int i = 0; i < segmented_apriltag.height; i++) {
     for (int j = 0; j < segmented_apriltag.width; j++) {
-      if (segmented_apriltag(i, j) < threshold) {
+      if (segmented_apriltag(i, j) < threshold &&
+          !visited_ids.contains(segmented_apriltag(i, j))) {
         uint32_t value = segmented_apriltag(i, j);
         auto segment = GetSegment(segmented_apriltag, i, j, max_segment_size);
         if (segment.size() > min_segment_size) {
-          segments.push_back(std::move(segment));
           visited_ids.insert(value);
+          segments.push_back(std::move(segment));
         }
       }
     }
@@ -762,8 +763,7 @@ void GpuApriltagDetector::PopulateCandidateQuadCornersApriltagBuffer(
 }
 
 auto GpuApriltagDetector::GetQuads(
-    std::vector<CandidatesQuad>& candidate_quad_corners)
-    -> std::vector<Quad> {
+    std::vector<CandidatesQuad>& candidate_quad_corners) -> std::vector<Quad> {
   std::vector<Quad> quads;
   quads.reserve(candidate_quad_corners.size());
   for (const auto& candidate_quad_corner : candidate_quad_corners) {
@@ -840,8 +840,8 @@ void GpuApriltagDetector::PopulateQuadApriltagBuffer(
   }
 }
 
-auto GpuApriltagDetector::GetBitLocationsHomography(
-    std::vector<Quad>& quads, int width, int height)
+auto GpuApriltagDetector::GetBitLocationsHomography(std::vector<Quad>& quads,
+                                                    int width, int height)
     -> std::vector<BitLocation> {
   std::vector<BitLocation> bit_locations;
   cv::Mat H;
@@ -1052,8 +1052,8 @@ auto GpuApriltagDetector::GetBlackWhiteThreshold(
           (white[2] + black[2]) / 2};
 }
 
-auto GpuApriltagDetector::GetTagIds(
-    std::vector<BitLocation>& bit_locations, ImageView<uint8_t> apriltag)
+auto GpuApriltagDetector::GetTagIds(std::vector<BitLocation>& bit_locations,
+                                    ImageView<uint8_t> apriltag)
     -> std::pair<std::vector<int>, std::vector<int>> {
   std::vector<int> tag_ids;
   std::vector<int> rotations;
@@ -1187,8 +1187,7 @@ auto GpuApriltagDetector::GetRefinedPoints(
   constexpr int num_samples = 10;
   constexpr int search_vector_length = 10;
   constexpr int quad_size = 4;
-  std::vector<std::array<std::vector<WeightedPoint>, quad_size>>
-      refined_points;
+  std::vector<std::array<std::vector<WeightedPoint>, quad_size>> refined_points;
   for (const auto& apriltag_detection : apriltag_detections) {
     CHECK(apriltag_detection.quad.corners.size() == quad_size);
     const auto& quad = apriltag_detection.quad;
