@@ -63,7 +63,7 @@ auto CpuApriltagDetectorNode::Detect(const camera::DecodedImageBuffer& image)
     -> std::vector<TagDetections::tag_detection> {
   CHECK_EQ(image.data.size(), image.stride * static_cast<size_t>(image.height));
   CHECK_EQ(image.stride, static_cast<size_t>(image.width));
-  std::lock_guard lock(detect_mutex_);
+  std::scoped_lock lock(detect_mutex_);
   auto* pixels = const_cast<uint8_t*>(image.data.data());
   auto results = detector_.Detect(image.width, image.height,
                                   static_cast<int>(image.stride), pixels);

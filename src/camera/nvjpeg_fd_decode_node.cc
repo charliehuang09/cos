@@ -108,7 +108,7 @@ auto NvjpegFdDecodeNode::CreateCallback()
 
 auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
     -> std::optional<DecodedJpegFdBuffer> {
-  std::lock_guard lock(decode_mutex_);
+  std::scoped_lock lock(decode_mutex_);
 
   int decoded_fd = -1;
   uint32_t pixel_format = 0;

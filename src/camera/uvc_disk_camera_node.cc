@@ -69,11 +69,11 @@ UVCDiskCameraNode::UVCDiskCameraNode(std::string_view log_path,
         continue;
       }
       {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::scoped_lock<std::mutex> lock(mutex_);
         buffer_ = std::move(buffer);
       }
     }
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock<std::mutex> lock(mutex_);
     playback_complete_ = true;
   });
 }
@@ -90,7 +90,7 @@ auto UVCDiskCameraNode::CreateCallback()
   return [this](const control_loop::Context& context) -> void {
     bool request_stop = false;
     {
-      std::lock_guard<std::mutex> lock(mutex_);
+      std::scoped_lock<std::mutex> lock(mutex_);
       if (buffer_ == nullptr) {
         context->include_in_perfomance_metrics = false;
         context->SetMessage(output_path_, nullptr);

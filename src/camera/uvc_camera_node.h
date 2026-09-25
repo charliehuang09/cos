@@ -37,11 +37,12 @@ class UVCCameraNode final : public control_loop::INode {
   void CallBack(uvc_frame_t* frame);  // This should not be used publicly
 
  private:
+  bool valid_ = false;
   std::string output_path_;
   std::string name_;
-  uvc_context_t* context_;
-  uvc_device_t* device_;
-  uvc_device_handle_t* device_handle_;
+  uvc_context_t* context_ = nullptr;
+  uvc_device_t* device_ = nullptr;
+  uvc_device_handle_t* device_handle_ = nullptr;
   uvc_stream_ctrl_t ctrl_;
   std::unique_ptr<JpegBuffer> buffer_;
   std::atomic<bool> start_ = false;

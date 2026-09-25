@@ -33,6 +33,7 @@ struct Extrinsics {
   double translation_x = 0;
   double translation_y = 0;
   double translation_z = 0;
+  // Rotations are stored in radians internally and degrees in JSON.
   double rotation_x = 0;
   double rotation_y = 0;
   double rotation_z = 0;

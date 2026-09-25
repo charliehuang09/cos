@@ -81,7 +81,7 @@ void UnambiguousSolverNode::AddCamera(std::string_view input_channel,
 auto UnambiguousSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
-    std::lock_guard lock(solve_mutex_);
+    std::scoped_lock lock(solve_mutex_);
     std::vector<ambiguous_estimate_t*> estimates;
     for (const auto& multi_tag_solver_output_channel :
          multi_tag_solver_output_channels_) {

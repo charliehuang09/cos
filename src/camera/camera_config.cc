@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <units/angle.h>
 
 #include "absl/log/check.h"
 
@@ -57,9 +58,12 @@ Extrinsics::Extrinsics(const std::filesystem::path& path) {
   translation_y = extrinsics_json.at("translation_y").get<double>();
   translation_z = extrinsics_json.at("translation_z").get<double>();
 
-  rotation_x = extrinsics_json.at("rotation_x").get<double>();
-  rotation_y = extrinsics_json.at("rotation_y").get<double>();
-  rotation_z = extrinsics_json.at("rotation_z").get<double>();
+  rotation_x = units::radian_t{units::degree_t{
+      extrinsics_json.at("rotation_x").get<double>()}}.value();
+  rotation_y = units::radian_t{units::degree_t{
+      extrinsics_json.at("rotation_y").get<double>()}}.value();
+  rotation_z = units::radian_t{units::degree_t{
+      extrinsics_json.at("rotation_z").get<double>()}}.value();
 }
 
 template <>

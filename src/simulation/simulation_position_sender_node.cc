@@ -52,12 +52,12 @@ SimulationPositionSenderNode::SimulationPositionSenderNode(
                   return;
                 }
 
-                std::lock_guard lock(mutex_);
+                std::scoped_lock lock(mutex_);
                 clients_.insert(socket);
                 LOG(INFO) << "Viewer connected from "
                           << connectionState->getRemoteIp();
               } else if (message->type == ix::WebSocketMessageType::Close) {
-                std::lock_guard lock(mutex_);
+                std::scoped_lock lock(mutex_);
                 clients_.erase(socket);
               }
             });
@@ -90,7 +90,7 @@ auto SimulationPositionSenderNode::CreateCallback()
 
     std::set<std::shared_ptr<ix::WebSocket>> connectedClients;
     {
-      std::lock_guard lock(mutex_);
+      std::scoped_lock lock(mutex_);
       connectedClients = clients_;
     }
     for (const auto& client : connectedClients) {

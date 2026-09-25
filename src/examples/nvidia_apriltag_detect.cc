@@ -139,7 +139,7 @@ auto RunDetector(Detector& detector, std::barrier<>& start, int iterations,
   for (int iteration = 0; iteration < iterations; ++iteration) {
     start.arrive_and_wait();
     if (serialized) {
-      std::lock_guard lock(serialized_detect_mutex);
+      std::scoped_lock lock(serialized_detect_mutex);
       detector.Detect();
     } else {
       detector.Detect();
