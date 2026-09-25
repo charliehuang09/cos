@@ -126,7 +126,6 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
   CHECK(cudaStreamCreate(&stream_) == cudaSuccess);
 
   const size_t pixels = static_cast<size_t>(width_) * height_;
-  visited_segment_ids_.resize(pixels);
 
   CHECK(cudaMallocManaged(reinterpret_cast<void**>(&graph_input_buffer_),
                           pixels * sizeof(uint8_t)) == cudaSuccess);
@@ -509,7 +508,7 @@ auto GpuApriltagDetector::GetSegment(ImageView<uint32_t>& segmented_apriltag,
           num_revisited +=
               segmented_apriltag(new_coord.row, new_coord.col) == visited_id;
           segment.push_back(new_coord);
-          segmented_apriltag(new_coord.row, new_coord.col) = UINT32_MAX - id;
+          segmented_apriltag(new_coord.row, new_coord.col) = visited_id;
           curr = new_coord;
           current_direction = new_direction + 3;
           has_neighbor = true;
@@ -537,19 +536,15 @@ auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
                                  segmented_apriltag.height),
            UINT32_MAX - static_cast<uint32_t>(segmented_apriltag.width *
                                               segmented_apriltag.height));
-  uint32_t threshold =
-      UINT32_MAX - (segmented_apriltag.width * segmented_apriltag.height);
-  for (int i = 0; i < segmented_apriltag.height; i++) {
-    for (int j = 0; j < segmented_apriltag.width; j++) {
-      const uint32_t value = segmented_apriltag(i, j);
-      // Valid GPU labels are pixel indices; exclude invalid/visited markers
-      // before using a label to index the reusable array.
-      if (value < threshold && !visited_segment_ids_[value]) {
-        auto segment = GetSegment(segmented_apriltag, i, j);
-        if (!segment.empty()) {
-          segments.push_back(std::move(segment));
-        }
-        visited_segment_ids_[value] = 1;
+  for (uint32_t i = 0; i < static_cast<uint32_t>(segmented_apriltag.height *
+                                                 segmented_apriltag.width);
+       i++) {
+    if (segmented_apriltag.data[i] == i) {
+      int16_t row = i / segmented_apriltag.stride;
+      int16_t col = i % segmented_apriltag.stride;
+      auto segment = GetSegment(segmented_apriltag, row, col);
+      if (!segment.empty()) {
+        segments.push_back(std::move(segment));
       }
     }
   }
@@ -1403,7 +1398,6 @@ void GpuApriltagDetector::ClearBuffers() {
   std::memset(quad_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
   std::memset(bit_locations_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
   std::memset(refined_points_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
-  std::ranges::fill(visited_segment_ids_, uint8_t{0});
 }
 
 auto GpuApriltagDetector::DetectAprilTag(
