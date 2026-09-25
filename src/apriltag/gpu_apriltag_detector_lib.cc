@@ -479,73 +479,77 @@ void GpuApriltagDetector::PopulateSegmentedApriltag(
 }
 
 auto GpuApriltagDetector::GetSegment(ImageView<uint32_t>& segmented_apriltag,
-                                     int row, int col, size_t max_size)
-    -> std::pmr::vector<Coord<int>> {
+                                     int16_t row, int16_t col)
+    -> std::pmr::vector<Coord<int16_t>> {
+  constexpr size_t min_segment_size = 128;
+  constexpr size_t max_segment_size = 512;
   constexpr int max_revisited = 4;
-  int num_revisited = 0;
-  int current_direction = 0;
-  std::pmr::vector<Coord<int>> segment{&segment_resource_};
-  segment.reserve(max_size);
-  Coord<int> curr{.row = row, .col = col};
+  ushort num_revisited = 0;
+  uint current_direction = 0;
+  std::pmr::vector<Coord<int16_t>> segment{&segment_resource_};
+  segment.reserve(max_segment_size);
+  Coord<int16_t> curr{.row = row, .col = col};
   const Coord<int> start{.row = row, .col = col};
   segment.push_back({.row = row, .col = col});
   const uint32_t id = segmented_apriltag(row, col);
-  while (segment.size() <= max_size && num_revisited < max_revisited) {
-    constexpr std::array<int, 4> drow = {0, 1, 0, -1};
-    constexpr std::array<int, 4> dcol = {1, 0, -1, 0};
+  const uint32_t visited_id = UINT32_MAX - segmented_apriltag(row, col);
+  while (segment.size() <= max_segment_size && num_revisited < max_revisited) {
+    constexpr std::array<int16_t, 4> drow = {0, 1, 0, -1};
+    constexpr std::array<int16_t, 4> dcol = {1, 0, -1, 0};
     bool has_neighbor = false;
     for (int i = 0; i < 4; i++) {
       int new_direction = (current_direction + i) % 4;
-      Coord<int> new_coord = {.row = curr.row + drow[new_direction],
-                              .col = curr.col + dcol[new_direction]};
+      Coord<int16_t> new_coord = {
+          .row = static_cast<int16_t>(curr.row + drow[new_direction]),
+          .col = static_cast<int16_t>(curr.col + dcol[new_direction])};
       if (new_coord.row >= 0 && new_coord.row < segmented_apriltag.height &&
           new_coord.col >= 0 && new_coord.col < segmented_apriltag.width) {
         if (segmented_apriltag(new_coord.row, new_coord.col) == id ||
-            segmented_apriltag(new_coord.row, new_coord.col) ==
-                UINT32_MAX - id) {
-          num_revisited += segmented_apriltag(new_coord.row, new_coord.col) ==
-                           UINT32_MAX - id;
+            segmented_apriltag(new_coord.row, new_coord.col) == visited_id) {
+          num_revisited +=
+              segmented_apriltag(new_coord.row, new_coord.col) == visited_id;
           segment.push_back(new_coord);
           segmented_apriltag(new_coord.row, new_coord.col) = UINT32_MAX - id;
           curr = new_coord;
-          current_direction = (new_direction + 3) % 4;
+          current_direction = new_direction + 3;
           has_neighbor = true;
           break;
         }
       }
     }
     if (!has_neighbor) {
-      return std::pmr::vector<Coord<int>>{&segment_resource_};
+      return std::pmr::vector<Coord<int16_t>>{&segment_resource_};
     }
     if (start.row == curr.row && start.col == curr.col) {
-      return segment;
+      return segment.size() > min_segment_size
+                 ? segment
+                 : std::pmr::vector<Coord<int16_t>>{&segment_resource_};
     }
   }
-  return std::pmr::vector<Coord<int>>{&segment_resource_};
+  return std::pmr::vector<Coord<int16_t>>{&segment_resource_};
 }
 
 auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
-    -> std::pmr::vector<std::pmr::vector<Coord<int>>> {
-  std::pmr::vector<std::pmr::vector<Coord<int>>> segments{&segment_resource_};
+    -> std::pmr::vector<std::pmr::vector<Coord<int16_t>>> {
+  std::pmr::vector<std::pmr::vector<Coord<int16_t>>> segments{
+      &segment_resource_};
   CHECK_LT(static_cast<uint32_t>(segmented_apriltag.width *
                                  segmented_apriltag.height),
            UINT32_MAX - static_cast<uint32_t>(segmented_apriltag.width *
                                               segmented_apriltag.height));
   uint32_t threshold =
       UINT32_MAX - (segmented_apriltag.width * segmented_apriltag.height);
-  constexpr size_t min_segment_size = 128;
-  constexpr size_t max_segment_size = 512;
   for (int i = 0; i < segmented_apriltag.height; i++) {
     for (int j = 0; j < segmented_apriltag.width; j++) {
       const uint32_t value = segmented_apriltag(i, j);
       // Valid GPU labels are pixel indices; exclude invalid/visited markers
       // before using a label to index the reusable array.
       if (value < threshold && !visited_segment_ids_[value]) {
-        auto segment = GetSegment(segmented_apriltag, i, j, max_segment_size);
-        if (segment.size() > min_segment_size) {
-          visited_segment_ids_[value] = 1;
+        auto segment = GetSegment(segmented_apriltag, i, j);
+        if (!segment.empty()) {
           segments.push_back(std::move(segment));
         }
+        visited_segment_ids_[value] = 1;
       }
     }
   }
@@ -553,7 +557,7 @@ auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
 }
 
 void GpuApriltagDetector::PopulateBoundarySegmentedApriltag(
-    std::pmr::vector<std::pmr::vector<Coord<int>>>& segments,
+    std::pmr::vector<std::pmr::vector<Coord<int16_t>>>& segments,
     ImageView<uint32_t> boundary_segmented_apriltag) {
   int id = 1;
   for (const auto& pixel_coords : segments) {
@@ -608,7 +612,7 @@ auto GpuApriltagDetector::SortSegments(
 }
 
 void GpuApriltagDetector::PopulateSortedBoundarySegmentedApriltag(
-    std::pmr::vector<std::pmr::vector<Coord<int>>>& segments,
+    std::pmr::vector<std::pmr::vector<Coord<int16_t>>>& segments,
     ImageView<uint8_t> sorted_boundary_segmented_apriltag) {
   for (auto& segment : segments) {
     float size = segment.size();
@@ -621,7 +625,7 @@ void GpuApriltagDetector::PopulateSortedBoundarySegmentedApriltag(
 }
 
 auto GpuApriltagDetector::GetMses(
-    std::pmr::vector<std::pmr::vector<Coord<int>>>& segments)
+    std::pmr::vector<std::pmr::vector<Coord<int16_t>>>& segments)
     -> std::vector<std::vector<float>> {
   std::vector<std::vector<float>> mses;
   constexpr int window_size = 50;
@@ -693,7 +697,7 @@ auto GpuApriltagDetector::GetMses(
 }
 
 auto GpuApriltagDetector::GetCandidatesQuadCorners(
-    const std::pmr::vector<std::pmr::vector<Coord<int>>>& segments,
+    const std::pmr::vector<std::pmr::vector<Coord<int16_t>>>& segments,
     const std::vector<std::vector<float>>& mse_map)
     -> std::vector<CandidatesQuad> {
   std::vector<CandidatesQuad> quads;
@@ -781,17 +785,17 @@ auto GpuApriltagDetector::GetQuads(
 
 void GpuApriltagDetector::OrderQuads(std::vector<Quad>& quads) {
   for (auto& quad : quads) {
-    Coord<int> mean =
-        std::accumulate(quad.corners.begin(), quad.corners.end(), Coord<int>{},
-                        [](Coord<int> sum, Coord<int> value) -> Coord<int> {
-                          sum.row += value.row;
-                          sum.col += value.col;
-                          return sum;
-                        });
+    Coord<int16_t> mean = std::accumulate(
+        quad.corners.begin(), quad.corners.end(), Coord<int16_t>{},
+        [](Coord<int16_t> sum, Coord<int16_t> value) -> Coord<int16_t> {
+          sum.row += value.row;
+          sum.col += value.col;
+          return sum;
+        });
     mean.row /= 4;
     mean.col /= 4;
     std::ranges::sort(
-        quad.corners, [&mean](Coord<int> a, Coord<int> b) -> bool {
+        quad.corners, [&mean](Coord<int16_t> a, Coord<int16_t> b) -> bool {
           const int64_t a_row = static_cast<int64_t>(a.row) - mean.row;
           const int64_t a_col = static_cast<int64_t>(a.col) - mean.col;
 
@@ -850,7 +854,7 @@ auto GpuApriltagDetector::GetBitLocationsHomography(std::vector<Quad>& quads,
       bit_locations.push_back({});
       continue;
     }
-    const std::array<Coord<int>, 4>& corners = quad.corners;
+    const std::array<Coord<int16_t>, 4>& corners = quad.corners;
     BitLocation bit_location;
     {
       // Coordinates are (row, col). Match OrderQuads' winding; swapping
@@ -1302,7 +1306,7 @@ auto GpuApriltagDetector::Cross(const Coord<float>& a, const Coord<float>& b)
 auto GpuApriltagDetector::GetIntersection(
     const Coord<float>& centroid_a, const std::pair<float, float>& vector_a,
     const Coord<float>& centroid_b, const std::pair<float, float>& vector_b)
-    -> Coord<int> {
+    -> Coord<int16_t> {
   const float denominator =
       vector_a.first * vector_b.second - vector_a.second * vector_b.first;
 
@@ -1315,9 +1319,9 @@ auto GpuApriltagDetector::GetIntersection(
                    difference.second * vector_b.first) /
                   denominator;
 
-  return Coord<int>{
-      .row = static_cast<int>(centroid_a.row + t * vector_a.first),
-      .col = static_cast<int>(centroid_a.col + t * vector_a.second),
+  return Coord<int16_t>{
+      .row = static_cast<int16_t>(centroid_a.row + t * vector_a.first),
+      .col = static_cast<int16_t>(centroid_a.col + t * vector_a.second),
   };
 }
 
