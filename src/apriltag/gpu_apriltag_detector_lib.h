@@ -263,6 +263,8 @@ class GpuApriltagDetector {
   std::pmr::unsynchronized_pool_resource segment_resource_;
 
   std::pmr::vector<std::pmr::vector<Coord<int>>> segments_{&segment_resource_};
+  // One byte per packed-image pixel ID, cleared for each GetSegments call.
+  std::vector<uint8_t> visited_segment_ids_;
   std::vector<std::vector<float>> mses_;
   std::vector<CandidatesQuad> candidate_quad_corners_;
   std::vector<Quad> quads_;

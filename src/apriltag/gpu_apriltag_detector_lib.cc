@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <unordered_set>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -127,6 +126,7 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
   CHECK(cudaStreamCreate(&stream_) == cudaSuccess);
 
   const size_t pixels = static_cast<size_t>(width_) * height_;
+  visited_segment_ids_.resize(pixels);
 
   CHECK(cudaMallocManaged(reinterpret_cast<void**>(&graph_input_buffer_),
                           pixels * sizeof(uint8_t)) == cudaSuccess);
@@ -535,15 +535,15 @@ auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
       UINT32_MAX - (segmented_apriltag.width * segmented_apriltag.height);
   constexpr size_t min_segment_size = 128;
   constexpr size_t max_segment_size = 512;
-  std::pmr::unordered_set<uint32_t> visited_ids{&segment_resource_};
   for (int i = 0; i < segmented_apriltag.height; i++) {
     for (int j = 0; j < segmented_apriltag.width; j++) {
-      if (segmented_apriltag(i, j) < threshold &&
-          !visited_ids.contains(segmented_apriltag(i, j))) {
-        uint32_t value = segmented_apriltag(i, j);
+      const uint32_t value = segmented_apriltag(i, j);
+      // Valid GPU labels are pixel indices; exclude invalid/visited markers
+      // before using a label to index the reusable array.
+      if (value < threshold && !visited_segment_ids_[value]) {
         auto segment = GetSegment(segmented_apriltag, i, j, max_segment_size);
         if (segment.size() > min_segment_size) {
-          visited_ids.insert(value);
+          visited_segment_ids_[value] = 1;
           segments.push_back(std::move(segment));
         }
       }
@@ -1399,6 +1399,7 @@ void GpuApriltagDetector::ClearBuffers() {
   std::memset(quad_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
   std::memset(bit_locations_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
   std::memset(refined_points_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
+  std::ranges::fill(visited_segment_ids_, uint8_t{0});
 }
 
 auto GpuApriltagDetector::DetectAprilTag(
