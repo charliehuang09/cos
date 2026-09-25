@@ -60,8 +60,6 @@ class MessageDescriptor {
                     std::unordered_set<std::type_index> types)
       : channel_(channel), types_(std::move(types)) {}
 
-  // The descriptor keeps the channel for this publication instance. Two
-  // publications of T may therefore register separate WPILib entries.
   template <typename T>
   static auto Publication(std::string_view channel)
       -> MessageDescriptor {

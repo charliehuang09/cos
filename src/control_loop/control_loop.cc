@@ -25,8 +25,6 @@ ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
 
 ContextInternal::~ContextInternal() {
   if (wpilog_writer_) {
-    // The last context owner is gone, so all asynchronous callbacks have
-    // finished publishing to it. Never throw from a destructor.
     try {
       wpilog_writer_->Log(*this);
     } catch (const std::exception& error) {
@@ -115,8 +113,6 @@ void ControlLoop::Stop() {
   contexts_.clear();
   if (wpilog_writer_) {
     wpilog_writer_->Flush();
-    // In-flight contexts retain their own shared reference. The last one to
-    // finish closes the file after its destructor has appended its values.
     wpilog_writer_.reset();
   }
 }
