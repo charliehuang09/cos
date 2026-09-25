@@ -39,7 +39,7 @@ auto main(int argc, char** argv) -> int {
   {
     auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
         log_path, "jpeg_buffer", camera::GetEarliestTimestamp(log_path));
-    control_loop.RegisterDependancyNode(disk_camera_node);
+    control_loop.RegisterDependencyNode(disk_camera_node);
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>("jpeg_buffer",

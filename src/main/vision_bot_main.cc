@@ -52,7 +52,7 @@ void AddCameraPipeline(
   auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
       jpeg_channel, camera::UVCCameraConfig{config_path});
   uvc_camera_node->Start();
-  control_loop.RegisterDependancyNode(uvc_camera_node);
+  control_loop.RegisterDependencyNode(uvc_camera_node);
   rio_sender_node->AddCamera(*uvc_camera_node);
 
   auto jpeg_buffer_streamer_node =

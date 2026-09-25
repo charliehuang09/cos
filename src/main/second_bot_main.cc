@@ -43,7 +43,7 @@ void AddCameraPipeline(const std::string& config_path,
 
   auto uvc_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
       log_path, jpeg_channel, replay_offset);
-  control_loop.RegisterDependancyNode(uvc_camera_node);
+  control_loop.RegisterDependencyNode(uvc_camera_node);
 
   auto jpeg_buffer_streamer_node =
       std::make_shared<streamer::JpegBufferStreamerNode>(

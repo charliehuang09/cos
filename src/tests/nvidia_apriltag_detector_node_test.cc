@@ -65,13 +65,13 @@ auto main(int argc, char** argv) -> int {
       auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
           log_path.value(), "jpeg_buffer",
           camera::GetEarliestTimestamp(log_path.value()));
-      control_loop.RegisterDependancyNode(disk_camera_node);
+      control_loop.RegisterDependencyNode(disk_camera_node);
     } else {
       auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
           "jpeg_buffer",
           camera::UVCCameraConfig{"/root/constants/dev-orin/first.json"});
       uvc_camera_node->Start();
-      control_loop.RegisterDependancyNode(uvc_camera_node);
+      control_loop.RegisterDependencyNode(uvc_camera_node);
     }
 
     auto jpeg_buffer_streamer_node =

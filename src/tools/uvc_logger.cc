@@ -53,7 +53,7 @@ auto main(int argc, char* argv[]) -> int {
 
   auto uvc_camera_node =
       std::make_shared<camera::UVCCameraNode>("jpeg_stream", config);
-  control_loop.RegisterDependancyNode(uvc_camera_node);
+  control_loop.RegisterDependencyNode(uvc_camera_node);
 
   auto nvjpeg_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
       "jpeg_stream", "decoded_buffer", NVJPEG_OUTPUT_BGRI, thread_pool);
