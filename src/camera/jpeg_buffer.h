@@ -5,6 +5,7 @@
 #include <typeinfo>
 
 #include "control_loop/message.h"
+#include "logging/log_registration.h"
 
 namespace camera {
 
@@ -25,6 +26,8 @@ class JpegBuffer final : public control_loop::IMessage {
   size_t size;
   double timestamp;
   unsigned char* ptr;
+  // The compressed image remains out of WPILOG; retain its small metadata.
+  LOG_FIELDS(JpegBuffer, size, timestamp)
   auto GetType() -> const std::type_info& override {
     return typeid(JpegBuffer);
   }

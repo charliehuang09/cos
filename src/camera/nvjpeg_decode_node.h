@@ -11,6 +11,7 @@
 #include "control_loop/node.h"
 #include "control_loop/thread_pool.h"
 #include "control_loop/timed_node.h"
+#include "logging/log_registration.h"
 
 namespace camera {
 
@@ -34,6 +35,8 @@ class DecodedJpegBuffer final : public control_loop::IMessage {
   nvjpegOutputFormat_t output_format = NVJPEG_OUTPUT_Y;
   std::array<size_t, NVJPEG_MAX_COMPONENT> channel_sizes = {};
   nvjpegImage_t destination = {};
+  LOG_FIELDS(DecodedJpegBuffer, width, height, stride, output_size,
+             timestamp, output_format, channel_sizes)
 };
 
 class NvjpegDecodeNode final : public control_loop::INode,

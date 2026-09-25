@@ -13,7 +13,8 @@ namespace camera {
 UVCDiskCameraNode::UVCDiskCameraNode(std::string_view log_path,
                                      std::string_view output_path,
                                      double offset)
-    : publications_({{std::string(output_path), typeid(JpegBuffer)}}),
+    : publications_({control_loop::MessageDescriptor::Publication<JpegBuffer>(
+          output_path)}),
       output_path_(output_path) {
   for (const auto& entry : std::filesystem::directory_iterator(log_path)) {
     if (!entry.is_regular_file()) {

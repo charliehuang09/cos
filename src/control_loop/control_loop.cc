@@ -1,11 +1,13 @@
 #include "control_loop/control_loop.h"
 
 #include <chrono>
+#include <exception>
 #include <unordered_set>
 #include <utility>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "logging/wpilog_writer.h"
 
 using namespace std::chrono_literals;
 
@@ -13,18 +15,49 @@ namespace control_loop {
 
 ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
                                  ControlLoop* control_loop,
-                                 std::stop_token stop_token, std::uint64_t id)
+                                 std::stop_token stop_token, std::uint64_t id,
+                                 std::shared_ptr<logging::WPILogWriter> writer)
     : start(start),
       control_loop(control_loop),
       stop_token(std::move(stop_token)),
-      id(id) {}
+      id(id),
+      wpilog_writer_(std::move(writer)) {}
 
-ContextInternal::~ContextInternal() = default;
+ContextInternal::~ContextInternal() {
+  if (wpilog_writer_) {
+    // The last context owner is gone, so all asynchronous callbacks have
+    // finished publishing to it. Never throw from a destructor.
+    try {
+      wpilog_writer_->Log(*this);
+    } catch (const std::exception& error) {
+      LOG(ERROR) << "Failed to write context " << id << " to WPILog: "
+                 << error.what();
+    }
+  }
+}
 
 ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
 
 void ControlLoop::Start() {
   ValidateNodeGraph();
+  if (!wpilog_filename_.empty()) {
+    std::vector<MessageDescriptor> log_publications;
+    const auto collect = [&log_publications](const auto& nodes) {
+      for (const auto& node : nodes) {
+        for (const auto& publication : node->GetPublications()) {
+          // Image payloads retain their original untyped descriptors and are
+          // intentionally excluded. Typed publications have logging metadata.
+          if (publication.GetPublicationInfo().has_value()) {
+            log_publications.push_back(publication);
+          }
+        }
+      }
+    };
+    collect(dependancy_nodes_);
+    collect(nodes_);
+    wpilog_writer_ = std::make_shared<logging::WPILogWriter>(
+        wpilog_filename_, log_publications);
+  }
   RegisterNodeCallbacks();
 
   contexts_.reserve(max_contexts_);
@@ -58,7 +91,7 @@ void ControlLoop::Start() {
           std::stop_source stop_source;
           Context context(new ContextInternal(std::chrono::steady_clock::now(),
                                               this, stop_source.get_token(),
-                                              ++loop_count_));
+                                              ++loop_count_, wpilog_writer_));
           for (const auto& dependancy : dependencies_) {
             dependancy(context);
           }
@@ -78,6 +111,13 @@ void ControlLoop::Stop() {
   thread_.request_stop();
   if (thread_.joinable()) {
     thread_.join();
+  }
+  contexts_.clear();
+  if (wpilog_writer_) {
+    wpilog_writer_->Flush();
+    // In-flight contexts retain their own shared reference. The last one to
+    // finish closes the file after its destructor has appended its values.
+    wpilog_writer_.reset();
   }
 }
 
@@ -101,6 +141,10 @@ void ControlLoop::RegisterDependancyNode(const std::shared_ptr<INode>& node) {
 
 void ControlLoop::EnableLatencyLog() {
   log_latency_ = true;
+}
+
+void ControlLoop::EnableWPILog(std::string_view filename) {
+  wpilog_filename_ = filename;
 }
 
 void ControlLoop::ValidateNodeGraph() {

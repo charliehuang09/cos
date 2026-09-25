@@ -15,6 +15,7 @@
 
 #include "apriltag/nvidia_apriltag_detector_node.h"
 #include "localization/position.h"
+#include "logging/log_registration.h"
 
 namespace localization {
 
@@ -26,6 +27,7 @@ struct SolverEstimate {
   frc::Pose3d pose;
   double variance = 0.0;
   double distance = 0.0;
+  LOG_FIELDS(SolverEstimate, tag_ids, distances, pose, variance, distance)
 
   friend auto operator<<(std::ostream& os, const SolverEstimate& estimate)
       -> std::ostream& {
@@ -47,6 +49,7 @@ using solver_estimate_t = SolverEstimate;
 struct AmbiguousEstimate {
   solver_estimate_t pos1;
   std::optional<solver_estimate_t> pos2;
+  LOG_FIELDS(AmbiguousEstimate, pos1, pos2)
 };
 
 using ambiguous_estimate_t = AmbiguousEstimate;
@@ -64,6 +67,7 @@ class AmbiguousEstimateMessage final : public control_loop::IMessage {
   }
 
   std::vector<AmbiguousEstimate> estimates;
+  LOG_FIELDS(AmbiguousEstimateMessage, estimates)
 };
 
 inline auto DetectionBatchChannel(std::string_view camera_name) -> std::string {

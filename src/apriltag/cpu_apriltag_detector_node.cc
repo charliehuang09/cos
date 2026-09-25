@@ -16,7 +16,8 @@ CpuApriltagDetectorNode::CpuApriltagDetectorNode(
       output_channel_(output_channel),
       thread_pool_(thread_pool),
       dependencies_({{input_channel_, typeid(camera::DecodedImageBuffer)}}),
-      publications_({{output_channel_, typeid(TagDetections)}}) {
+      publications_({control_loop::MessageDescriptor::Publication<
+          TagDetections>(output_channel_)}) {
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
   const nlohmann::json config = nlohmann::json::parse(config_file);

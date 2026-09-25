@@ -11,6 +11,7 @@
 #include "control_loop/node.h"
 #include "control_loop/thread_pool.h"
 #include "control_loop/timed_node.h"
+#include "logging/log_registration.h"
 
 struct CosNvjpegDecoder;
 
@@ -34,6 +35,8 @@ class DecodedJpegFdBuffer final : public control_loop::IMessage {
   size_t stride = 0;
   size_t output_size = 0;
   double timestamp = 0;
+  LOG_FIELDS(DecodedJpegFdBuffer, fd, pixel_format, width, height, stride,
+             output_size, timestamp)
 };
 
 class NvjpegFdDecodeNode final : public control_loop::INode,

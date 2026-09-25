@@ -37,7 +37,8 @@ NvjpegFdDecodeNode::NvjpegFdDecodeNode(std::string_view input_path,
       output_path_(output_path),
       thread_pool_(thread_pool),
       dependencies_({{input_path_, typeid(JpegBuffer)}}),
-      publications_({{output_path_, typeid(DecodedJpegFdBuffer)}}) {
+      publications_({control_loop::MessageDescriptor::Publication<
+          DecodedJpegFdBuffer>(output_path_)}) {
   decoder_ = cos_nvjpeg_create();
   CHECK(decoder_ != nullptr);
 }
@@ -178,8 +179,8 @@ auto NvjpegFdDecodeNode::GetPublications() const
 }
 
 void NvjpegFdDecodeNode::EnableTiming(std::string_view latency_channel) {
-  publications_.emplace_back(latency_channel,
-                             typeid(control_loop::LatencyMessage));
+  publications_.push_back(control_loop::MessageDescriptor::Publication<
+                          control_loop::LatencyMessage>(latency_channel));
   latency_channel_ = latency_channel;
 }
 

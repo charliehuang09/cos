@@ -3,12 +3,17 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <queue>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 #include "control_loop/context.h"
 #include "control_loop/node.h"
+
+namespace logging { class WPILogWriter; }
 
 namespace control_loop {
 
@@ -21,6 +26,7 @@ class ControlLoop {
   void RegisterNode(const std::shared_ptr<INode>& node);
   void RegisterDependancyNode(const std::shared_ptr<INode>& node);
   void EnableLatencyLog();
+  void EnableWPILog(std::string_view filename);
   void Start();
   void Stop();
   [[nodiscard]] auto GetLoopsPerSecond() const -> double;
@@ -43,6 +49,8 @@ class ControlLoop {
   std::vector<std::shared_ptr<ContextInternal>> contexts_;
   size_t max_contexts_ = 1;
   std::uint64_t loop_count_ = 0;
+  std::string wpilog_filename_;
+  std::shared_ptr<logging::WPILogWriter> wpilog_writer_;
 
  private:
   static const size_t kTimestampQueueMaxSize = 100;
