@@ -14,46 +14,12 @@ namespace localization {
 
 struct PositionEstimateMessage final : public control_loop::IMessage {
   std::vector<int> tag_ids;
+  int num_tags;
   frc::Pose3d pose;
   std::vector<double> distances;
   double variance = 0.0;
 
   PositionEstimateMessage() = default;
-  PositionEstimateMessage(const PositionEstimateMessage& other)
-      : control_loop::IMessage(),
-        tag_ids(other.tag_ids),
-        pose(other.pose),
-        distances(other.distances),
-        variance(other.variance) {}
-  PositionEstimateMessage(PositionEstimateMessage&& other) noexcept
-      : control_loop::IMessage(),
-        tag_ids(std::move(other.tag_ids)),
-        pose(other.pose),
-        distances(std::move(other.distances)),
-        variance(other.variance) {}
-  auto operator=(const PositionEstimateMessage& other)
-      -> PositionEstimateMessage& {
-    if (this == &other) {
-      return *this;
-    }
-    tag_ids = other.tag_ids;
-    pose = other.pose;
-    distances = other.distances;
-    variance = other.variance;
-    return *this;
-  }
-  auto operator=(PositionEstimateMessage&& other) noexcept
-      -> PositionEstimateMessage& {
-    if (this == &other) {
-      return *this;
-    }
-    tag_ids = std::move(other.tag_ids);
-    pose = other.pose;
-    distances = std::move(other.distances);
-    variance = other.variance;
-    return *this;
-  }
-
   auto GetType() -> const std::type_info& override {
     return typeid(PositionEstimateMessage);
   }
@@ -62,7 +28,8 @@ struct PositionEstimateMessage final : public control_loop::IMessage {
            distances.capacity() * sizeof(double);
   }
 
-  LOG_FIELDS(PositionEstimateMessage, tag_ids, pose, distances, variance)
+  LOG_FIELDS(PositionEstimateMessage, tag_ids, num_tags, pose, distances,
+             variance)
 
   friend auto operator<<(std::ostream& os,
                          const PositionEstimateMessage& estimate)

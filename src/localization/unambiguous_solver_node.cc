@@ -284,7 +284,6 @@ auto UnambiguousSolverNode::Solve(
   if (best_solution.empty()) {
     return std::nullopt;
   }
-  //
   std::vector<int> tag_ids;
   std::vector<double> distances;
   for (const solver_estimate_t& estimate : best_solution) {
@@ -294,6 +293,7 @@ auto UnambiguousSolverNode::Solve(
                      estimate.distances.end());
   }
   position_estimate_t estimate;
+  estimate.num_tags = tag_ids.size();
   estimate.tag_ids = std::move(tag_ids);
   estimate.pose = WeightedAveragePose(best_solution);
   estimate.distances = std::move(distances);
@@ -302,7 +302,7 @@ auto UnambiguousSolverNode::Solve(
                  << estimate;
     return std::nullopt;
   }
-  prev_pose_estimate_ = estimate;
+  prev_pose_estimate_.emplace(estimate);
   return estimate;
 }
 
