@@ -11,6 +11,8 @@
 
 #include "control_loop/message.h"
 
+namespace logging { class WPILogWriter; }
+
 namespace control_loop {
 
 class ControlLoop;
@@ -18,7 +20,8 @@ class ControlLoop;
 struct ContextInternal {
   ContextInternal(std::chrono::steady_clock::time_point start,
                   ControlLoop* control_loop, std::stop_token stop_token,
-                  std::uint64_t id);
+                  std::uint64_t id,
+                  std::shared_ptr<logging::WPILogWriter> wpilog_writer = {});
   ~ContextInternal();
 
   auto Exists(const std::string& path) const -> bool {
@@ -68,6 +71,7 @@ struct ContextInternal {
   const std::uint64_t id;
 
  private:
+  std::shared_ptr<logging::WPILogWriter> wpilog_writer_;
   mutable std::mutex messages_mutex_;
   std::unordered_map<std::string, std::unique_ptr<IMessage>> messages_;
 };

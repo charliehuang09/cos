@@ -8,6 +8,7 @@
 #include <frc/geometry/Pose3d.h>
 
 #include "control_loop/message.h"
+#include "logging/log_registration.h"
 
 namespace localization {
 
@@ -60,6 +61,8 @@ struct PositionEstimateMessage final : public control_loop::IMessage {
     return sizeof(*this) + tag_ids.capacity() * sizeof(int) +
            distances.capacity() * sizeof(double);
   }
+
+  LOG_FIELDS(PositionEstimateMessage, tag_ids, pose, distances, variance)
 
   friend auto operator<<(std::ostream& os,
                          const PositionEstimateMessage& estimate)

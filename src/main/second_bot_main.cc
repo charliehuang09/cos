@@ -32,14 +32,15 @@ namespace {
 
 void AddCameraPipeline(const std::string& config_path,
                        const std::string& log_path, double replay_offset,
-                       int stream_port, control_loop::ControlLoop& control_loop,
+                       std::string_view camera_name, int stream_port,
+                       control_loop::ControlLoop& control_loop,
                        control_loop::ThreadPool& thread_pool,
                        localization::UnambiguousSolverNode& solver_node) {
-  const camera::UVCCameraConfig config{config_path};
-  const std::string jpeg_channel = "jpeg_buffer:" + config.name;
-  const std::string decoded_channel = "hardware_decoded_image:" + config.name;
+  const std::string prefix = "second_bot_" + std::string(camera_name);
+  const std::string jpeg_channel = prefix + "/jpeg_buffer";
+  const std::string decoded_channel = prefix + "/hardware_decoded_image";
   const std::string detections_channel =
-      "hardware_apriltag_detections:" + config.name;
+      prefix + "/hardware_apriltag_detections";
 
   auto uvc_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
       log_path, jpeg_channel, replay_offset);
@@ -53,15 +54,14 @@ void AddCameraPipeline(const std::string& config_path,
   auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
       jpeg_channel, decoded_channel, thread_pool);
   control_loop.RegisterNode(hardware_decode_node);
-  hardware_decode_node->EnableTiming("hardware_decoded_image:latency:" +
-                                     config.name);
+  hardware_decode_node->EnableTiming(prefix + "/hardware_decoded_image:latency");
 
   auto hardware_apriltag_detector_node =
       std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
           decoded_channel, detections_channel, config_path, thread_pool);
   control_loop.RegisterNode(hardware_apriltag_detector_node);
   hardware_apriltag_detector_node->EnableTiming(
-      "hardware_apriltag_detections:latency:" + config.name);
+      prefix + "/hardware_apriltag_detections:latency");
 
   solver_node.AddCamera(detections_channel, camera::Intrinsics{config_path},
                         camera::Extrinsics{config_path}, control_loop);
@@ -77,6 +77,7 @@ auto main(int argc, char** argv) -> int {
   control_loop::RioClock::EnableSimulation();
 
   control_loop::ControlLoop control_loop(100ms);
+  control_loop.EnableWPILog("/root/second_bot.wpilog");
   control_loop::ThreadPool thread_pool;
 
   auto solver_node =
@@ -95,13 +96,13 @@ auto main(int argc, char** argv) -> int {
 
   LOG(INFO) << replay_offset;
   AddCameraPipeline("/root/constants/second_bot/front_camera.json",
-                    camera_log_paths[0], replay_offset, 4971, control_loop,
+                    camera_log_paths[0], replay_offset, "front", 4971, control_loop,
                     thread_pool, *solver_node);
   AddCameraPipeline("/root/constants/second_bot/left_camera.json",
-                    camera_log_paths[1], replay_offset, 4972, control_loop,
+                    camera_log_paths[1], replay_offset, "left", 4972, control_loop,
                     thread_pool, *solver_node);
   AddCameraPipeline("/root/constants/second_bot/right_camera.json",
-                    camera_log_paths[2], replay_offset, 4973, control_loop,
+                    camera_log_paths[2], replay_offset, "right", 4973, control_loop,
                     thread_pool, *solver_node);
 
   auto networktables_instance = nt::NetworkTableInstance::Create();

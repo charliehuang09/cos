@@ -27,8 +27,8 @@ MultiTagSolverNode::MultiTagSolverNode(
                          layout, tag_corners),
       dependencies_({control_loop::MessageDescriptor(
           input_channel_, typeid(apriltag::TagDetections))}),
-      publications_({control_loop::MessageDescriptor(
-          output_channel_, typeid(AmbiguousEstimateMessage))}) {
+      publications_({control_loop::MessageDescriptor::Publication<
+          AmbiguousEstimateMessage>(output_channel_)}) {
   cv::Mat rvec = (cv::Mat_<double>(3, 1) << 0, std::numbers::pi, 0);
   cv::Mat tvec = (cv::Mat_<double>(3, 1) << 0, 0, 0);
   cv::Mat rotate_z = utils::MakeTransform(rvec, tvec);

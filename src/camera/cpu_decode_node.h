@@ -8,6 +8,7 @@
 #include "camera/jpeg_buffer.h"
 #include "control_loop/node.h"
 #include "control_loop/thread_pool.h"
+#include "logging/log_registration.h"
 
 namespace camera {
 
@@ -25,6 +26,7 @@ class DecodedImageBuffer final : public control_loop::IMessage {
   size_t stride = 0;
   double timestamp = 0.0;
   std::vector<uint8_t> data;
+  LOG_FIELDS(DecodedImageBuffer, width, height, stride, timestamp)
 };
 
 class CpuJpegDecodeNode final : public control_loop::INode {

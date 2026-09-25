@@ -1,6 +1,7 @@
 #pragma once
 
 #include "control_loop/message.h"
+#include "logging/log_registration.h"
 
 #include <chrono>
 #include <string_view>
@@ -22,6 +23,7 @@ class LatencyMessage final : public control_loop::IMessage {
   auto GetSize() -> size_t override { return sizeof(*this); }
 
   std::chrono::duration<double> latency;
+  LOG_FIELDS(LatencyMessage, latency)
 };
 
 }  // namespace control_loop

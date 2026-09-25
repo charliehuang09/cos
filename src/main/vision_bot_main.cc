@@ -97,6 +97,7 @@ auto main(int argc, char** argv) -> int {
   control_loop::StartNetworktables(8971);
 
   control_loop::ControlLoop control_loop(1ms);
+  control_loop.EnableWPILog("/root/vision_bot.wpilog");
   control_loop.SetMaxContext(absl::GetFlag(FLAGS_max_context));
   control_loop::ThreadPool thread_pool;
 

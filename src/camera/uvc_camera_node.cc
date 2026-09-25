@@ -21,7 +21,8 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
                              const UVCCameraConfig& config)
     : output_path_(output_path),
       name_(config.name),
-      publications_({{output_path_, typeid(JpegBuffer)}}) {
+      publications_({control_loop::MessageDescriptor::Publication<JpegBuffer>(
+          output_path_)}) {
   {
     uvc_error_t code = uvc_init(&context_, nullptr);
     CHECK(!code) << "UVC failed to init will error code: " << code;
