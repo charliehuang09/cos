@@ -534,7 +534,7 @@ auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
   uint32_t threshold =
       UINT32_MAX - (segmented_apriltag.width * segmented_apriltag.height);
   constexpr size_t min_segment_size = 128;
-  constexpr size_t max_segment_size = 1024;
+  constexpr size_t max_segment_size = 512;
   std::pmr::unordered_set<uint32_t> visited_ids{&segment_resource_};
   for (int i = 0; i < segmented_apriltag.height; i++) {
     for (int j = 0; j < segmented_apriltag.width; j++) {
