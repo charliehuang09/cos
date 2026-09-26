@@ -1,7 +1,7 @@
 #include "localization/unambiguous_solver_node.h"
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -36,10 +36,12 @@ using namespace std::chrono_literals;
 
 ABSL_FLAG(bool, reject_far_tags, true,                            // NOLINT
           "Reject tags and estimates that fail sanity checks.");  // NOLINT
-ABSL_FLAG(std::string, wpilog_path, "/root/unambiguous_solver_node_test.wpilog", // NOLINT
-          "Where to save the replay's WPILOG."); // NOLINT
-ABSL_FLAG(std::string, log_path, "/cos-logs/second_bot/chezychamps", // NOLINT
-          "Directory containing front, left, and right camera replays."); // NOLINT
+ABSL_FLAG(std::string, wpilog_path,
+          "/root/unambiguous_solver_node_test.wpilog",  // NOLINT
+          "Where to save the replay's WPILOG.");        // NOLINT
+ABSL_FLAG(
+    std::string, log_path, "/cos-logs/second_bot/chezychamps",       // NOLINT
+    "Directory containing front, left, and right camera replays.");  // NOLINT
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -52,31 +54,29 @@ auto main(int argc, char** argv) -> int {
   const std::string wpilog_path = absl::GetFlag(FLAGS_wpilog_path);
   control_loop.EnableWPILog(wpilog_path);
   control_loop::ThreadPool thread_pool;
-  std::atomic<int> logged_poses = 0;
   control_loop.SetMaxContext(1);
   control_loop.EnableLatencyLog();
 
   const std::filesystem::path replay_root = absl::GetFlag(FLAGS_log_path);
   const std::vector<std::string> replay_paths = {
-      (replay_root / "second_bot_front").string(),
-      (replay_root / "second_bot_left").string(),
-      (replay_root / "second_bot_right").string()};
+      (replay_root / "front").string(), (replay_root / "left").string(),
+      (replay_root / "right").string()};
   const double replay_offset = camera::GetEarliestTimestamp(replay_paths);
   auto solver_node =
       std::make_shared<localization::UnambiguousSolverNode>("pose");
   solver_node->SetRejectFarTags(absl::GetFlag(FLAGS_reject_far_tags));
   solver_node->RegisterCallback(
-        [](const control_loop::Context& context) -> void {
-          auto pose =
-              context->GetMessage<localization::PositionEstimateMessage>(
-                  "pose");
-          if (pose != nullptr) {
-            LOG(INFO) << *pose;
-          }
-        });
+      [](const control_loop::Context& context) -> void {
+        auto pose =
+            context->GetMessage<localization::PositionEstimateMessage>("pose");
+        if (pose != nullptr) {
+          LOG(INFO) << *pose;
+        }
+      });
   control_loop.RegisterNode(solver_node);
 
-  const std::array<std::string_view, 3> camera_names = {"front", "left", "right"};
+  const std::array<std::string_view, 3> camera_names = {"front", "left",
+                                                        "right"};
   for (std::size_t i = 0; i < camera_names.size(); ++i) {
     const std::string name(camera_names[i]);
     const std::string prefix = "second_bot_" + name;

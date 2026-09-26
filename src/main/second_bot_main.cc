@@ -22,11 +22,14 @@
 
 using namespace std::chrono_literals;
 
-ABSL_FLAG(                                                // NOLINT
-    std::string, log_path, "/cos-logs/second_bot/log16",  // NOLINT
+ABSL_FLAG(                                                      // NOLINT
+    std::string, log_path, "/cos-logs/second_bot/chezychamps",  // NOLINT
     "Directory containing the left and right camera log directories");  // NOLINT
 ABSL_FLAG(bool, reject_far_tags, true,                             // NOLINT
           "Reject AprilTags that are too small or too far away");  // NOLINT
+ABSL_FLAG(std::string, wpilog_path,                                // NOLINT
+          "/root/second_bot.wpilog",                               // NOLINT
+          "Where to save the replay's WPILOG.");                   // NOLINT
 
 namespace {
 
@@ -54,7 +57,8 @@ void AddCameraPipeline(const std::string& config_path,
   auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
       jpeg_channel, decoded_channel, thread_pool);
   control_loop.RegisterNode(hardware_decode_node);
-  hardware_decode_node->EnableTiming(prefix + "/hardware_decoded_image:latency");
+  hardware_decode_node->EnableTiming(prefix +
+                                     "/hardware_decoded_image:latency");
 
   auto hardware_apriltag_detector_node =
       std::make_shared<apriltag::NvidiaApriltagDetectorNode>(
@@ -96,14 +100,14 @@ auto main(int argc, char** argv) -> int {
 
   LOG(INFO) << replay_offset;
   AddCameraPipeline("/root/constants/second_bot/front_camera.json",
-                    camera_log_paths[0], replay_offset, "front", 4971, control_loop,
-                    thread_pool, *solver_node);
+                    camera_log_paths[0], replay_offset, "front", 4971,
+                    control_loop, thread_pool, *solver_node);
   AddCameraPipeline("/root/constants/second_bot/left_camera.json",
-                    camera_log_paths[1], replay_offset, "left", 4972, control_loop,
-                    thread_pool, *solver_node);
+                    camera_log_paths[1], replay_offset, "left", 4972,
+                    control_loop, thread_pool, *solver_node);
   AddCameraPipeline("/root/constants/second_bot/right_camera.json",
-                    camera_log_paths[2], replay_offset, "right", 4973, control_loop,
-                    thread_pool, *solver_node);
+                    camera_log_paths[2], replay_offset, "right", 4973,
+                    control_loop, thread_pool, *solver_node);
 
   auto networktables_instance = nt::NetworkTableInstance::Create();
   networktables_instance.StartServer();
