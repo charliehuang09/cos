@@ -1,0 +1,31 @@
+{
+  "name": "vision_bot_back",
+  "camera_type": "uvc",
+  "serial_id": "visionbotback",
+  "height": 800,
+  "width": 1280,
+  "fps": 100,
+  "exposure_time_ms": 2.5,
+  "auto_exposure": false,
+  "max_payload_size": 1600,
+  "max_frame_size": 2048589,
+  "extrinsics": {
+    "translation_x": 0.0,
+    "translation_y": 0.0,
+    "translation_z": 0.0,
+    "rotation_x": 0.0,
+    "rotation_y": 0.0,
+    "rotation_z": 0.0
+  },
+  "intrinsics": {
+    "cx": 652.4445062173611,
+    "cy": 403.55390687931754,
+    "fx": 907.4264698335392,
+    "fy": 907.6648590078871,
+    "k1": 0.042815055833204066,
+    "k2": -0.10657766078619149,
+    "k3": 0.05527543579240506,
+    "p1": 0.0003871436828974948,
+    "p2": -0.0015526936918316783
+  }
+}
