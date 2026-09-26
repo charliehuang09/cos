@@ -38,7 +38,7 @@ struct ImageView {
   int height;
   int width;
 
-  auto operator()(size_t row, size_t col) -> T& {
+  inline auto operator()(size_t row, size_t col) -> T& {
     return data[row * stride + col];
   }
 };

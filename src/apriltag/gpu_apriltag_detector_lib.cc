@@ -1,4 +1,5 @@
 #include "apriltag/gpu_apriltag_detector_lib.h"
+#include <arm_neon.h>
 #include <cuda_runtime.h>
 #include <tag36h11.h>
 
@@ -498,17 +499,18 @@ auto GpuApriltagDetector::GetSegment(ImageView<uint32_t>& segmented_apriltag,
     bool has_neighbor = false;
     for (int i = 0; i < 4; i++) {
       int new_direction = (current_direction + i) % 4;
-      Coord<int16_t> new_coord = {
+      const Coord<int16_t> new_coord = {
           .row = static_cast<int16_t>(curr.row + drow[new_direction]),
           .col = static_cast<int16_t>(curr.col + dcol[new_direction])};
-      if (new_coord.row >= 0 && new_coord.row < segmented_apriltag.height &&
-          new_coord.col >= 0 && new_coord.col < segmented_apriltag.width) {
-        if (segmented_apriltag(new_coord.row, new_coord.col) == id ||
-            segmented_apriltag(new_coord.row, new_coord.col) == visited_id) {
-          num_revisited +=
-              segmented_apriltag(new_coord.row, new_coord.col) == visited_id;
+      const int offset =
+          new_coord.row * segmented_apriltag.stride + new_coord.col;
+      if (offset >= 0 &&
+          offset < segmented_apriltag.width * segmented_apriltag.height) {
+        if (segmented_apriltag.data[offset] == id ||
+            segmented_apriltag.data[offset] == visited_id) {
+          num_revisited += segmented_apriltag.data[offset] == visited_id;
           segment.push_back(new_coord);
-          segmented_apriltag(new_coord.row, new_coord.col) = visited_id;
+          segmented_apriltag.data[offset] = visited_id;
           curr = new_coord;
           current_direction = new_direction + 3;
           has_neighbor = true;
@@ -536,17 +538,27 @@ auto GpuApriltagDetector::GetSegments(ImageView<uint32_t> segmented_apriltag)
                                  segmented_apriltag.height),
            UINT32_MAX - static_cast<uint32_t>(segmented_apriltag.width *
                                               segmented_apriltag.height));
+  uint32x4_t segmented_apriltag_value;
+  uint32x4_t target_value = {0, 1, 2, 3};
+  uint32x4_t add_value = {4, 4, 4, 4};
+  CHECK((segmented_apriltag.width * segmented_apriltag.height) % 4 == 0);
   for (uint32_t i = 0; i < static_cast<uint32_t>(segmented_apriltag.height *
                                                  segmented_apriltag.width);
-       i++) {
-    if (segmented_apriltag.data[i] == i) {
-      int16_t row = i / segmented_apriltag.stride;
-      int16_t col = i % segmented_apriltag.stride;
-      auto segment = GetSegment(segmented_apriltag, row, col);
-      if (!segment.empty()) {
-        segments.push_back(std::move(segment));
+       i += 4) {
+    segmented_apriltag_value = vld1q_u32(&segmented_apriltag.data[i]);
+    if (vmaxvq_u32(vceqq_u32(segmented_apriltag_value, target_value)) != 0) {
+      for (uint32_t j = i; j < i + 4; j++) {
+        if (segmented_apriltag.data[j] == j) {
+          int16_t row = j / segmented_apriltag.stride;
+          int16_t col = j % segmented_apriltag.stride;
+          auto segment = GetSegment(segmented_apriltag, row, col);
+          if (!segment.empty()) {
+            segments.push_back(std::move(segment));
+          }
+        }
       }
     }
+    target_value = vaddq_u32(target_value, add_value);
   }
   return segments;
 }
