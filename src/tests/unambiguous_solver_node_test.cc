@@ -20,6 +20,11 @@ using namespace std::chrono_literals;
 
 ABSL_FLAG(bool, reject_far_tags, true,                            // NOLINT
           "Reject tags and estimates that fail sanity checks.");  // NOLINT
+ABSL_FLAG(std::string, config_path,
+          "/root/constants/second_bot/left_camera.json",
+          "Camera calibration JSON for replay.");
+ABSL_FLAG(std::string, log_path, "/cos-logs/second_bot/log102/left",
+          "Directory of timestamped JPEG frames to replay.");
 
 auto main(int argc, char** argv) -> int {
   absl::ParseCommandLine(argc, argv);
@@ -33,8 +38,8 @@ auto main(int argc, char** argv) -> int {
   control_loop.SetMaxContext(1);
   control_loop.EnableLatencyLog();
 
-  const std::string path = "/root/constants/second_bot/left_camera.json";
-  const std::string log_path = "/cos-logs/second_bot/log102/left";
+  const std::string path = absl::GetFlag(FLAGS_config_path);
+  const std::string log_path = absl::GetFlag(FLAGS_log_path);
 
   {
     auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(

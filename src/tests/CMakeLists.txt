@@ -1,5 +1,17 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+add_executable(single_tag_rotation_test single_tag_rotation_test.cc)
+target_link_libraries(single_tag_rotation_test PRIVATE
+  GTest::gtest_main
+  GTest::gtest
+  cos::unambiguous_solver_node
+  cos::control_loop
+)
+target_compile_definitions(single_tag_rotation_test PRIVATE
+  COS_TEST_CONSTANTS_DIR="${PROJECT_SOURCE_DIR}/constants"
+)
+add_test(NAME single_tag_rotation_test COMMAND single_tag_rotation_test)
+
 add_executable(nvjpeg_fd_decode_node_test nvjpeg_fd_decode_node_test.cc)
 target_link_libraries(nvjpeg_fd_decode_node_test PRIVATE
   cos::nvjpeg_fd_decode_node

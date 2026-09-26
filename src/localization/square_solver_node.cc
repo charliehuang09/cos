@@ -83,9 +83,11 @@ auto SquareSolverNode::AmbiguousSolve(
 
     std::vector<cv::Mat> rvecs;
     std::vector<cv::Mat> tvecs;
+    cv::Mat reprojection_errors;
     cv::solvePnPGeneric(tag_corners_, detection.corners, camera_matrix_,
                         distortion_coefficients_, rvecs, tvecs, false,
-                        cv::SOLVEPNP_IPPE_SQUARE);
+                        cv::SOLVEPNP_IPPE_SQUARE, cv::noArray(), cv::noArray(),
+                        reprojection_errors);
 
     if (rvecs.size() < 2 || tvecs.size() < 2) {
       continue;
@@ -111,8 +113,19 @@ auto SquareSolverNode::AmbiguousSolve(
       continue;
     }
 
+    // IPPE orders candidates by reprojection error. Temporal continuity must
+    // not keep a mirrored solution when the image clearly favors the first.
+    // Keep both only when the planar pose is actually ambiguous.
+    constexpr double kMaxUnambiguousErrorRatio = 0.2;
+    const double best_error = reprojection_errors.at<double>(0);
+    const double second_error = reprojection_errors.at<double>(1);
+    const bool clearly_better =
+        second_error > 1e-9 &&
+        best_error < kMaxUnambiguousErrorRatio * second_error;
     pose_estimates.push_back(
-        {.pos1 = std::move(est1), .pos2 = std::move(est2)});
+        {.pos1 = std::move(est1),
+         .pos2 = clearly_better ? std::nullopt
+                               : std::optional{std::move(est2)}});
   }
   return pose_estimates;
 }
