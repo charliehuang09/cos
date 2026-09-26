@@ -304,10 +304,9 @@ namespace apriltag{
     PopulateBinarizedApriltagKernal<<<blocks, threads, 0, stream>>>(d_apriltag, d_min, d_max, d_binarized_apriltag);
   }
 
-  void GpuApriltagDetector::PopulateSegmentedApriltagGPU(ImageView<uint8_t> binarized_apriltag,
-                                    ImageView<uint32_t> segmented_apriltag, ImageView<uint32_t> dsu, cudaStream_t stream){
+  void GpuApriltagDetector::PopulateSegmentedApriltagGPU(ImageView<uint8_t> binarized_apriltag, 
+      ImageView<uint32_t> dsu, cudaStream_t stream){
     ImageViewGPU<uint8_t> d_binarized_apriltag(binarized_apriltag);
-    ImageViewGPU<uint32_t> d_segmented_apriltag(segmented_apriltag);
     ImageViewGPU<uint32_t> d_dsu(dsu);
     {
       dim3 threads(32, 32);

@@ -1394,22 +1394,17 @@ auto GpuApriltagDetector::GetRefinedQuads(
 }
 
 void GpuApriltagDetector::ClearBuffers() {
-  const size_t pixels = static_cast<size_t>(width_) * height_;
-  std::memset(max_buffer_, 0, pixels / 16 * sizeof(uint8_t));
-  std::memset(min_buffer_, 0, pixels / 16 * sizeof(uint8_t));
-  std::memset(threshold_buffer_, 0, pixels / 16 * sizeof(uint8_t));
-  std::memset(valid_buffer_, 0, pixels / 16 * sizeof(uint8_t));
-  std::memset(binarized_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
-  std::memset(segmented_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
-  std::memset(boundary_segmented_apriltag_buffer_, 0,
-              pixels * sizeof(uint32_t));
-  std::memset(sorted_boundary_segmented_apriltag_buffer_, 0,
-              pixels * sizeof(uint8_t));
-  std::memset(candidate_quad_corners_apriltag_buffer_, 0,
-              pixels * sizeof(uint8_t));
-  std::memset(quad_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
-  std::memset(bit_locations_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
-  std::memset(refined_points_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
+  // const size_t pixels = static_cast<size_t>(width_) * height_;
+  // std::memset(max_buffer_, 0, pixels / 16 * sizeof(uint8_t));
+  // std::memset(min_buffer_, 0, pixels / 16 * sizeof(uint8_t));
+  // std::memset(threshold_buffer_, 0, pixels / 16 * sizeof(uint8_t));
+  // std::memset(valid_buffer_, 0, pixels / 16 * sizeof(uint8_t));
+  // std::memset(binarized_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
+  // std::memset(segmented_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
+  // std::memset(sorted_boundary_segmented_apriltag_buffer_, 0,
+  //             pixels * sizeof(uint8_t));
+  // std::memset(bit_locations_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
+  // std::memset(refined_points_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
 }
 
 auto GpuApriltagDetector::DetectAprilTag(
@@ -1463,6 +1458,8 @@ auto GpuApriltagDetector::DetectAprilTag(
   // SortSegments(segments_);
 
   if (!output_directory.empty()) {
+    std::memset(boundary_segmented_apriltag_buffer_, 0,
+                apriltag.height * apriltag.stride * sizeof(uint32_t));
     PopulateBoundarySegmentedApriltag(segments_,
                                       boundary_segmented_apriltag_view_);
     ImWrite((output_directory / "boundary_segmented_apriltag.png").string(),
@@ -1470,6 +1467,8 @@ auto GpuApriltagDetector::DetectAprilTag(
   }
 
   if (!output_directory.empty()) {
+    std::memset(sorted_boundary_segmented_apriltag_buffer_, 0,
+                apriltag.height * apriltag.stride * sizeof(uint8_t));
     PopulateSortedBoundarySegmentedApriltag(
         segments_, sorted_boundary_segmented_apriltag_view_);
     ImWrite(
@@ -1493,8 +1492,6 @@ auto GpuApriltagDetector::DetectAprilTag(
             candidate_quad_corners_apriltag_view_);
   }
 
-  memcpy(quad_apriltag_buffer_, sorted_boundary_segmented_apriltag_buffer_,
-         sizeof(uint8_t) * apriltag.width * apriltag.height);
   quads_ = GetQuads(candidate_quad_corners_);
   OrderQuads(quads_);
   CHECK_EQ(quads_.size(), segments_.size());
@@ -1563,8 +1560,7 @@ void GpuApriltagDetector::CreateCudaGraph() {
   PopulateMinMaxGPU(graph_input_view_, min_view_, max_view_, stream);
   PopulateThresholdValidGPU(graph_input_view_, min_view_, max_view_,
                             binarized_apriltag_view_, stream);
-  PopulateSegmentedApriltagGPU(binarized_apriltag_view_,
-                               segmented_apriltag_view_, dsu_view_, stream);
+  PopulateSegmentedApriltagGPU(binarized_apriltag_view_, dsu_view_, stream);
 
   CHECK(cudaStreamEndCapture(stream, &graph_) == cudaSuccess);
   CHECK(cudaStreamDestroy(stream) == cudaSuccess);

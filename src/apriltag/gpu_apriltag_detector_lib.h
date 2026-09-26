@@ -127,7 +127,6 @@ class GpuApriltagDetector {
   void PopulateSegmentedApriltag(ImageView<uint8_t> binarized_apriltag,
                                  ImageView<uint32_t> segmented_apriltag);
   void PopulateSegmentedApriltagGPU(ImageView<uint8_t> binarized_apriltag,
-                                    ImageView<uint32_t> segmented_apriltag,
                                     ImageView<uint32_t> dsu,
                                     cudaStream_t stream);
 
