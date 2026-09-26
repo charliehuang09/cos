@@ -45,7 +45,7 @@ void ControlLoop::Start() {
         for (const auto& publication : node->GetPublications()) {
           // Image payloads retain their original untyped descriptors and are
           // intentionally excluded. Typed publications have logging metadata.
-          if (publication.GetPublicationInfo().has_value()) {
+          if (publication.GetRegistration().has_value()) {
             log_publications.push_back(publication);
           }
         }

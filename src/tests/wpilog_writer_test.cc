@@ -51,7 +51,6 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
 
   {
     logging::WPILogWriter writer(path.string(), publications);
-    ASSERT_EQ(writer.GetLogPaths().size(), 6);
 
     control_loop::ContextInternal context(std::chrono::steady_clock::now(),
                                           nullptr, std::stop_token{}, 1);
@@ -240,7 +239,6 @@ TEST(WPILogWriterTest, WritesBuiltInTypesAndPose2d) {
   };
   {
     logging::WPILogWriter writer(path.string(), publications);
-    ASSERT_EQ(writer.GetLogPaths().size(), 4);
     control_loop::ContextInternal context(std::chrono::steady_clock::now(),
                                           nullptr, std::stop_token{}, 3);
     context.SetMessage(

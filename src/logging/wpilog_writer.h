@@ -18,7 +18,7 @@ class WPILogWriter {
  public:
   WPILogWriter(std::string_view filename,
                const std::vector<control_loop::MessageDescriptor>& publications);
-  ~WPILogWriter();
+  ~WPILogWriter() = default;
 
   WPILogWriter(const WPILogWriter&) = delete;
   auto operator=(const WPILogWriter&) -> WPILogWriter& = delete;
@@ -26,19 +26,18 @@ class WPILogWriter {
   void Log(const control_loop::ContextInternal& context);
   void Flush();
 
-  [[nodiscard]] auto GetLogPaths() const -> std::vector<std::string>;
-
  private:
   struct PublicationLog {
     std::string channel;
-    std::vector<FieldSlot> fields;
+    LogFunction append;
   };
 
   std::unique_ptr<wpi::log::DataLogWriter> log_;
   std::vector<PublicationLog> publications_;
   std::mutex mutex_;
   std::mutex flush_wait_mutex_;
-  std::condition_variable flush_cv_;
+  std::condition_variable_any flush_cv_;
+  // Destroy the thread before the entries and their underlying log.
   std::jthread flush_thread_;
 };
 

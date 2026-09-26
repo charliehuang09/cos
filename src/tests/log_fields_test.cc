@@ -53,8 +53,6 @@ TEST(LogFieldsTest, IgnoresStructVectorsAndWritesNativePose3dArrays) {
       control_loop::MessageDescriptor::Publication<ArraySample>("sample")};
   {
     logging::WPILogWriter writer(path.string(), publications);
-    EXPECT_EQ(writer.GetLogPaths(),
-              (std::vector<std::string>{"sample/poses"}));
     control_loop::ContextInternal context(std::chrono::steady_clock::now(),
                                           nullptr, std::stop_token{}, 1);
     ArraySample sample;
@@ -88,7 +86,6 @@ TEST(LogFieldsTest, SameTypeInTwoSubchannelsUsesSeparateEntries) {
 
   {
     logging::WPILogWriter writer(path.string(), publications);
-    ASSERT_EQ(writer.GetLogPaths().size(), 12);
     control_loop::ContextInternal context(std::chrono::steady_clock::now(),
                                           nullptr, std::stop_token{}, 1);
     Sample left;

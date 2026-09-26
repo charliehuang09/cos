@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
-#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -26,113 +25,28 @@
 
 namespace logging {
 
-class ILogField {
- public:
-  virtual ~ILogField() = default;
-  virtual auto Append(const control_loop::IMessage& message) -> bool = 0;
-};
-
 namespace detail {
 template <typename T>
 struct LogEntryType;
 
-template <>
-struct LogEntryType<bool> {
-  using type = wpi::log::BooleanLogEntry;
-};
-template <>
-struct LogEntryType<std::int64_t> {
-  using type = wpi::log::IntegerLogEntry;
-};
-template <>
-struct LogEntryType<float> {
-  using type = wpi::log::FloatLogEntry;
-};
-template <>
-struct LogEntryType<double> {
-  using type = wpi::log::DoubleLogEntry;
-};
-template <>
-struct LogEntryType<std::string> {
-  using type = wpi::log::StringLogEntry;
-};
-template <>
-struct LogEntryType<std::vector<std::string>> {
-  using type = wpi::log::StringArrayLogEntry;
-};
-template <>
-struct LogEntryType<std::vector<std::int64_t>> {
-  using type = wpi::log::IntegerArrayLogEntry;
-};
-template <>
-struct LogEntryType<std::vector<double>> {
-  using type = wpi::log::DoubleArrayLogEntry;
-};
-template <>
-struct LogEntryType<std::vector<int>> {
-  using type = wpi::log::BooleanArrayLogEntry;
-};
-template <>
-struct LogEntryType<frc::Pose2d> {
-  using type = wpi::log::StructLogEntry<frc::Pose2d>;
-};
-template <>
-struct LogEntryType<frc::Pose3d> {
-  using type = wpi::log::StructLogEntry<frc::Pose3d>;
-};
-template <>
-struct LogEntryType<std::vector<frc::Pose2d>> {
-  using type = wpi::log::StructArrayLogEntry<frc::Pose2d>;
-};
-template <>
-struct LogEntryType<std::vector<frc::Pose3d>> {
-  using type = wpi::log::StructArrayLogEntry<frc::Pose3d>;
-};
+#define COS_LOG_ENTRY(Value, Entry) \
+  template <> struct LogEntryType<Value> { using type = wpi::log::Entry; };
+COS_LOG_ENTRY(bool, BooleanLogEntry)
+COS_LOG_ENTRY(std::int64_t, IntegerLogEntry)
+COS_LOG_ENTRY(float, FloatLogEntry)
+COS_LOG_ENTRY(double, DoubleLogEntry)
+COS_LOG_ENTRY(std::string, StringLogEntry)
+COS_LOG_ENTRY(std::vector<std::string>, StringArrayLogEntry)
+COS_LOG_ENTRY(std::vector<std::int64_t>, IntegerArrayLogEntry)
+COS_LOG_ENTRY(std::vector<double>, DoubleArrayLogEntry)
+COS_LOG_ENTRY(std::vector<int>, BooleanArrayLogEntry)
+COS_LOG_ENTRY(frc::Pose2d, StructLogEntry<frc::Pose2d>)
+COS_LOG_ENTRY(frc::Pose3d, StructLogEntry<frc::Pose3d>)
+COS_LOG_ENTRY(std::vector<frc::Pose2d>, StructArrayLogEntry<frc::Pose2d>)
+COS_LOG_ENTRY(std::vector<frc::Pose3d>, StructArrayLogEntry<frc::Pose3d>)
+#undef COS_LOG_ENTRY
 
-template <typename Message, typename Value>
-class TypedLogField final : public ILogField {
- public:
-  template <typename Getter>
-  TypedLogField(wpi::log::DataLogWriter& log, std::string_view path,
-                Getter getter)
-      // The WPILib entry is constructed once, at writer startup. Append()
-      // later uses this same entry object; it does not look up a path again.
-      : entry_(log, path), getter_(std::move(getter)) {}
-
-  auto Append(const control_loop::IMessage& message) -> bool override {
-    const auto* typed = dynamic_cast<const Message*>(&message);
-    if (typed == nullptr) {
-      return false;
-    }
-    entry_.Append(getter_(*typed));
-    return true;
-  }
-
- private:
-  typename LogEntryType<Value>::type entry_;
-  std::function<Value(const Message&)> getter_;
-};
 }  // namespace detail
-
-struct FieldSlot {
-  std::string path;
-  std::unique_ptr<ILogField> field;
-};
-
-template <typename Message, typename Getter>
-void AddField(wpi::log::DataLogWriter& log, std::string_view channel,
-              std::string_view suffix, Getter getter,
-              std::vector<FieldSlot>& fields) {
-  using Value = std::decay_t<std::invoke_result_t<Getter, const Message&>>;
-  std::string path(channel);
-  if (!suffix.empty()) {
-    path += '/';
-    path += suffix;
-  }
-  auto field = std::make_unique<detail::TypedLogField<Message, Value>>(
-      log, path, std::move(getter));
-  fields.push_back({std::move(path), std::move(field)});
-}
 
 template <typename Owner, typename Value>
 struct LogMember {
@@ -173,19 +87,11 @@ struct IsIgnoredField<std::array<T, N>>
     : std::bool_constant<!IsNativeArrayElement<T>> {};
 template <typename T>
 concept HasLogFields = requires { T::WpiLogFields(); };
-template <typename>
-inline constexpr bool always_false = false;
 
 template <typename T>
 auto NormalizeLogValue(const T& value) {
-  // Every leaf becomes a type accepted by one of the LogEntryType mappings
-  // above. In particular, WPILib integer entries use int64_t.
-  if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, float> ||
-                std::is_same_v<T, double> || std::is_same_v<T, std::string> ||
-                std::is_same_v<T, frc::Pose2d> ||
-                std::is_same_v<T, frc::Pose3d>) {
-    return value;
-  } else if constexpr (std::is_integral_v<T> || std::is_enum_v<T>) {
+  if constexpr ((std::is_integral_v<T> && !std::is_same_v<T, bool>) ||
+                std::is_enum_v<T>) {
     if constexpr (std::is_unsigned_v<T> && sizeof(T) >= sizeof(std::int64_t)) {
       if (value > static_cast<T>(std::numeric_limits<std::int64_t>::max())) {
         throw std::out_of_range("WPILog integer exceeds int64_t");
@@ -196,88 +102,56 @@ auto NormalizeLogValue(const T& value) {
     return static_cast<double>(value);
   } else if constexpr (IsDuration<T>::value) {
     return std::chrono::duration<double>(value).count();
-  } else if constexpr (IsArray<T>::value) {
-    return NormalizeLogValue(std::vector<typename T::value_type>(value.begin(),
-                                                                  value.end()));
-  } else if constexpr (IsVector<T>::value) {
+  } else if constexpr (IsArray<T>::value || IsVector<T>::value) {
     using Element = typename T::value_type;
-    if constexpr (std::is_same_v<Element, bool>) {
-      std::vector<int> result;
-      result.reserve(value.size());
-      for (bool item : value) result.push_back(item ? 1 : 0);
-      return result;
-    } else if constexpr (std::is_integral_v<Element> ||
-                         std::is_enum_v<Element>) {
-      std::vector<std::int64_t> result;
-      result.reserve(value.size());
-      for (auto item : value) result.push_back(NormalizeLogValue(item));
-      return result;
-    } else if constexpr (std::is_floating_point_v<Element>) {
-      std::vector<double> result;
-      result.reserve(value.size());
-      for (auto item : value) result.push_back(static_cast<double>(item));
-      return result;
-    } else if constexpr (std::is_same_v<Element, std::string> ||
-                         std::is_same_v<Element, frc::Pose2d> ||
-                         std::is_same_v<Element, frc::Pose3d>) {
-      return value;
-    } else {
-      static_assert(always_false<T>, "Unsupported WPILog array element");
+    using Normalized = std::conditional_t<std::is_same_v<Element, bool>, int,
+        std::conditional_t<std::is_floating_point_v<Element>, double,
+            decltype(NormalizeLogValue(std::declval<const Element&>()))>>;
+    std::vector<Normalized> result;
+    result.reserve(value.size());
+    for (const auto& item : value) {
+      if constexpr (std::is_same_v<Element, bool> ||
+                    std::is_floating_point_v<Element>) {
+        result.push_back(static_cast<Normalized>(item));
+      } else {
+        result.push_back(NormalizeLogValue(item));
+      }
     }
+    return result;
   } else {
-    static_assert(always_false<T>, "Unsupported WPILog field type");
+    static_assert(requires { typename LogEntryType<T>::type; },
+                  "Unsupported WPILog field type");
+    return value;
   }
 }
 
-template <typename Root, typename Current, typename Accessor>
-void RegisterMembers(wpi::log::DataLogWriter& log, std::string_view channel,
-                     std::string_view prefix, Accessor accessor,
-                     std::vector<FieldSlot>& fields);
-
-template <typename Root, typename Current, typename Accessor, typename Field>
-void RegisterMember(wpi::log::DataLogWriter& log, std::string_view channel,
-                    std::string_view prefix, Accessor accessor, Field member,
-                    std::vector<FieldSlot>& fields) {
-  using Value =
-      std::remove_cvref_t<decltype(std::declval<Current>().*member.member)>;
-  if constexpr (!IsIgnoredField<Value>::value) {
-    std::string suffix(prefix);
-    if (!suffix.empty()) suffix += '/';
-    suffix += member.name;
-    auto child = [accessor, pointer = member.member](const Root& message)
-        -> const Value& { return accessor(message).*pointer; };
-    if constexpr (HasLogFields<Value>) {
-      // A nested annotated struct contributes paths such as "d/x".
-      RegisterMembers<Root, Value>(log, channel, suffix, child, fields);
-    } else {
-      // Add constructs and stores one WPILib entry for this leaf field.
-      // child is retained as the getter used by TypedLogField::Append().
-      AddField<Root>(
-          log, channel, suffix,
-          [child](const Root& message) {
-            return NormalizeLogValue(child(message));
-          },
-          fields);
-    }
+template <typename Root, typename Getter>
+void RegisterValue(wpi::log::DataLogWriter& log, const std::string& path,
+                   Getter getter, std::vector<std::string>& paths,
+                   std::vector<std::move_only_function<void(const Root&)>>& fields) {
+  using Value = std::remove_cvref_t<std::invoke_result_t<Getter, const Root&>>;
+  if constexpr (HasLogFields<Value>) {
+    std::apply([&](auto... members) {
+      (RegisterValue<Root>(log, path + '/' + std::string(members.name),
+          [getter, pointer = members.member](const Root& message) -> const auto& {
+            return getter(message).*pointer;
+          }, paths, fields), ...);
+    }, Value::WpiLogFields());
+  } else if constexpr (!IsIgnoredField<Value>::value) {
+    using Normalized = decltype(NormalizeLogValue(std::declval<const Value&>()));
+    using Entry = typename LogEntryType<Normalized>::type;
+    paths.push_back(path);
+    fields.emplace_back([entry = Entry(log, path), getter = std::move(getter)](
+                            const Root& message) mutable {
+      entry.Append(NormalizeLogValue(getter(message)));
+    });
   }
-}
-
-template <typename Root, typename Current, typename Accessor>
-void RegisterMembers(wpi::log::DataLogWriter& log, std::string_view channel,
-                     std::string_view prefix, Accessor accessor,
-                     std::vector<FieldSlot>& fields) {
-  std::apply(
-      [&](auto... members) {
-        (RegisterMember<Root, Current>(log, channel, prefix, accessor,
-                                       members, fields), ...);
-      },
-      Current::WpiLogFields());
 }
 }  // namespace detail
 
 template <typename T>
-void RegisterFields(wpi::log::DataLogWriter& log, std::string_view channel,
-                    std::vector<FieldSlot>& fields) {
+auto RegisterFields(wpi::log::DataLogWriter& log, std::string_view channel,
+                    std::vector<std::string>& paths) -> LogFunction {
   // Plain structs are carried by ValueMessage<T>; IMessage subclasses are
   // used directly. The rest of the traversal is identical for both.
   using Message = std::conditional_t<std::is_base_of_v<control_loop::IMessage, T>,
@@ -286,16 +160,15 @@ void RegisterFields(wpi::log::DataLogWriter& log, std::string_view channel,
     if constexpr (std::is_same_v<T, Message>) return message;
     else return message.value;
   };
-  if constexpr (detail::HasLogFields<T>) {
-    detail::RegisterMembers<Message, T>(log, channel, "", root, fields);
-  } else {
-    AddField<Message>(
-        log, channel, "",
-        [](const Message& message) {
-          return detail::NormalizeLogValue(message.value);
-        },
-        fields);
-  }
+  std::vector<std::move_only_function<void(const Message&)>> appenders;
+  detail::RegisterValue<Message>(log, std::string(channel), root, paths, appenders);
+  return [appenders = std::move(appenders)](
+             const control_loop::IMessage& message) mutable {
+    const auto* typed = dynamic_cast<const Message*>(&message);
+    if (typed == nullptr) return false;
+    for (auto& append : appenders) append(*typed);
+    return true;
+  };
 }
 
 }  // namespace logging
@@ -320,11 +193,9 @@ void RegisterFields(wpi::log::DataLogWriter& log, std::string_view channel,
 #define COS_LOG_SELECT(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, NAME, ...) NAME
 #define COS_LOG_MEMBERS(T, ...) COS_LOG_SELECT(__VA_ARGS__, COS_LOG_MEMBERS_16, COS_LOG_MEMBERS_15, COS_LOG_MEMBERS_14, COS_LOG_MEMBERS_13, COS_LOG_MEMBERS_12, COS_LOG_MEMBERS_11, COS_LOG_MEMBERS_10, COS_LOG_MEMBERS_9, COS_LOG_MEMBERS_8, COS_LOG_MEMBERS_7, COS_LOG_MEMBERS_6, COS_LOG_MEMBERS_5, COS_LOG_MEMBERS_4, COS_LOG_MEMBERS_3, COS_LOG_MEMBERS_2, COS_LOG_MEMBERS_1)(T, __VA_ARGS__)
 
-// Place inside Type, after the fields. For example, LOG_FIELDS(Sample, a, d)
-// expands to metadata inside Sample:
-//   WpiLogFields() -> tuple{name "a", &Sample::a; name "d", &Sample::d}
-// RegisterFields<T> uses this tuple for each publication channel.
-#define LOG_FIELDS(Type, ...)                              \
-  static constexpr auto WpiLogFields() {                   \
-    return std::tuple{COS_LOG_MEMBERS(Type, __VA_ARGS__)};  \
-  }
+// Annotated messages register a callback for each runtime publication channel.
+#define LOG_FIELDS(Type, ...)                                     \
+  static constexpr auto WpiLogFields() {                          \
+    return std::tuple{COS_LOG_MEMBERS(Type, __VA_ARGS__)};         \
+  }                                                               \
+  static constexpr auto RegisterWPILog = &::logging::RegisterFields<Type>;

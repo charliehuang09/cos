@@ -22,12 +22,12 @@ WPILogWriter::WPILogWriter(
 
   std::unordered_set<std::string> channels;
   std::unordered_set<std::string> seen_paths;
+  std::vector<std::string> paths;
   // The file has one DataLogWriter, but every publication gets its own field
   // registrations. The channel is a runtime value from MessageDescriptor.
   for (const auto& publication : publications) {
-    const auto& info = publication.GetPublicationInfo();
-    if (!info.has_value() || publication.GetTypes().size() != 1 ||
-        !publication.GetTypes().contains(info->message_type)) {
+    const auto& registration = publication.GetRegistration();
+    if (!registration.has_value() || publication.GetTypes().size() != 1) {
       throw std::invalid_argument("Publication lacks concrete type: " +
                                   publication.GetChannel());
     }
@@ -36,15 +36,16 @@ WPILogWriter::WPILogWriter(
                                   publication.GetChannel());
     }
 
-    if (info->register_logs == nullptr) {
+    if (*registration == nullptr) {
       throw std::invalid_argument("Missing WPILog registration: " +
                                   publication.GetChannel());
     }
     PublicationLog group{publication.GetChannel(), {}};
-    info->register_logs(*log_, group.channel, group.fields);
-    for (const auto& slot : group.fields) {
-      if (!seen_paths.insert(slot.path).second) {
-        throw std::invalid_argument("Duplicate WPILog path: " + slot.path);
+    paths.clear();
+    group.append = (*registration)(*log_, group.channel, paths);
+    for (const auto& path : paths) {
+      if (!seen_paths.insert(path).second) {
+        throw std::invalid_argument("Duplicate WPILog path: " + path);
       }
     }
     publications_.push_back(std::move(group));
@@ -52,40 +53,23 @@ WPILogWriter::WPILogWriter(
 
   flush_thread_ = std::jthread([this](std::stop_token stop_token) {
     std::unique_lock wait_lock(flush_wait_mutex_);
-    while (!flush_cv_.wait_for(wait_lock, std::chrono::seconds(1),
-                               [&] { return stop_token.stop_requested(); })) {
-      Flush();
+    while (!stop_token.stop_requested()) {
+      flush_cv_.wait_for(wait_lock, stop_token, std::chrono::seconds(1),
+                         [] { return false; });
+      if (!stop_token.stop_requested()) Flush();
     }
   });
 }
 
-WPILogWriter::~WPILogWriter() {
-  flush_thread_.request_stop();
-  flush_cv_.notify_one();
-  flush_thread_.join();
-  publications_.clear();
-  log_->Flush();
-  log_->Stop();
-}
-
-auto WPILogWriter::GetLogPaths() const -> std::vector<std::string> {
-  std::vector<std::string> paths;
-  for (const auto& group : publications_) {
-    for (const auto& slot : group.fields) paths.push_back(slot.path);
-  }
-  return paths;
-}
-
 void WPILogWriter::Log(const control_loop::ContextInternal& context) {
   std::lock_guard lock(mutex_);
-  for (const auto& group : publications_) {
+  for (auto& group : publications_) {
     const auto* message =
         context.GetMessage<control_loop::IMessage>(group.channel);
     if (message == nullptr) continue;
-    for (const auto& slot : group.fields) {
-      if (!slot.field->Append(*message)) {
-        throw std::runtime_error("WPILog message type mismatch: " + slot.path);
-      }
+    if (!group.append(*message)) {
+      throw std::runtime_error("WPILog message type mismatch: " +
+                               group.channel);
     }
   }
 }

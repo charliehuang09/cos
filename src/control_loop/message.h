@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -10,11 +11,12 @@
 #include <vector>
 
 namespace wpi::log { class DataLogWriter; }
+namespace control_loop { class IMessage; }
 namespace logging {
-struct FieldSlot;
+using LogFunction = std::move_only_function<bool(const control_loop::IMessage&)>;
 template <typename T>
-void RegisterFields(wpi::log::DataLogWriter&, std::string_view,
-                    std::vector<FieldSlot>&);
+auto RegisterFields(wpi::log::DataLogWriter&, std::string_view,
+                    std::vector<std::string>&) -> LogFunction;
 }
 
 namespace control_loop {
@@ -43,14 +45,8 @@ class ValueMessage final : public IMessage {
 
 class MessageDescriptor {
  public:
-  using RegistrationFunction = void (*)(wpi::log::DataLogWriter&,
-                                       std::string_view,
-                                       std::vector<logging::FieldSlot>&);
-  struct PublicationInfo {
-    std::type_index message_type;
-    RegistrationFunction register_logs;
-  };
-
+  using RegistrationFunction = logging::LogFunction (*)(
+      wpi::log::DataLogWriter&, std::string_view, std::vector<std::string>&);
   MessageDescriptor(std::string_view channel, std::type_index type)
       : channel_(channel), types_({type}) {}
   MessageDescriptor(std::string_view channel,
@@ -63,13 +59,14 @@ class MessageDescriptor {
     using Stored = std::conditional_t<std::is_base_of_v<IMessage, T>, T,
                                       ValueMessage<T>>;
     MessageDescriptor descriptor(channel, typeid(Stored));
-    RegistrationFunction registration = nullptr;
-    if constexpr (requires { T::WpiLogFields(); } ||
-                  std::is_arithmetic_v<T> || std::is_same_v<T, std::string>) {
-      registration = &logging::RegisterFields<T>;
+    if constexpr (requires { T::RegisterWPILog; }) {
+      descriptor.registration_ = T::RegisterWPILog;
+    } else if constexpr (std::is_arithmetic_v<T> ||
+                         std::is_same_v<T, std::string>) {
+      descriptor.registration_ = &logging::RegisterFields<T>;
+    } else {
+      descriptor.registration_ = nullptr;
     }
-    descriptor.publication_.emplace(
-        PublicationInfo{typeid(Stored), registration});
     return descriptor;
   }
 
@@ -80,15 +77,15 @@ class MessageDescriptor {
       -> const std::unordered_set<std::type_index>& {
     return types_;
   }
-  [[nodiscard]] auto GetPublicationInfo() const
-      -> const std::optional<PublicationInfo>& {
-    return publication_;
+  [[nodiscard]] auto GetRegistration() const
+      -> const std::optional<RegistrationFunction>& {
+    return registration_;
   }
 
  private:
   std::string channel_;
   std::unordered_set<std::type_index> types_;
-  std::optional<PublicationInfo> publication_;
+  std::optional<RegistrationFunction> registration_;
 };
 
 }  // namespace control_loop
