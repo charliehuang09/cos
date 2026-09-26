@@ -32,9 +32,9 @@ class SquareSolverNode final : public control_loop::INode {
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
 
-  auto AmbiguousSolve(const std::vector<tag_detection_t>& detections,
+  auto AmbiguousSolve(const tag_detection_t& detection,
                       bool reject_far_tags = true)
-      -> std::vector<ambiguous_estimate_t>;
+      -> std::optional<ambiguous_estimate_t>;
 
  private:
   static constexpr double kVarianceScalar = 1.0;

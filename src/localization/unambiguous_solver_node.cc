@@ -93,9 +93,7 @@ auto UnambiguousSolverNode::CreateCallback()
       if (ambiguous_estimate == nullptr) {
         continue;
       }
-      for (auto& estimate : ambiguous_estimate->estimates) {
-        estimates.push_back(&estimate);
-      }
+      estimates.push_back(&ambiguous_estimate->estimate);
     }
     auto result = Solve(estimates, reject_far_tags_);
     if (result.has_value()) {

@@ -75,11 +75,9 @@ auto MultiTagSolverNode::CreateCallback()
     if (!estimate.has_value()) {
       context->SetMessage(output_channel_, nullptr);
     } else {
-      std::vector<AmbiguousEstimate> estimates;
-      estimates.push_back(std::move(*estimate));
-      context->SetMessage(
-          output_channel_,
-          std::make_unique<AmbiguousEstimateMessage>(std::move(estimates)));
+      context->SetMessage(output_channel_,
+                          std::make_unique<AmbiguousEstimateMessage>(
+                              std::move(estimate.value())));
     }
     notify_callbacks();
   };
@@ -153,12 +151,10 @@ auto MultiTagSolverNode::AmbiguousSolve(
   }
 
   if (tag_ids.size() == 1) {
-    const std::vector<ambiguous_estimate_t> square_estimates =
-        single_tag_solver_.AmbiguousSolve(accepted_detections, reject_far_tags);
-    if (square_estimates.empty()) {
-      return std::nullopt;
-    }
-    return square_estimates.front();
+    std::optional<ambiguous_estimate_t> square_estimates =
+        single_tag_solver_.AmbiguousSolve(accepted_detections[0],
+                                          reject_far_tags);
+    return square_estimates;
   }
 
   avg_distance /= static_cast<double>(tag_ids.size());

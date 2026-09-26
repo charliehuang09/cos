@@ -43,19 +43,24 @@ auto SquareSolverNode::CreateCallback()
 
     auto* detections =
         context->GetMessage<apriltag::TagDetections>(input_channel_);
-    if (detections == nullptr) {
+    if (detections == nullptr || detections->tag_detections.size() == 0) {
+      context->SetMessage(output_channel_, nullptr);
       notify_callbacks();
       return;
     }
+    if (detections->tag_detections.size() > 1) {
+      LOG(WARNING) << "Misuse of square solve, multi-tag solves should be sent "
+                      "to multi-tag solver. Using only the first detection";
+    }
 
-    auto estimates = AmbiguousSolve(detections->tag_detections);
-    if (estimates.empty()) {
+    auto estimate = AmbiguousSolve(detections->tag_detections[0]);
+    if (!estimate.has_value()) {
       LOG(WARNING) << "Square solver produced no pose estimates";
       context->SetMessage(output_channel_, nullptr);
     } else {
-      context->SetMessage(
-          output_channel_,
-          std::make_unique<AmbiguousEstimateMessage>(std::move(estimates)));
+      context->SetMessage(output_channel_,
+                          std::make_unique<AmbiguousEstimateMessage>(
+                              std::move(estimate.value())));
     }
     notify_callbacks();
   };
@@ -71,50 +76,46 @@ auto SquareSolverNode::GetPublications() const
   return publications_;
 }
 
-auto SquareSolverNode::AmbiguousSolve(
-    const std::vector<tag_detection_t>& detections, bool reject_far_tags)
-    -> std::vector<ambiguous_estimate_t> {
-  std::vector<ambiguous_estimate_t> pose_estimates;
-  for (const auto& detection : detections) {
-    if (reject_far_tags &&
-        utils::QuadAreaPixels(detection.corners) < kMinTagAreaPixels) {
-      continue;
-    }
-
-    std::vector<cv::Mat> rvecs;
-    std::vector<cv::Mat> tvecs;
-    cv::solvePnPGeneric(tag_corners_, detection.corners, camera_matrix_,
-                        distortion_coefficients_, rvecs, tvecs, false,
-                        cv::SOLVEPNP_IPPE_SQUARE);
-
-    if (rvecs.size() < 2 || tvecs.size() < 2) {
-      continue;
-    }
-
-    auto build_estimate = [&](const cv::Mat& rvec,
-                              const cv::Mat& tvec) -> solver_estimate_t {
-      const double distance = cv::norm(tvec);
-      solver_estimate_t estimate;
-      estimate.tag_ids = {detection.tag_id};
-      estimate.distances = {distance};
-      estimate.pose = utils::ComputeRobotPose(tvec, rvec, detection.tag_id,
-                                              layout_, camera_to_robot_);
-      estimate.variance = Variance(1, distance, kVarianceMin, kVarianceScalar);
-      estimate.distance = distance;
-      return estimate;
-    };
-
-    auto est1 = build_estimate(rvecs[0], tvecs[0]);
-    auto est2 = build_estimate(rvecs[1], tvecs[1]);
-    if (reject_far_tags && est1.distance > kMaxTagDistance &&
-        est2.distance > kMaxTagDistance) {
-      continue;
-    }
-
-    pose_estimates.push_back(
-        {.pos1 = std::move(est1), .pos2 = std::move(est2)});
+auto SquareSolverNode::AmbiguousSolve(const tag_detection_t& detection,
+                                      bool reject_far_tags)
+    -> std::optional<ambiguous_estimate_t> {
+  if (reject_far_tags &&
+      utils::QuadAreaPixels(detection.corners) < kMinTagAreaPixels) {
+    return std::nullopt;
   }
-  return pose_estimates;
+
+  std::vector<cv::Mat> rvecs;
+  std::vector<cv::Mat> tvecs;
+  cv::solvePnPGeneric(tag_corners_, detection.corners, camera_matrix_,
+                      distortion_coefficients_, rvecs, tvecs, false,
+                      cv::SOLVEPNP_IPPE_SQUARE);
+
+  if (rvecs.size() < 2 || tvecs.size() < 2) {
+    return std::nullopt;
+  }
+
+  auto build_estimate = [&](const cv::Mat& rvec,
+                            const cv::Mat& tvec) -> solver_estimate_t {
+    const double distance = cv::norm(tvec);
+    solver_estimate_t estimate;
+    estimate.tag_ids = {detection.tag_id};
+    estimate.distances = {distance};
+    estimate.pose = utils::ComputeRobotPose(tvec, rvec, detection.tag_id,
+                                            layout_, camera_to_robot_);
+    estimate.variance = Variance(1, distance, kVarianceMin, kVarianceScalar);
+    estimate.distance = distance;
+    return estimate;
+  };
+
+  auto est1 = build_estimate(rvecs[0], tvecs[0]);
+  auto est2 = build_estimate(rvecs[1], tvecs[1]);
+  if (reject_far_tags && est1.distance > kMaxTagDistance &&
+      est2.distance > kMaxTagDistance) {
+    return std::nullopt;
+  }
+
+  return std::optional<ambiguous_estimate_t>(
+      {.pos1 = std::move(est1), .pos2 = std::move(est2)});
 }
 
 }  // namespace localization

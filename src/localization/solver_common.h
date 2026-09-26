@@ -1,8 +1,8 @@
 #pragma once
 
 #include <memory>
-#include <ostream>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <string_view>
 #include <typeinfo>
@@ -56,18 +56,18 @@ using ambiguous_estimate_t = AmbiguousEstimate;
 
 class AmbiguousEstimateMessage final : public control_loop::IMessage {
  public:
-  explicit AmbiguousEstimateMessage(std::vector<AmbiguousEstimate> estimates)
-      : estimates(std::move(estimates)) {}
+  explicit AmbiguousEstimateMessage(AmbiguousEstimate estimate)
+      : estimate(std::move(estimate)) {}
 
   auto GetType() -> const std::type_info& override {
     return typeid(AmbiguousEstimateMessage);
   }
   auto GetSize() -> std::size_t override {
-    return sizeof(*this) + estimates.capacity() * sizeof(AmbiguousEstimate);
+    return sizeof(*this);
   }
 
-  std::vector<AmbiguousEstimate> estimates;
-  LOG_FIELDS(AmbiguousEstimateMessage, estimates)
+  AmbiguousEstimate estimate;
+  LOG_FIELDS(AmbiguousEstimateMessage, estimate)
 };
 
 inline auto DetectionBatchChannel(std::string_view camera_name) -> std::string {
