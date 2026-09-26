@@ -2,7 +2,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
 add_executable(log_fields_test log_fields_test.cc)
 target_link_libraries(log_fields_test PRIVATE cos::wpilog_writer
-  cos::control_loop GTest::gtest_main)
+  cos::control_loop GTest::gtest_main GTest::gtest cos::localization_solver_common)
 add_test(NAME log_fields_test COMMAND log_fields_test)
 
 add_executable(wpilog_writer_test wpilog_writer_test.cc)

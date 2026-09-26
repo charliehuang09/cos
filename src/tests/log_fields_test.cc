@@ -6,6 +6,7 @@
 #include <optional>
 #include <stop_token>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -15,6 +16,7 @@
 #include "control_loop/context.h"
 #include "control_loop/timed_node.h"
 #include "localization/position.h"
+#include "localization/solver_common.h"
 #include "logging/log_registration.h"
 #include "logging/wpilog_writer.h"
 #include "wpilog_test_utils.h"
@@ -24,6 +26,13 @@ namespace {
 struct Nested {
   double x = 0;
   LOG_FIELDS(Nested, x)
+};
+enum class OptionalEnum { populated = 1 };
+
+template <typename T>
+struct OptionalSample {
+  std::optional<T> value;
+  LOG_FIELDS(OptionalSample, value)
 };
 
 struct Sample {
@@ -43,10 +52,10 @@ struct ArraySample {
   LOG_FIELDS(ArraySample, ignored, absent, poses)
 };
 
-static_assert(logging::detail::HasLogFields<Sample>);
+static_assert(requires { Sample::WpiLogFields(); });
 static_assert(std::tuple_size_v<decltype(Sample::WpiLogFields())> == 6);
 
-TEST(LogFieldsTest, IgnoresStructVectorsAndWritesNativePose3dArrays) {
+TEST(LogFieldsTest, WritesNativeArraysAndOptionalPrimitivesAndPose3d) {
   const auto path = std::filesystem::temp_directory_path() /
                     ("cos-native-array-" + std::to_string(getpid()) + ".wpilog");
   const std::vector publications{
@@ -56,7 +65,7 @@ TEST(LogFieldsTest, IgnoresStructVectorsAndWritesNativePose3dArrays) {
     control_loop::ContextInternal context(std::chrono::steady_clock::now(),
                                           nullptr, std::stop_token{}, 1);
     ArraySample sample;
-    sample.ignored = {Nested{1.0}};
+    sample.ignored.resize(1);
     sample.absent = 2;
     sample.poses.resize(2);
     context.SetMessage(
@@ -67,11 +76,141 @@ TEST(LogFieldsTest, IgnoresStructVectorsAndWritesNativePose3dArrays) {
 
   int pose_arrays = 0;
   wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
+    EXPECT_FALSE(name.starts_with("sample/ignored"));
     if (name != "sample/poses") return;
     ++pose_arrays;
     EXPECT_EQ(record.GetRaw().size(), 2 * 7 * sizeof(double));
   });
   EXPECT_EQ(pose_arrays, 1);
+  std::filesystem::remove(path);
+
+  const auto check_optional = [&]<typename T>() {
+    T populated{};
+    if constexpr (std::is_same_v<T, frc::Pose3d>) {
+      populated = frc::Pose3d{units::meter_t{1}, units::meter_t{2},
+                             units::meter_t{3}, frc::Rotation3d{}};
+    } else if constexpr (std::is_same_v<T, std::string>) populated = "present";
+    else populated = static_cast<T>(1);
+    const std::vector optional_publications{
+        control_loop::MessageDescriptor::Publication<OptionalSample<T>>("sample")};
+    {
+      logging::WPILogWriter writer(path.string(), optional_publications);
+      for (bool present : {false, true, false}) {
+        control_loop::ContextInternal context(std::chrono::steady_clock::now(),
+                                              nullptr, std::stop_token{}, 1);
+        OptionalSample<T> sample;
+        if (present) sample.value = populated;
+        context.SetMessage("sample",
+            std::make_unique<control_loop::ValueMessage<OptionalSample<T>>>(sample));
+        writer.Log(context);
+      }
+    }
+    int flags = 0, values = 0;
+    wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
+      if (name == "sample/value_present") {
+        bool present = false;
+        ASSERT_TRUE(record.GetBoolean(&present));
+        EXPECT_EQ(present, flags++ == 1);
+      } else if (name == "sample/value") {
+        const T expected = values++ == 1 ? populated : T{};
+        if constexpr (std::is_same_v<T, frc::Pose3d>) {
+          ASSERT_EQ(record.GetRaw().size(), 7 * sizeof(double));
+          EXPECT_EQ(wpi::UnpackStruct<frc::Pose3d>(record.GetRaw()), expected);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+          std::string_view value;
+          ASSERT_TRUE(record.GetString(&value));
+          EXPECT_EQ(value, expected);
+        } else if constexpr (std::is_same_v<T, bool>) {
+          bool value = false;
+          ASSERT_TRUE(record.GetBoolean(&value));
+          EXPECT_EQ(value, expected);
+        } else if constexpr (std::is_same_v<T, float>) {
+          float value = 0;
+          ASSERT_TRUE(record.GetFloat(&value));
+          EXPECT_EQ(value, expected);
+        } else if constexpr (std::is_floating_point_v<T>) {
+          double value = 0;
+          ASSERT_TRUE(record.GetDouble(&value));
+          EXPECT_EQ(value, static_cast<double>(expected));
+        } else {
+          std::int64_t value = 0;
+          ASSERT_TRUE(record.GetInteger(&value));
+          EXPECT_EQ(value, static_cast<std::int64_t>(expected));
+        }
+      }
+    });
+    EXPECT_EQ(flags, 3);
+    EXPECT_EQ(values, 3);
+    std::filesystem::remove(path);
+  };
+  std::apply([&](auto... values) {
+    (check_optional.template operator()<decltype(values)>(), ...);
+  }, std::tuple<bool, char, signed char, unsigned char, short, unsigned short,
+                int, unsigned int, long, unsigned long, long long,
+                unsigned long long, wchar_t, char8_t, char16_t, char32_t,
+                float, double, long double, OptionalEnum, std::string, frc::Pose3d>{});
+
+  const std::vector nested_publications{
+      control_loop::MessageDescriptor::Publication<localization::AmbiguousEstimate>("estimate"),
+      control_loop::MessageDescriptor::Publication<localization::AmbiguousEstimateMessage>("batch")};
+  const frc::Pose3d populated_pose{units::meter_t{1}, units::meter_t{2},
+                                  units::meter_t{3}, frc::Rotation3d{}};
+  {
+    logging::WPILogWriter writer(path.string(), nested_publications);
+    for (bool present : {false, true, false}) {
+      control_loop::ContextInternal context(std::chrono::steady_clock::now(),
+                                            nullptr, std::stop_token{}, 1);
+      localization::AmbiguousEstimate estimate;
+      estimate.pos1.variance = 2;
+      if (present) {
+        estimate.pos2.emplace();
+        estimate.pos2->tag_ids = {9};
+        estimate.pos2->distances = {5};
+        estimate.pos2->pose = populated_pose;
+        estimate.pos2->variance = 3;
+        estimate.pos2->distance = 4;
+      }
+      context.SetMessage("estimate",
+          std::make_unique<control_loop::ValueMessage<localization::AmbiguousEstimate>>(estimate));
+      context.SetMessage("batch",
+          std::make_unique<localization::AmbiguousEstimateMessage>(
+              std::vector{estimate}));
+      writer.Log(context);
+    }
+  }
+  std::unordered_map<std::string, int> counts;
+  wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
+    EXPECT_FALSE(name.starts_with("batch/"));
+    if (!name.starts_with("estimate/")) return;
+    const bool present = counts[name]++ == 1;
+    if (name == "estimate/pos2_present") {
+      bool value = false;
+      ASSERT_TRUE(record.GetBoolean(&value));
+      EXPECT_EQ(value, present);
+    } else if (name == "estimate/pos2/pose") {
+      ASSERT_EQ(record.GetRaw().size(), 7 * sizeof(double));
+      EXPECT_EQ(wpi::UnpackStruct<frc::Pose3d>(record.GetRaw()),
+                present ? populated_pose : frc::Pose3d{});
+    } else if (name == "estimate/pos2/variance" ||
+               name == "estimate/pos2/distance" ||
+               name == "estimate/pos1/variance") {
+      double value = 0;
+      ASSERT_TRUE(record.GetDouble(&value));
+      EXPECT_EQ(value, name == "estimate/pos1/variance" ? 2 :
+          (present ? (name.ends_with("variance") ? 3 : 4) : 0));
+    } else if (name == "estimate/pos2/tag_ids") {
+      std::vector<std::int64_t> values;
+      ASSERT_TRUE(record.GetIntegerArray(&values));
+      EXPECT_EQ(values, present ? std::vector<std::int64_t>{9} :
+                                 std::vector<std::int64_t>{});
+    } else if (name == "estimate/pos2/distances") {
+      std::vector<double> values;
+      ASSERT_TRUE(record.GetDoubleArray(&values));
+      EXPECT_EQ(values, present ? std::vector<double>{5} : std::vector<double>{});
+    }
+  });
+  EXPECT_EQ(counts.size(), 11);
+  for (const auto& [name, count] : counts) EXPECT_EQ(count, 3) << name;
   std::filesystem::remove(path);
 }
 

@@ -46,18 +46,6 @@ COS_LOG_ENTRY(std::vector<frc::Pose2d>, StructArrayLogEntry<frc::Pose2d>)
 COS_LOG_ENTRY(std::vector<frc::Pose3d>, StructArrayLogEntry<frc::Pose3d>)
 #undef COS_LOG_ENTRY
 
-}  // namespace detail
-
-template <typename Owner, typename Value>
-struct LogMember {
-  // This is metadata only: the field name and a pointer to its member.
-  std::string_view name;
-  Value Owner::* member;
-};
-template <typename Owner, typename Value>
-LogMember(std::string_view, Value Owner::*) -> LogMember<Owner, Value>;
-
-namespace detail {
 template <typename T>
 struct IsVector : std::false_type {};
 template <typename T, typename Allocator>
@@ -77,8 +65,6 @@ inline constexpr bool IsNativeArrayElement =
     std::is_same_v<T, frc::Pose3d>;
 template <typename T>
 struct IsIgnoredField : std::false_type {};
-template <typename T>
-struct IsIgnoredField<std::optional<T>> : std::true_type {};
 template <typename T, typename Allocator>
 struct IsIgnoredField<std::vector<T, Allocator>>
     : std::bool_constant<!IsNativeArrayElement<T>> {};
@@ -86,7 +72,9 @@ template <typename T, std::size_t N>
 struct IsIgnoredField<std::array<T, N>>
     : std::bool_constant<!IsNativeArrayElement<T>> {};
 template <typename T>
-concept HasLogFields = requires { T::WpiLogFields(); };
+struct IsOptional : std::false_type {};
+template <typename T>
+struct IsOptional<std::optional<T>> : std::true_type {};
 
 template <typename T>
 auto NormalizeLogValue(const T& value) {
@@ -110,12 +98,7 @@ auto NormalizeLogValue(const T& value) {
     std::vector<Normalized> result;
     result.reserve(value.size());
     for (const auto& item : value) {
-      if constexpr (std::is_same_v<Element, bool> ||
-                    std::is_floating_point_v<Element>) {
-        result.push_back(static_cast<Normalized>(item));
-      } else {
-        result.push_back(NormalizeLogValue(item));
-      }
+      result.push_back(static_cast<Normalized>(NormalizeLogValue(item)));
     }
     return result;
   } else {
@@ -130,13 +113,32 @@ void RegisterValue(wpi::log::DataLogWriter& log, const std::string& path,
                    Getter getter, std::vector<std::string>& paths,
                    std::vector<std::move_only_function<void(const Root&)>>& fields) {
   using Value = std::remove_cvref_t<std::invoke_result_t<Getter, const Root&>>;
-  if constexpr (HasLogFields<Value>) {
+  if constexpr (IsOptional<Value>::value) {
+    using Element = typename Value::value_type;
+    RegisterValue<Root>(log, path + "_present",
+        [getter](const Root& message) { return getter(message).has_value(); },
+        paths, fields);
+    RegisterValue<Root>(log, path,
+        [getter](const Root& message) -> const Element& {
+          const auto& value = getter(message);
+          static const Element empty{};
+          return value ? *value : empty;
+        }, paths, fields);
+  } else if constexpr (requires { Value::WpiLogFields(); }) {
     std::apply([&](auto... members) {
-      (RegisterValue<Root>(log, path + '/' + std::string(members.name),
-          [getter, pointer = members.member](const Root& message) -> const auto& {
+      (RegisterValue<Root>(log, path + '/' + members.first,
+          [getter, pointer = members.second](const Root& message) -> const auto& {
             return getter(message).*pointer;
           }, paths, fields), ...);
     }, Value::WpiLogFields());
+  } else if constexpr (IsArray<Value>::value &&
+                       requires { Value::value_type::WpiLogFields(); }) {
+    for (std::size_t i = 0; i < std::tuple_size_v<Value>; ++i) {
+      RegisterValue<Root>(log, path + '/' + std::to_string(i),
+          [getter, i](const Root& message) -> const auto& {
+            return getter(message)[i];
+          }, paths, fields);
+    }
   } else if constexpr (!IsIgnoredField<Value>::value) {
     using Normalized = decltype(NormalizeLogValue(std::declval<const Value&>()));
     using Entry = typename LogEntryType<Normalized>::type;
@@ -152,8 +154,6 @@ void RegisterValue(wpi::log::DataLogWriter& log, const std::string& path,
 template <typename T>
 auto RegisterFields(wpi::log::DataLogWriter& log, std::string_view channel,
                     std::vector<std::string>& paths) -> LogFunction {
-  // Plain structs are carried by ValueMessage<T>; IMessage subclasses are
-  // used directly. The rest of the traversal is identical for both.
   using Message = std::conditional_t<std::is_base_of_v<control_loop::IMessage, T>,
                                      T, control_loop::ValueMessage<T>>;
   auto root = [](const Message& message) -> const T& {
@@ -173,7 +173,7 @@ auto RegisterFields(wpi::log::DataLogWriter& log, std::string_view channel,
 
 }  // namespace logging
 
-#define COS_LOG_MEMBER(Type, member) ::logging::LogMember{#member, &Type::member}
+#define COS_LOG_MEMBER(Type, member) std::pair{#member, &Type::member}
 #define COS_LOG_MEMBERS_1(T, a) COS_LOG_MEMBER(T, a)
 #define COS_LOG_MEMBERS_2(T, a, b) COS_LOG_MEMBERS_1(T, a), COS_LOG_MEMBER(T, b)
 #define COS_LOG_MEMBERS_3(T, a, b, c) COS_LOG_MEMBERS_2(T, a, b), COS_LOG_MEMBER(T, c)
@@ -196,6 +196,6 @@ auto RegisterFields(wpi::log::DataLogWriter& log, std::string_view channel,
 // Annotated messages register a callback for each runtime publication channel.
 #define LOG_FIELDS(Type, ...)                                     \
   static constexpr auto WpiLogFields() {                          \
-    return std::tuple{COS_LOG_MEMBERS(Type, __VA_ARGS__)};         \
+    return std::make_tuple(COS_LOG_MEMBERS(Type, __VA_ARGS__));     \
   }                                                               \
   static constexpr auto RegisterWPILog = &::logging::RegisterFields<Type>;
