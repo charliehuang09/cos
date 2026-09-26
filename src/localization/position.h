@@ -14,7 +14,7 @@ namespace localization {
 
 struct PositionEstimateMessage final : public control_loop::IMessage {
   std::vector<int> tag_ids;
-  int num_tags;
+  int num_tags = 0;
   frc::Pose3d pose;
   std::vector<double> distances;
   double variance = 0.0;

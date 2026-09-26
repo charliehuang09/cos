@@ -26,25 +26,16 @@ class WPILogWriter {
   void Log(const control_loop::ContextInternal& context);
   void Flush();
 
-  [[nodiscard]] auto GetLogPaths() const
-      -> const std::vector<std::pair<std::string, index_t>>& {
-    return log_paths_;
-  }
+  [[nodiscard]] auto GetLogPaths() const -> std::vector<std::string>;
 
  private:
-  struct Slot {
+  struct PublicationLog {
     std::string channel;
-    std::unique_ptr<ILogField> field;
+    std::vector<FieldSlot> fields;
   };
 
-  auto AddField(std::string path, std::string channel,
-                std::unique_ptr<ILogField> field) -> index_t;
-  void RegisterPrimitive(const control_loop::MessageDescriptor& publication,
-                         wpi::log::DataLogWriter& log);
-
   std::unique_ptr<wpi::log::DataLogWriter> log_;
-  std::vector<Slot> slots_;
-  std::vector<std::pair<std::string, index_t>> log_paths_;
+  std::vector<PublicationLog> publications_;
   std::mutex mutex_;
   std::mutex flush_wait_mutex_;
   std::condition_variable flush_cv_;

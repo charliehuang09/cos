@@ -3,22 +3,21 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <stop_token>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include <gtest/gtest.h>
 #include <unistd.h>
-#include <wpi/DataLogReader.h>
-#include <wpi/MemoryBuffer.h>
 
 #include "control_loop/context.h"
 #include "control_loop/timed_node.h"
 #include "localization/position.h"
 #include "logging/log_registration.h"
 #include "logging/wpilog_writer.h"
+#include "wpilog_test_utils.h"
 
 namespace {
 
@@ -37,12 +36,46 @@ struct Sample {
   LOG_FIELDS(Sample, a, b, c, pose, d, ids)
 };
 
-template <typename T>
-concept HasPerTypeRegistration =
-    requires(wpi::log::DataLogWriter& log, logging::FieldRegistrar& registrar) {
-      T::RegisterWPILog(log, registrar);
-    };
-static_assert(HasPerTypeRegistration<Sample>);
+struct ArraySample {
+  std::vector<Nested> ignored;
+  std::optional<int> absent;
+  std::vector<frc::Pose3d> poses;
+  LOG_FIELDS(ArraySample, ignored, absent, poses)
+};
+
+static_assert(logging::detail::HasLogFields<Sample>);
+static_assert(std::tuple_size_v<decltype(Sample::WpiLogFields())> == 6);
+
+TEST(LogFieldsTest, IgnoresStructVectorsAndWritesNativePose3dArrays) {
+  const auto path = std::filesystem::temp_directory_path() /
+                    ("cos-native-array-" + std::to_string(getpid()) + ".wpilog");
+  const std::vector publications{
+      control_loop::MessageDescriptor::Publication<ArraySample>("sample")};
+  {
+    logging::WPILogWriter writer(path.string(), publications);
+    EXPECT_EQ(writer.GetLogPaths(),
+              (std::vector<std::string>{"sample/poses"}));
+    control_loop::ContextInternal context(std::chrono::steady_clock::now(),
+                                          nullptr, std::stop_token{}, 1);
+    ArraySample sample;
+    sample.ignored = {Nested{1.0}};
+    sample.absent = 2;
+    sample.poses.resize(2);
+    context.SetMessage(
+        "sample",
+        std::make_unique<control_loop::ValueMessage<ArraySample>>(sample));
+    writer.Log(context);
+  }
+
+  int pose_arrays = 0;
+  wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
+    if (name != "sample/poses") return;
+    ++pose_arrays;
+    EXPECT_EQ(record.GetRaw().size(), 2 * 7 * sizeof(double));
+  });
+  EXPECT_EQ(pose_arrays, 1);
+  std::filesystem::remove(path);
+}
 
 TEST(LogFieldsTest, SameTypeInTwoSubchannelsUsesSeparateEntries) {
   const auto path = std::filesystem::temp_directory_path() /
@@ -73,23 +106,12 @@ TEST(LogFieldsTest, SameTypeInTwoSubchannelsUsesSeparateEntries) {
     writer.Flush();
   }
 
-  auto buffer = wpi::MemoryBuffer::GetFile(path.string());
-  ASSERT_TRUE(buffer.has_value());
-  wpi::log::DataLogReader reader(std::move(*buffer));
-  ASSERT_TRUE(reader.IsValid());
-  std::unordered_map<int, std::string> names;
   std::unordered_set<std::string> written;
-  for (const auto& record : reader) {
-    if (record.IsStart()) {
-      wpi::log::StartRecordData start;
-      ASSERT_TRUE(record.GetStartData(&start));
-      names.emplace(start.entry, start.name);
-    } else if (!record.IsControl()) {
-      const auto& name = names.at(record.GetEntry());
+  wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
       // Pose3d registration also writes WPILib struct schemas.
       if (!name.starts_with(first + "/") &&
           !name.starts_with(second + "/")) {
-        continue;
+        return;
       }
       written.insert(name);
       if (name == first + "/a" || name == second + "/a") {
@@ -117,8 +139,7 @@ TEST(LogFieldsTest, SameTypeInTwoSubchannelsUsesSeparateEntries) {
         ASSERT_TRUE(record.GetDoubleArray(&values));
         EXPECT_EQ(values, (std::vector<double>{2.0, 3.0}));
       }
-    }
-  }
+  });
   EXPECT_EQ(written.size(), 12);
   EXPECT_TRUE(written.contains(first + "/pose"));
   EXPECT_TRUE(written.contains(second + "/pose"));
@@ -143,10 +164,12 @@ TEST(LogFieldsTest, ContextDestructionWritesProductionMessagesToRealLog) {
         writer);
     auto left = std::make_unique<localization::PositionEstimateMessage>();
     left->tag_ids = {1, 2};
+    left->num_tags = 2;
     left->distances = {3.5, 4.5};
     left->variance = 0.25;
     auto right = std::make_unique<localization::PositionEstimateMessage>();
     right->tag_ids = {9};
+    right->num_tags = 1;
     right->distances = {7.5};
     right->variance = 0.75;
     context->SetMessage(first, std::move(left));
@@ -158,24 +181,11 @@ TEST(LogFieldsTest, ContextDestructionWritesProductionMessagesToRealLog) {
   }  // ContextInternal's destructor is the only call to writer->Log().
   writer.reset();  // Close the file before reading it back.
 
-  auto buffer = wpi::MemoryBuffer::GetFile(path.string());
-  ASSERT_TRUE(buffer.has_value());
-  wpi::log::DataLogReader reader(std::move(*buffer));
-  ASSERT_TRUE(reader.IsValid());
-  std::unordered_map<int, std::string> names;
   std::unordered_set<std::string> written;
-  for (const auto& record : reader) {
-    if (record.IsStart()) {
-      wpi::log::StartRecordData start;
-      ASSERT_TRUE(record.GetStartData(&start));
-      names.emplace(start.entry, start.name);
-      continue;
-    }
-    if (record.IsControl()) continue;
-    const auto& name = names.at(record.GetEntry());
+  wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
     if (!name.starts_with(first + "/") &&
         !name.starts_with(second + "/") && name != latency + "/latency") {
-      continue;  // WPILib also stores Pose3d schema records.
+      return;  // WPILib also stores Pose3d schema records.
     }
     written.insert(name);
     if (name == first + "/tag_ids" || name == second + "/tag_ids") {
@@ -184,6 +194,11 @@ TEST(LogFieldsTest, ContextDestructionWritesProductionMessagesToRealLog) {
       EXPECT_EQ(ids, name == first + "/tag_ids"
                          ? (std::vector<std::int64_t>{1, 2})
                          : (std::vector<std::int64_t>{9}));
+    } else if (name == first + "/num_tags" ||
+               name == second + "/num_tags") {
+      std::int64_t count = -1;
+      ASSERT_TRUE(record.GetInteger(&count));
+      EXPECT_EQ(count, name == first + "/num_tags" ? 2 : 1);
     } else if (name == first + "/distances" ||
                name == second + "/distances") {
       std::vector<double> distances;
@@ -201,11 +216,11 @@ TEST(LogFieldsTest, ContextDestructionWritesProductionMessagesToRealLog) {
       ASSERT_TRUE(record.GetDouble(&seconds));
       EXPECT_DOUBLE_EQ(seconds, 0.012);
     }
-  }
+  });
   ASSERT_EQ(written,
             (std::unordered_set<std::string>{
-                first + "/tag_ids", first + "/pose", first + "/distances",
-                first + "/variance", second + "/tag_ids", second + "/pose",
+                first + "/tag_ids", first + "/num_tags", first + "/pose", first + "/distances",
+                first + "/variance", second + "/tag_ids", second + "/num_tags", second + "/pose",
                 second + "/distances", second + "/variance",
                 latency + "/latency"}));
   // An explicit destination lets a device run retain the verified file.

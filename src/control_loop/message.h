@@ -1,6 +1,5 @@
 #pragma once
 #include <cstddef>
-#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -12,11 +11,10 @@
 
 namespace wpi::log { class DataLogWriter; }
 namespace logging {
-class FieldRegistrar;
-using index_t = std::size_t;
+struct FieldSlot;
 template <typename T>
-auto RegisterFields(wpi::log::DataLogWriter&, FieldRegistrar&)
-    -> std::vector<index_t>;
+void RegisterFields(wpi::log::DataLogWriter&, std::string_view,
+                    std::vector<FieldSlot>&);
 }
 
 namespace control_loop {
@@ -45,13 +43,12 @@ class ValueMessage final : public IMessage {
 
 class MessageDescriptor {
  public:
-  using RegistrationFunction = std::function<std::vector<logging::index_t>(
-      wpi::log::DataLogWriter&, logging::FieldRegistrar&)>;
+  using RegistrationFunction = void (*)(wpi::log::DataLogWriter&,
+                                       std::string_view,
+                                       std::vector<logging::FieldSlot>&);
   struct PublicationInfo {
     std::type_index message_type;
-    std::type_index value_type;
-    bool is_class;
-    std::optional<RegistrationFunction> register_logs;
+    RegistrationFunction register_logs;
   };
 
   MessageDescriptor(std::string_view channel, std::type_index type)
@@ -66,20 +63,13 @@ class MessageDescriptor {
     using Stored = std::conditional_t<std::is_base_of_v<IMessage, T>, T,
                                       ValueMessage<T>>;
     MessageDescriptor descriptor(channel, typeid(Stored));
-    // LOG_FIELDS generates this method inside T. Its body delegates to the
-    // single RegisterFields<T> implementation in log_registration.h.
-    RegistrationFunction registration;
-    if constexpr (requires(wpi::log::DataLogWriter& log,
-                           logging::FieldRegistrar& registrar) {
-                    T::RegisterWPILog(log, registrar);
-                  }) {
-      registration = &T::RegisterWPILog;
+    RegistrationFunction registration = nullptr;
+    if constexpr (requires { T::WpiLogFields(); } ||
+                  std::is_arithmetic_v<T> || std::is_same_v<T, std::string>) {
+      registration = &logging::RegisterFields<T>;
     }
-    descriptor.publication_.emplace(PublicationInfo{
-        typeid(Stored), typeid(T), std::is_class_v<T>,
-        registration ? std::optional<RegistrationFunction>{
-                           std::move(registration)}
-                     : std::nullopt});
+    descriptor.publication_.emplace(
+        PublicationInfo{typeid(Stored), registration});
     return descriptor;
   }
 

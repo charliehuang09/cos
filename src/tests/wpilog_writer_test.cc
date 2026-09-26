@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <limits>
 #include <stop_token>
 #include <stdexcept>
 #include <string>
@@ -12,12 +13,11 @@
 
 #include <gtest/gtest.h>
 #include <unistd.h>
-#include <wpi/DataLogReader.h>
-#include <wpi/MemoryBuffer.h>
 
 #include "control_loop/context.h"
 #include "localization/position.h"
 #include "logging/wpilog_writer.h"
+#include "wpilog_test_utils.h"
 
 namespace {
 
@@ -35,6 +35,11 @@ struct UnregisteredSample {
   int value = 0;
 };
 
+struct IntegerSample {
+  std::uint64_t value = 0;
+  LOG_FIELDS(IntegerSample, value)
+};
+
 TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
   const auto path = LogPath();
   const std::vector publications{
@@ -46,7 +51,7 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
 
   {
     logging::WPILogWriter writer(path.string(), publications);
-    ASSERT_EQ(writer.GetLogPaths().size(), 5);
+    ASSERT_EQ(writer.GetLogPaths().size(), 6);
 
     control_loop::ContextInternal context(std::chrono::steady_clock::now(),
                                           nullptr, std::stop_token{}, 1);
@@ -57,6 +62,7 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
         std::make_unique<localization::PositionEstimateMessage>();
     estimate->variance = 0.25;
     estimate->tag_ids = {3, 7};
+    estimate->num_tags = 2;
     estimate->distances = {1.5, 2.5};
     context.SetMessage("pose", std::move(estimate));
     writer.Log(context);
@@ -68,29 +74,14 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
     writer.Flush();
   }
 
-  auto buffer = wpi::MemoryBuffer::GetFile(path.string());
-  ASSERT_TRUE(buffer.has_value());
-  wpi::log::DataLogReader reader(std::move(*buffer));
-  ASSERT_TRUE(reader.IsValid());
-
-  std::unordered_map<int, std::string> entry_names;
   std::unordered_map<std::string, int> value_counts;
   const std::unordered_set<std::string> expected_names = {
       "temperature", "pose/pose", "pose/variance", "pose/tag_ids",
+      "pose/num_tags",
       "pose/distances"};
-  for (const auto& record : reader) {
-    if (record.IsStart()) {
-      wpi::log::StartRecordData start;
-      ASSERT_TRUE(record.GetStartData(&start));
-      entry_names.emplace(start.entry, start.name);
-      continue;
-    }
-    if (record.IsControl()) {
-      continue;
-    }
-    const auto& name = entry_names.at(record.GetEntry());
+  wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
     if (!expected_names.contains(name)) {
-      continue;
+      return;
     }
     ++value_counts[name];
     if (name == "temperature") {
@@ -101,6 +92,10 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
       double value = 0;
       ASSERT_TRUE(record.GetDouble(&value));
       EXPECT_DOUBLE_EQ(value, 0.25);
+    } else if (name == "pose/num_tags") {
+      std::int64_t count = -1;
+      ASSERT_TRUE(record.GetInteger(&count));
+      EXPECT_EQ(count, 2);
     } else if (name == "pose/tag_ids") {
       std::vector<std::int64_t> ids;
       ASSERT_TRUE(record.GetIntegerArray(&ids));
@@ -110,8 +105,8 @@ TEST(WPILogWriterTest, WritesRegisteredFieldsAndSkipsMissingMessages) {
       ASSERT_TRUE(record.GetDoubleArray(&distances));
       EXPECT_EQ(distances, (std::vector<double>{1.5, 2.5}));
     }
-  }
-  EXPECT_EQ(value_counts.size(), 5);
+  });
+  EXPECT_EQ(value_counts.size(), 6);
   for (const auto& [name, count] : value_counts) {
     EXPECT_EQ(count, 1) << name;
   }
@@ -124,23 +119,17 @@ TEST(WPILogWriterTest, FlushesValuesWhileWriterIsActive) {
       control_loop::MessageDescriptor::Publication<std::int64_t>("count")};
 
   const auto has_value = [&](std::int64_t expected) {
-    auto buffer = wpi::MemoryBuffer::GetFile(path.string());
-    if (!buffer.has_value()) return false;
-    wpi::log::DataLogReader reader(std::move(*buffer));
-    if (!reader.IsValid()) return false;
-    int count_entry = -1;
-    for (const auto& record : reader) {
-      if (record.IsStart()) {
-        wpi::log::StartRecordData start;
-        if (record.GetStartData(&start) && start.name == "count") {
-          count_entry = start.entry;
-        }
-      } else if (!record.IsControl() && record.GetEntry() == count_entry) {
+    bool found = false;
+    try {
+      wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
+        if (name != "count") return;
         std::int64_t value = 0;
-        if (record.GetInteger(&value) && value == expected) return true;
-      }
+        if (record.GetInteger(&value) && value == expected) found = true;
+      });
+    } catch (const std::runtime_error&) {
+      return false;
     }
-    return false;
+    return found;
   };
 
   {
@@ -178,6 +167,69 @@ TEST(WPILogWriterTest, RequiresRegistrationForClassPublications) {
   std::filesystem::remove(LogPath());
 }
 
+TEST(WPILogWriterTest, RejectsDuplicateChannelsAndPaths) {
+  const auto path = LogPath();
+  const std::vector duplicate_channels{
+      control_loop::MessageDescriptor::Publication<int>("sample"),
+      control_loop::MessageDescriptor::Publication<double>("sample")};
+  EXPECT_THROW(logging::WPILogWriter(path.string(), duplicate_channels),
+               std::invalid_argument);
+
+  const std::vector duplicate_paths{
+      control_loop::MessageDescriptor::Publication<int>("sample/value"),
+      control_loop::MessageDescriptor::Publication<IntegerSample>("sample")};
+  EXPECT_THROW(logging::WPILogWriter(path.string(), duplicate_paths),
+               std::invalid_argument);
+  std::filesystem::remove(path);
+}
+
+TEST(WPILogWriterTest, PrimitiveAndAnnotatedIntegersShareCheckedConversion) {
+  const auto path = LogPath();
+  const std::vector publications{
+      control_loop::MessageDescriptor::Publication<std::uint64_t>("primitive"),
+      control_loop::MessageDescriptor::Publication<IntegerSample>("annotated")};
+  {
+    logging::WPILogWriter writer(path.string(), publications);
+    control_loop::ContextInternal valid(std::chrono::steady_clock::now(),
+                                        nullptr, std::stop_token{}, 1);
+    const auto max = static_cast<std::uint64_t>(
+        std::numeric_limits<std::int64_t>::max());
+    valid.SetMessage(
+        "primitive",
+        std::make_unique<control_loop::ValueMessage<std::uint64_t>>(max));
+    valid.SetMessage(
+        "annotated",
+        std::make_unique<control_loop::ValueMessage<IntegerSample>>(
+            IntegerSample{max}));
+    EXPECT_NO_THROW(writer.Log(valid));
+
+    control_loop::ContextInternal overflow(std::chrono::steady_clock::now(),
+                                           nullptr, std::stop_token{}, 2);
+    overflow.SetMessage(
+        "primitive",
+        std::make_unique<control_loop::ValueMessage<std::uint64_t>>(max + 1));
+    EXPECT_THROW(writer.Log(overflow), std::out_of_range);
+    overflow.SetMessage("primitive", nullptr);
+    overflow.SetMessage(
+        "annotated",
+        std::make_unique<control_loop::ValueMessage<IntegerSample>>(
+            IntegerSample{max + 1}));
+    EXPECT_THROW(writer.Log(overflow), std::out_of_range);
+  }
+
+  std::unordered_map<std::string, int> counts;
+  wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
+    if (name != "primitive" && name != "annotated/value") return;
+    std::int64_t value = 0;
+    ASSERT_TRUE(record.GetInteger(&value));
+    EXPECT_EQ(value, std::numeric_limits<std::int64_t>::max());
+    ++counts[name];
+  });
+  EXPECT_EQ(counts["primitive"], 1);
+  EXPECT_EQ(counts["annotated/value"], 1);
+  std::filesystem::remove(path);
+}
+
 TEST(WPILogWriterTest, WritesBuiltInTypesAndPose2d) {
   const auto path = LogPath();
   const std::vector publications{
@@ -206,19 +258,8 @@ TEST(WPILogWriterTest, WritesBuiltInTypesAndPose2d) {
     writer.Log(context);
   }
 
-  auto buffer = wpi::MemoryBuffer::GetFile(path.string());
-  ASSERT_TRUE(buffer.has_value());
-  wpi::log::DataLogReader reader(std::move(*buffer));
-  ASSERT_TRUE(reader.IsValid());
-  std::unordered_map<int, std::string> names;
   std::unordered_set<std::string> seen;
-  for (const auto& record : reader) {
-    if (record.IsStart()) {
-      wpi::log::StartRecordData start;
-      ASSERT_TRUE(record.GetStartData(&start));
-      names.emplace(start.entry, start.name);
-    } else if (!record.IsControl()) {
-      const auto& name = names.at(record.GetEntry());
+  wpilog_test::VisitLogValues(path, [&](const auto& name, const auto& record) {
       if (name == "ready") {
         bool value = false;
         ASSERT_TRUE(record.GetBoolean(&value));
@@ -234,11 +275,10 @@ TEST(WPILogWriterTest, WritesBuiltInTypesAndPose2d) {
       } else if (name == "location/pose") {
         EXPECT_FALSE(record.GetRaw().empty());
       } else {
-        continue;
+        return;
       }
       EXPECT_TRUE(seen.insert(name).second);
-    }
-  }
+  });
   EXPECT_EQ(seen.size(), 4);
   std::filesystem::remove(path);
 }
