@@ -1,7 +1,7 @@
 {
-  "name": "right_camera",
+  "name": "right",
   "camera_type": "uvc",
-  "serial_id": null,
+  "serial_id": "secondright",
   "height": 800,
   "width": 1280,
   "fps": 120,
