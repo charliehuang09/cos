@@ -63,3 +63,4 @@ add_subdirectory(src)
 
 include(cmake/DevOrin.cmake)
 include(cmake/VisionBot.cmake)
+include(cmake/SecondBot.cmake)
