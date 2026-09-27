@@ -7,7 +7,7 @@
   "fps": 120,
   "exposure_time_ms": 157,
   "auto_exposure": true,
-  "max_payload_size": 3072,
+  "max_payload_size": 1600,
   "max_frame_size": 2048589,
   "extrinsics": {
     "translation_x": 0.2897,

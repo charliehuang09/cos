@@ -1,0 +1,13 @@
+[Unit]
+Description=second-bot
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/root/main/second_bot_main --nopva_detection --max_context=2
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
