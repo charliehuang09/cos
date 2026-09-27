@@ -116,7 +116,7 @@ auto main(int argc, char** argv) -> int {
           "pose_with_variance", "/COS");
   control_loop.RegisterNode(rio_sender_node);
 
-  int port = 4971;
+  int port = 5801;
   const bool pva_detection = absl::GetFlag(FLAGS_pva_detection);
   const std::string image_log_path =
       absl::GetFlag(FLAGS_log_images) ? control_loop::GetLogPath() : "";

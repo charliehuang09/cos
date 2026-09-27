@@ -96,7 +96,7 @@ auto main(int argc, char** argv) -> int {
                                                                   "/COS");
   control_loop.RegisterNode(rio_sender_node);
 
-  int port = 4971;
+  int port = 5801;
   const bool pva_detection = absl::GetFlag(FLAGS_pva_detection);
   for (const auto& path : paths) {
     AddCameraPipeline(path, port++, control_loop, thread_pool, *solver_node,
