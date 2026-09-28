@@ -79,9 +79,7 @@ auto main(int argc, char** argv) -> int {
               context->GetMessage<localization::AmbiguousEstimateMessage>(
                   "pose");
           if (pose != nullptr) {
-            for (const auto& estimate : pose->estimates) {
-              LOG(INFO) << estimate.pos1;
-            }
+            LOG(INFO) << pose->estimate.pos1;
           }
         });
   }

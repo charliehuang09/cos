@@ -16,7 +16,8 @@ CpuJpegDecodeNode::CpuJpegDecodeNode(std::string_view input_path,
       output_path_(output_path),
       thread_pool_(thread_pool),
       dependencies_({{input_path_, typeid(JpegBuffer)}}),
-      publications_({{output_path_, typeid(DecodedImageBuffer)}}) {}
+      publications_({control_loop::MessageDescriptor::Publication<
+          DecodedImageBuffer>(output_path_)}) {}
 
 auto CpuJpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {

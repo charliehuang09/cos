@@ -55,8 +55,8 @@ UnambiguousSolverNode::UnambiguousSolverNode(std::string_view output_channel,
                                              frc::AprilTagFieldLayout layout)
     : output_channel_(output_channel),
       layout_(std::move(layout)),
-      publications_({control_loop::MessageDescriptor(
-          output_channel_, typeid(PositionEstimateMessage))}) {}
+      publications_({control_loop::MessageDescriptor::Publication<
+          PositionEstimateMessage>(output_channel_)}) {}
 
 void UnambiguousSolverNode::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {
@@ -93,9 +93,7 @@ auto UnambiguousSolverNode::CreateCallback()
       if (ambiguous_estimate == nullptr) {
         continue;
       }
-      for (auto& estimate : ambiguous_estimate->estimates) {
-        estimates.push_back(&estimate);
-      }
+      estimates.push_back(&ambiguous_estimate->estimate);
     }
     auto result = Solve(estimates, reject_far_tags_);
     if (result.has_value()) {
@@ -284,7 +282,6 @@ auto UnambiguousSolverNode::Solve(
   if (best_solution.empty()) {
     return std::nullopt;
   }
-  //
   std::vector<int> tag_ids;
   std::vector<double> distances;
   for (const solver_estimate_t& estimate : best_solution) {
@@ -294,6 +291,7 @@ auto UnambiguousSolverNode::Solve(
                      estimate.distances.end());
   }
   position_estimate_t estimate;
+  estimate.num_tags = tag_ids.size();
   estimate.tag_ids = std::move(tag_ids);
   estimate.pose = WeightedAveragePose(best_solution);
   estimate.distances = std::move(distances);
@@ -302,7 +300,7 @@ auto UnambiguousSolverNode::Solve(
                  << estimate;
     return std::nullopt;
   }
-  prev_pose_estimate_ = estimate;
+  prev_pose_estimate_.emplace(estimate);
   return estimate;
 }
 

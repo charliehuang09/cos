@@ -19,6 +19,7 @@ target_compile_options(cos.control_loop PRIVATE
 target_link_libraries(cos.control_loop PRIVATE
   absl::log
   cos::timer
+  cos::wpilog_writer
 )
 
 find_package(Threads REQUIRED)

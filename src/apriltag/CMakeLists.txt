@@ -35,8 +35,8 @@ target_link_libraries(cos.nvidia_apriltag_detector_node
     vpi
     cos::nvjpeg_fd_decode_node
     cos::nvjpeg_decode_node
+    nlohmann_json::nlohmann_json
   PRIVATE
     cos::cuda_utils
-    nlohmann_json::nlohmann_json
 
 )

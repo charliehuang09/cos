@@ -18,7 +18,8 @@ VarianceCalculatorNode::VarianceCalculatorNode(std::string_view input_channel,
       min_variance_(min_variance),
       variance_scalar_(variance_scalar),
       dependencies_({{input_channel_, typeid(PositionEstimateMessage)}}),
-      publications_({{output_channel_, typeid(PositionEstimateMessage)}}) {}
+      publications_({control_loop::MessageDescriptor::Publication<
+          PositionEstimateMessage>(output_channel_)}) {}
 
 auto VarianceCalculatorNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {

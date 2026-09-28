@@ -15,6 +15,7 @@ target_link_libraries(cos.localization_solver_common PUBLIC
   wpimath
   apriltag
   cos::nvidia_apriltag_detector_node
+  nlohmann_json::nlohmann_json
 )
 
 add_library(cos.square_solver_node)

@@ -44,7 +44,8 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
       dependencies_({{input_channel_,
                       {typeid(camera::DecodedJpegBuffer),
                        typeid(camera::DecodedJpegFdBuffer)}}}),
-      publications_({{output_channel_, typeid(TagDetections)}}),
+      publications_({control_loop::MessageDescriptor::Publication<
+          TagDetections>(output_channel_)}),
       backend_(PVA ? VPI_BACKEND_PVA : VPI_BACKEND_CPU) {
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
@@ -247,8 +248,8 @@ auto NvidiaApriltagDetectorNode::GetPublications() const
 
 void NvidiaApriltagDetectorNode::EnableTiming(
     std::string_view latency_channel) {
-  publications_.emplace_back(latency_channel,
-                             typeid(control_loop::LatencyMessage));
+  publications_.push_back(control_loop::MessageDescriptor::Publication<
+                          control_loop::LatencyMessage>(latency_channel));
   latency_channel_ = latency_channel;
 }
 
