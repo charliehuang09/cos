@@ -14,9 +14,9 @@ namespace charuco_calibration {
 
 constexpr static int ksquares_x = 12;
 constexpr static int ksquares_y = 9;
-constexpr static float ksquares_length = 0.025;
+constexpr static float ksquares_length = 0.06;
 constexpr static float kpixel_per_square = 128;
-constexpr static float kmarker_length = 0.020;
+constexpr static float kmarker_length = 0.045;
 constexpr static int kmargin_squares = 0;
 
 struct DetectionResult {
