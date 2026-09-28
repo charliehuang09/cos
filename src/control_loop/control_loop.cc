@@ -122,7 +122,7 @@ void ControlLoop::RegisterCallback(
   callbacks_.emplace_back(callback);
 }
 
-void ControlLoop::RegisterDependancy(
+void ControlLoop::RegisterDependency(
     const std::function<void(const Context&)>& dependancy) {
   dependencies_.emplace_back(dependancy);
 }
@@ -130,7 +130,7 @@ void ControlLoop::RegisterDependancy(
 void ControlLoop::RegisterNode(const std::shared_ptr<INode>& node) {
   nodes_.emplace_back(node);
 }
-void ControlLoop::RegisterDependancyNode(const std::shared_ptr<INode>& node) {
+void ControlLoop::RegisterDependencyNode(const std::shared_ptr<INode>& node) {
   dependancy_nodes_.emplace_back(node);
   dependencies_.emplace_back(node->CreateCallback());
 }

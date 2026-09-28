@@ -1,13 +1,13 @@
 {
-  "name": "left_camera",
+  "name": "left",
   "camera_type": "uvc",
-  "serial_id": null,
+  "serial_id": "secondleft",
   "height": 800,
   "width": 1280,
   "fps": 120,
   "exposure_time_ms": 157,
   "auto_exposure": true,
-  "max_payload_size": 3072,
+  "max_payload_size": 1600,
   "max_frame_size": 2048589,
   "extrinsics": {
     "translation_x": 0.2897,

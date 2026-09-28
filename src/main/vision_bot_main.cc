@@ -29,9 +29,10 @@ ABSL_FLAG(uint, max_context, 1,                                   // NOLINT
           "Maximum number of concurrent control-loop contexts");  // NOLINT
 ABSL_FLAG(bool, latency_log, false,                               // NOLINT
           "Log control-loop latency and loops per second");       // NOLINT
-ABSL_FLAG(bool, log_images, false,                               // NOLINT
-          "Log timestamped JPEG frames to the run's log directory in "  // NOLINT
-          "per-camera subfolders");                              // NOLINT
+ABSL_FLAG(
+    bool, log_images, false,                                      // NOLINT
+    "Log timestamped JPEG frames to the run's log directory in "  // NOLINT
+    "per-camera subfolders");                                     // NOLINT
 
 namespace {
 
@@ -52,7 +53,7 @@ void AddCameraPipeline(
   auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
       jpeg_channel, camera::UVCCameraConfig{config_path});
   uvc_camera_node->Start();
-  control_loop.RegisterDependancyNode(uvc_camera_node);
+  control_loop.RegisterDependencyNode(uvc_camera_node);
   rio_sender_node->AddCamera(*uvc_camera_node);
 
   auto jpeg_buffer_streamer_node =
@@ -103,6 +104,7 @@ auto main(int argc, char** argv) -> int {
 
   const std::vector<std::string> paths{"/root/constants/vision-bot/front.json",
                                        "/root/constants/vision-bot/left.json",
+                                       "/root/constants/vision-bot/back.json",
                                        "/root/constants/vision-bot/right.json"};
 
   auto solver_node =

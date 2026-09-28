@@ -36,7 +36,7 @@ auto main(int argc, char* argv[]) -> int {
         std::make_shared<streamer::JpegBufferStreamerNode>(
             "jpeg_stream", "/stream", absl::GetFlag(FLAGS_port));
 
-    control_loop.RegisterDependancyNode(disk_camera_node);
+    control_loop.RegisterDependencyNode(disk_camera_node);
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
   }
 

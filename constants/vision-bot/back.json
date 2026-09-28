@@ -1,7 +1,7 @@
 {
-  "name": "vision_bot_front",
+  "name": "vision_bot_back",
   "camera_type": "uvc",
-  "serial_id": "front",
+  "serial_id": "visionbotback",
   "height": 800,
   "width": 1280,
   "fps": 100,

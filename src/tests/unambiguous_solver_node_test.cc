@@ -23,7 +23,7 @@
 #include "absl/log/initialize.h"
 #include "apriltag/nvidia_apriltag_detector_node.h"
 #include "camera/get_earliest_timestamp.h"
-#include "camera/nvjpeg_fd_decode_node.h"
+#include "camera/nvjpeg_decode_node.h"
 #include "camera/uvc_disk_camera_node.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/rio_clock.h"
@@ -89,15 +89,15 @@ auto main(int argc, char** argv) -> int {
 
     auto disk_camera_node = std::make_shared<camera::UVCDiskCameraNode>(
         replay_paths[i], jpeg_channel, replay_offset);
-    control_loop.RegisterDependancyNode(disk_camera_node);
+    control_loop.RegisterDependencyNode(disk_camera_node);
 
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>(
             jpeg_channel, "/stream", 4971 + static_cast<int>(i));
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
 
-    auto gpu_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
-        jpeg_channel, decoded_channel, thread_pool);
+    auto gpu_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
+        jpeg_channel, decoded_channel, NVJPEG_OUTPUT_Y, thread_pool);
     control_loop.RegisterNode(gpu_decode_node);
     gpu_decode_node->EnableTiming(prefix + "/hardware_decoded_image:latency");
 

@@ -86,13 +86,22 @@ auto SquareSolverNode::AmbiguousSolve(const tag_detection_t& detection,
 
   std::vector<cv::Mat> rvecs;
   std::vector<cv::Mat> tvecs;
+  cv::Mat reprojection_errors;
   cv::solvePnPGeneric(tag_corners_, detection.corners, camera_matrix_,
                       distortion_coefficients_, rvecs, tvecs, false,
-                      cv::SOLVEPNP_IPPE_SQUARE);
+                      cv::SOLVEPNP_IPPE_SQUARE, cv::noArray(), cv::noArray(),
+                      reprojection_errors);
 
   if (rvecs.size() < 2 || tvecs.size() < 2) {
     return std::nullopt;
   }
+
+  constexpr double kMaxUnambiguousErrorRatio = 0.2;
+  const double best_error = reprojection_errors.at<double>(0);
+  const double second_error = reprojection_errors.at<double>(1);
+  const bool clearly_better =
+      second_error > 1e-9 &&
+      best_error < kMaxUnambiguousErrorRatio * second_error;
 
   auto build_estimate = [&](const cv::Mat& rvec,
                             const cv::Mat& tvec) -> solver_estimate_t {
@@ -115,7 +124,8 @@ auto SquareSolverNode::AmbiguousSolve(const tag_detection_t& detection,
   }
 
   return std::optional<ambiguous_estimate_t>(
-      {.pos1 = std::move(est1), .pos2 = std::move(est2)});
+      {.pos1 = std::move(est1),
+       .pos2 = clearly_better ? std::nullopt : std::optional{std::move(est2)}});
 }
 
 }  // namespace localization

@@ -43,7 +43,7 @@ void AddCameraPipeline(
   auto uvc_camera_node = std::make_shared<camera::UVCCameraNode>(
       jpeg_channel, camera::UVCCameraConfig{config_path});
   uvc_camera_node->Start();
-  control_loop.RegisterDependancyNode(uvc_camera_node);
+  control_loop.RegisterDependencyNode(uvc_camera_node);
   rio_sender_node->AddCamera(*uvc_camera_node);
 
   auto jpeg_buffer_streamer_node =
@@ -97,7 +97,7 @@ auto main(int argc, char** argv) -> int {
                                                                   "/COS");
   control_loop.RegisterNode(rio_sender_node);
 
-  int port = 4971;
+  int port = 5801;
   const bool pva_detection = absl::GetFlag(FLAGS_pva_detection);
   for (const auto& path : paths) {
     AddCameraPipeline(path, port++, control_loop, thread_pool, *solver_node,

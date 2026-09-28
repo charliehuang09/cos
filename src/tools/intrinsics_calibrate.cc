@@ -240,7 +240,7 @@ auto main(int argc, char* argv[]) -> int {
   std::optional<cv::Size> observed_image_size;
 
   control_loop::ControlLoop control_loop(std::chrono::milliseconds(1));
-  control_loop.RegisterDependancyNode(camera_node);
+  control_loop.RegisterDependencyNode(camera_node);
   control_loop.RegisterCallback([&](const control_loop::Context& context) {
     const auto* jpeg_buffer =
         context->GetMessage<camera::JpegBuffer>("jpeg_stream");
