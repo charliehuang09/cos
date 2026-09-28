@@ -153,32 +153,17 @@ inline auto DetectionFromJson(const nlohmann::json& saved) -> DetectionResult {
   const auto& ids = saved.at("charuco_ids");
   const auto& image_points = saved.at("image_points");
   const auto& object_points = saved.at("object_points");
-  if (!corners.is_array() || !ids.is_array() || !image_points.is_array() ||
-      !object_points.is_array() || corners.size() != ids.size() ||
-      image_points.size() != object_points.size() ||
-      (!image_points.empty() && image_points.size() != corners.size())) {
-    throw std::runtime_error("Inconsistent detection point arrays");
-  }
   DetectionResult result;
   for (std::size_t i = 0; i < corners.size(); ++i) {
-    if (!corners[i].is_array() || corners[i].size() != 2) {
-      throw std::runtime_error("Invalid ChArUco corner");
-    }
     result.charuco_corners.push_back(cv::Point2f(
         corners[i].at(0).get<float>(), corners[i].at(1).get<float>()));
     result.charuco_ids.push_back(ids[i].get<int>());
   }
   for (const auto& point : image_points) {
-    if (!point.is_array() || point.size() != 2) {
-      throw std::runtime_error("Invalid image point");
-    }
     result.image_points.emplace_back(point.at(0).get<float>(),
                                      point.at(1).get<float>());
   }
   for (const auto& point : object_points) {
-    if (!point.is_array() || point.size() != 3) {
-      throw std::runtime_error("Invalid object point");
-    }
     result.object_points.emplace_back(point.at(0).get<float>(),
                                       point.at(1).get<float>(),
                                       point.at(2).get<float>());

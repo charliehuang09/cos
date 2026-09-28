@@ -1,12 +1,9 @@
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <limits>
-#include <numeric>
 #include <optional>
-#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -24,12 +21,9 @@
 ABSL_FLAG(std::string, detections_path, "",  // NOLINT
           "ChArUco detection JSON exported by calib_helper; calibrates "
           "without loading images");  // NOLINT
-ABSL_FLAG(int, max_detections, 100,   // NOLINT
-          "maximum calibration captures (0 means unlimited); "
-          "randomly samples usable detections without replacement");  // NOLINT
-ABSL_FLAG(int64_t, sampling_seed, -1,                                 // NOLINT
-          "random sampling seed (0 through UINT32_MAX); -1 uses a random "
-          "seed");                                    // NOLINT
+ABSL_FLAG(int, max_detections, 50,    // NOLINT
+          "calibration captures selected in 0.5-second steps "
+          "(0 uses all usable detections)");          // NOLINT
 ABSL_FLAG(std::string, intrinsics_output_path,        // NOLINT
           "intrinsics.json",                          // NOLINT
           "path for the generated intrinsics JSON");  // NOLINT
@@ -51,13 +45,13 @@ auto WriteIntrinsicsToFile(const cv::Mat& camera_matrix,
   const json intrinsics = IntrinsicsToJson(camera_matrix, dist_coeffs);
   intrinsics_file << intrinsics.dump(4) << '\n';
 
-  std::cout << "Intrinsics:\n" << intrinsics.dump(4) << std::endl;
+  LOG(INFO) << "Intrinsics:\n" << intrinsics.dump(4);
 }
 
 auto RunCalibration(const std::vector<DetectionResult>& detection_results,
                     cv::Size image_size) -> int {
-  std::cout << "Calibrating with " << detection_results.size()
-            << " captured frames" << std::endl;
+  LOG(INFO) << "Calibrating with " << detection_results.size()
+            << " captured frames";
 
   cv::Mat camera_matrix;
   cv::Mat dist_coeffs;
@@ -68,7 +62,7 @@ auto RunCalibration(const std::vector<DetectionResult>& detection_results,
     return 1;
   }
 
-  std::cout << "Reprojection error: " << *reprojection_error << std::endl;
+  LOG(INFO) << "Reprojection error: " << *reprojection_error;
   WriteIntrinsicsToFile(camera_matrix, dist_coeffs,
                         absl::GetFlag(FLAGS_intrinsics_output_path));
   return 0;
@@ -85,45 +79,64 @@ auto CalibrateDetectionsFile(const std::string& path, int max_detections)
     input >> saved;
     const cv::Size image_size(saved.at("image_size").at("width").get<int>(),
                               saved.at("image_size").at("height").get<int>());
-    if (image_size.width <= 0 || image_size.height <= 0) {
-      throw std::runtime_error("Invalid image dimensions");
-    }
     const auto& detections = saved.at("detections");
-    if (!detections.is_array()) {
-      throw std::runtime_error("detections must be an array");
-    }
-    std::vector<std::size_t> indices(detections.size());
-    std::iota(indices.begin(), indices.end(), 0U);
-    const int64_t configured_seed = absl::GetFlag(FLAGS_sampling_seed);
-    const uint32_t seed = configured_seed < 0
-                              ? std::random_device{}()
-                              : static_cast<uint32_t>(configured_seed);
-    std::cout << "Sampling seed: " << seed << std::endl;
-    std::mt19937 generator(seed);
-    std::shuffle(indices.begin(), indices.end(), generator);
-    const std::size_t limit =
-        max_detections == 0
-            ? detections.size()
-            : std::min(detections.size(),
-                       static_cast<std::size_t>(max_detections));
+    const auto limit = static_cast<std::size_t>(max_detections);
     std::vector<DetectionResult> results;
-    results.reserve(limit);
-    // Visit a random permutation, deserializing only until enough usable
-    // captures are loaded. Empty results do not consume the capture limit.
-    for (const std::size_t index : indices) {
-      if (stop::stop) {
-        return 0;
-      }
-      DetectionResult result = DetectionFromJson(detections[index]);
-      if (HasEnoughCorners(result)) {
-        results.push_back(std::move(result));
-        if (results.size() == limit) {
-          break;
+    if (max_detections == 0) {
+      for (const auto& detection : detections) {
+        if (stop::stop) {
+          return 0;
+        }
+        auto result = DetectionFromJson(detection);
+        if (HasEnoughCorners(result)) {
+          results.push_back(std::move(result));
         }
       }
+    } else {
+      std::vector<std::pair<double, std::size_t>> frames;
+      for (std::size_t index = 0; index < detections.size(); ++index) {
+        const std::filesystem::path filename =
+            detections[index].at("filename").get<std::string>();
+        frames.emplace_back(std::stod(filename.stem().string()), index);
+      }
+      std::ranges::sort(frames);
+      std::vector<bool> selected(detections.size(), false);
+      for (const double offset : {0.0, 0.25}) {
+        if (frames.empty() || results.size() == limit) {
+          break;
+        }
+        double next_timestamp = frames.front().first + offset;
+        for (const auto& [timestamp, index] : frames) {
+          if (stop::stop) {
+            return 0;
+          }
+          if (timestamp < next_timestamp) {
+            continue;
+          }
+          next_timestamp = timestamp + 0.5;
+          if (selected[index]) {
+            continue;
+          }
+          auto result = DetectionFromJson(detections[index]);
+          if (HasEnoughCorners(result)) {
+            selected[index] = true;
+            results.push_back(std::move(result));
+            LOG(INFO) << "Selected frame: "
+                      << detections[index].at("filename").get<std::string>();
+            if (results.size() == limit) {
+              break;
+            }
+          }
+        }
+      }
+      if (results.size() < limit) {
+        throw std::runtime_error("Only " + std::to_string(results.size()) +
+                                 " usable frames after both sampling passes; " +
+                                 std::to_string(max_detections) + " required");
+      }
     }
-    std::cout << "Selected " << results.size() << " of " << detections.size()
-              << " saved detections from " << path << std::endl;
+    LOG(INFO) << "Selected " << results.size() << " of " << detections.size()
+              << " saved detections from " << path;
     return RunCalibration(results, image_size);
   } catch (const std::exception& error) {
     LOG(ERROR) << "Failed to calibrate saved detections: " << error.what();
@@ -142,9 +155,6 @@ auto main(int argc, char* argv[]) -> int {
   CHECK(!detections_path.empty()) << "--detections_path is required";
   const int max_detections = absl::GetFlag(FLAGS_max_detections);
   CHECK_GE(max_detections, 0) << "--max_detections must be nonnegative";
-  CHECK_GE(absl::GetFlag(FLAGS_sampling_seed), -1);
-  CHECK_LE(absl::GetFlag(FLAGS_sampling_seed),
-           std::numeric_limits<uint32_t>::max());
 
   return CalibrateDetectionsFile(detections_path, max_detections);
 }

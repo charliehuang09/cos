@@ -1,9 +1,7 @@
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -18,8 +16,7 @@
 #include "utils/stop.h"
 
 ABSL_FLAG(std::string, camera_folder, "",  // NOLINT
-          "directory containing frames to detect "
-          "(JPEG, PNG, BMP, TIFF)");  // NOLINT
+          "directory containing frames to detect");  // NOLINT
 ABSL_FLAG(std::string, detections_output_path, "detections.json",  // NOLINT
           "output JSON containing every frame's DetectionResult");  // NOLINT
 
@@ -29,18 +26,7 @@ auto CameraFiles(const std::string& folder)
     -> std::vector<std::filesystem::path> {
   std::vector<std::filesystem::path> files;
   for (const auto& entry : std::filesystem::directory_iterator(folder)) {
-    if (!entry.is_regular_file()) {
-      continue;
-    }
-    std::string extension = entry.path().extension().string();
-    std::ranges::transform(extension, extension.begin(),
-                           [](unsigned char character) -> char {
-                             return static_cast<char>(std::tolower(character));
-                           });
-    if (extension == ".jpg" || extension == ".jpeg" || extension == ".png" ||
-        extension == ".bmp" || extension == ".tif" || extension == ".tiff") {
-      files.push_back(entry.path());
-    }
+    files.push_back(entry.path());
   }
   std::ranges::sort(files);
   return files;
@@ -59,23 +45,17 @@ auto main(int argc, char* argv[]) -> int {
     }
     const auto files = CameraFiles(folder);
     if (files.empty()) {
-      throw std::runtime_error("No image files in " + folder);
+      throw std::runtime_error("No frames in " + folder);
     }
     const std::filesystem::path output_path =
         absl::GetFlag(FLAGS_detections_output_path);
-    for (const auto& file : files) {
-      if (std::filesystem::weakly_canonical(file) ==
-          std::filesystem::weakly_canonical(output_path)) {
-        throw std::runtime_error("Output path would overwrite an input frame");
-      }
-    }
     std::ofstream output(output_path);
     if (!output.is_open()) {
       throw std::runtime_error("Failed to open " + output_path.string());
     }
     const auto detector =
         charuco_calibration::CreateDetector(charuco_calibration::CreateBoard());
-    std::optional<cv::Size> image_size;
+    cv::Size image_size;
     std::size_t processed = 0;
     std::size_t usable = 0;
     // Stream results directly to disk, retaining only one decoded frame.
@@ -88,11 +68,8 @@ auto main(int argc, char* argv[]) -> int {
       if (frame.empty()) {
         throw std::runtime_error("Failed to decode " + path.string());
       }
-      if (!image_size.has_value()) {
+      if (processed == 0) {
         image_size = frame.size();
-      } else if (frame.size() != *image_size) {
-        throw std::runtime_error("Inconsistent image dimensions in " +
-                                 path.string());
       }
       const auto result =
           charuco_calibration::DetectCharucoBoard(frame, detector);
@@ -102,9 +79,6 @@ auto main(int argc, char* argv[]) -> int {
         output << ",\n";
       }
       output << saved.dump();
-      if (!output) {
-        throw std::runtime_error("Failed to write " + output_path.string());
-      }
       ++processed;
       usable += charuco_calibration::HasEnoughCorners(result) ? 1U : 0U;
       std::cout << "Detected " << processed << "/" << files.size() << ": "
@@ -112,8 +86,8 @@ auto main(int argc, char* argv[]) -> int {
                 << " corners)" << std::endl;
     }
     output << "\n  ],\n  \"image_size\": "
-           << nlohmann::json({{"width", image_size->width},
-                              {"height", image_size->height}}).dump()
+           << nlohmann::json({{"width", image_size.width},
+                              {"height", image_size.height}}).dump()
            << "\n}\n";
     output.close();
     if (!output) {
