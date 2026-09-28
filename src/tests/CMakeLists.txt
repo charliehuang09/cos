@@ -119,3 +119,16 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   cos::unambiguous_solver_node
   cos::simulation_position_sender_node
 )
+
+add_executable(charuco_calibration_test charuco_calibration_test.cc)
+target_link_libraries(charuco_calibration_test PRIVATE
+  GTest::gtest_main
+  nlohmann_json::nlohmann_json
+  opencv_core
+  opencv_objdetect
+)
+target_include_directories(charuco_calibration_test PRIVATE
+  ${PROJECT_SOURCE_DIR}/src
+  ${OpenCV_INCLUDE_DIRS}
+)
+add_test(NAME charuco_calibration_test COMMAND charuco_calibration_test)
