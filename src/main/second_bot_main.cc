@@ -95,7 +95,7 @@ auto main(int argc, char** argv) -> int {
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   stop::RegisterHandler();
-  control_loop::StartNetworktables(8971);
+  control_loop::StartNetworktables(971);
 
   control_loop::ControlLoop control_loop(1ms);
   control_loop.SetMaxContext(absl::GetFlag(FLAGS_max_context));
@@ -116,7 +116,7 @@ auto main(int argc, char** argv) -> int {
           "pose_with_variance", "/COS");
   control_loop.RegisterNode(rio_sender_node);
 
-  int port = 4971;
+  int port = 5801;
   const bool pva_detection = absl::GetFlag(FLAGS_pva_detection);
   const std::string image_log_path =
       absl::GetFlag(FLAGS_log_images) ? control_loop::GetLogPath() : "";

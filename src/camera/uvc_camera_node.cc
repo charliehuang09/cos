@@ -21,10 +21,16 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
                              const UVCCameraConfig& config)
     : output_path_(output_path),
       name_(config.name),
-      publications_({{output_path_, typeid(JpegBuffer)}}) {
+      publications_({control_loop::MessageDescriptor::Publication<JpegBuffer>(
+          output_path_)}) {
   {
     uvc_error_t code = uvc_init(&context_, nullptr);
-    CHECK(!code) << "UVC failed to init will error code: " << code;
+    if (code != UVC_SUCCESS) {
+      LOG(WARNING) << "Failed uvc init: " << code
+                   << " camera_name: " << config.name;
+      valid_ = false;
+      return;
+    }
   }
   {
     const char* serial_id =
@@ -39,27 +45,45 @@ UVCCameraNode::UVCCameraNode(std::string_view output_path,
   }
   {
     uvc_error_t code = uvc_open(device_, &device_handle_);
-    CHECK(!code) << "UVC failed to open device with error code: " << code
-                 << " camera name: " << config.name;
+    if (code != UVC_SUCCESS) {
+      LOG(WARNING) << "UVC failed to open device with error code: " << code
+                   << " camera_name: " << config.name;
+      valid_ = false;
+      return;
+    }
   }
   {
     // UVC AE modes are one-hot bit flags, not V4L2 menu values.
     uvc_error_t code = uvc_set_ae_mode(
         device_handle_,
         config.auto_exposure ? kUvcAeAperturePriority : kUvcAeManual);
-    CHECK(!code) << "Failed to set exposure mode: " << code;
+    if (code != UVC_SUCCESS) {
+      LOG(WARNING) << "Failed to set exposure: " << code
+                   << " camera_name: " << config.name;
+      valid_ = false;
+      return;
+    }
   }
   if (!config.auto_exposure) {
     uvc_error_t code =
         uvc_set_exposure_abs(device_handle_, config.exposure_time_ms * 10);
-    CHECK(!code) << "Failed to set exposure: " << code;
+    if (code != UVC_SUCCESS) {
+      LOG(WARNING) << "Failed to set exposure 2: " << code
+                   << " camera_name: " << config.name;
+      valid_ = false;
+      return;
+    }
   }
   {
     uvc_error_t code = uvc_get_stream_ctrl_format_size(
         device_handle_, &ctrl_, UVC_FRAME_FORMAT_MJPEG, config.width,
         config.height, config.fps);
-    CHECK(!code) << "UVC failed to get stream ctrl format with exit code: "
-                 << code << " camera_name: " << config.name;
+    if (code != UVC_SUCCESS) {
+      LOG(WARNING) << "Failed to get uvc stream ctrl format: " << code
+                   << " camera_name: " << config.name;
+      valid_ = false;
+      return;
+    }
 
     ctrl_.dwMaxPayloadTransferSize = config.max_payload_size;
     ctrl_.dwMaxVideoFrameSize = config.max_frame_size;
@@ -128,8 +152,12 @@ void UVCCameraNode::Start() {
           uvc_camera_node->CallBack(frame);
         },
         this, 0);
-    CHECK(!code) << "UVC failed to start streaming with exit code: " << code
-                 << " camera name: " << name_;
+    if (code != UVC_SUCCESS) {
+      LOG(WARNING) << "Failed to start uvc streaming: " << code
+                   << " camera_name: " << name_;
+      valid_ = false;
+      return;
+    }
   }
 }
 

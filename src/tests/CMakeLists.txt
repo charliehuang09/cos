@@ -1,5 +1,15 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+add_executable(log_fields_test log_fields_test.cc)
+target_link_libraries(log_fields_test PRIVATE cos::wpilog_writer
+  cos::control_loop GTest::gtest_main GTest::gtest cos::localization_solver_common)
+add_test(NAME log_fields_test COMMAND log_fields_test)
+
+add_executable(wpilog_writer_test wpilog_writer_test.cc)
+target_link_libraries(wpilog_writer_test PRIVATE cos::wpilog_writer
+  cos::control_loop GTest::gtest_main)
+add_test(NAME wpilog_writer_test COMMAND wpilog_writer_test)
+
 add_executable(single_tag_rotation_test single_tag_rotation_test.cc)
 target_link_libraries(single_tag_rotation_test PRIVATE
   GTest::gtest_main
@@ -105,7 +115,7 @@ add_executable(unambiguous_solver_node_test
   unambiguous_solver_node_test.cc
 )
 target_link_libraries(unambiguous_solver_node_test PRIVATE
-  cos::nvjpeg_decode_node
+  cos::nvjpeg_fd_decode_node
   cos::nvidia_apriltag_detector_node
   cos::control_loop
   cos::thread_pool

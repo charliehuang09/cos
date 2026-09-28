@@ -79,6 +79,7 @@ auto main(int argc, char** argv) -> int {
   control_loop::StartNetworktables();
 
   control_loop::ControlLoop control_loop(1ms);
+  control_loop.EnableWPILog("/root/cos.wpilog");
   control_loop.SetMaxContext(absl::GetFlag(FLAGS_max_context));
   control_loop::ThreadPool thread_pool;
 
@@ -96,7 +97,7 @@ auto main(int argc, char** argv) -> int {
                                                                   "/COS");
   control_loop.RegisterNode(rio_sender_node);
 
-  int port = 4971;
+  int port = 5801;
   const bool pva_detection = absl::GetFlag(FLAGS_pva_detection);
   for (const auto& path : paths) {
     AddCameraPipeline(path, port++, control_loop, thread_pool, *solver_node,

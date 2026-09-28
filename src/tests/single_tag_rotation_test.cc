@@ -67,10 +67,10 @@ TEST_F(SingleTagRotationTest, ClearImageEvidenceOverridesMirroredPreviousPose) {
   previous.pos1.variance = 1;
   ASSERT_TRUE(solver_.Solve({&previous}, false).has_value());
 
-  auto candidates = square_.AmbiguousSolve({detection}, false);
-  ASSERT_EQ(candidates.size(), 1u);
-  EXPECT_FALSE(candidates[0].pos2.has_value());
-  const auto pose = solver_.Solve({&candidates[0]}, false);
+  auto estimate = square_.AmbiguousSolve(detection, false);
+  ASSERT_TRUE(estimate.has_value());
+  EXPECT_FALSE(estimate->pos2.has_value());
+  const auto pose = solver_.Solve({&*estimate}, false);
   ASSERT_TRUE(pose.has_value());
   EXPECT_NEAR(units::degree_t{pose->pose.Rotation().Z()}.value(), 135, 0.01);
 }
@@ -82,9 +82,9 @@ TEST_F(SingleTagRotationTest, YawContinuesThroughNinetyInBothDirections) {
       const double yaw = direction == 1 ? 10 + step : 170 - step;
       SCOPED_TRACE(::testing::Message() << "direction=" << direction
                                       << " yaw=" << yaw);
-      auto candidates = square_.AmbiguousSolve({Detection(yaw)}, false);
-      ASSERT_EQ(candidates.size(), 1u);
-      const auto pose = solver.Solve({&candidates[0]}, false);
+      auto estimate = square_.AmbiguousSolve(Detection(yaw), false);
+      ASSERT_TRUE(estimate.has_value());
+      const auto pose = solver.Solve({&*estimate}, false);
       ASSERT_TRUE(pose.has_value());
       EXPECT_NEAR(units::degree_t{pose->pose.Rotation().Z()}.value(), yaw, 0.1)
           << "direction=" << direction << " requested yaw=" << yaw;
@@ -97,9 +97,9 @@ TEST_F(SingleTagRotationTest, RetainsBothCandidatesWhenImageFitIsAmbiguous) {
   for (int i = 0; i < 4; ++i) {
     detection.corners[i].x += i % 2 == 0 ? 1.0 : -1.0;
   }
-  auto candidates = square_.AmbiguousSolve({detection}, false);
-  ASSERT_EQ(candidates.size(), 1u);
-  EXPECT_TRUE(candidates[0].pos2.has_value());
+  auto estimate = square_.AmbiguousSolve(detection, false);
+  ASSERT_TRUE(estimate.has_value());
+  EXPECT_TRUE(estimate->pos2.has_value());
 }
 
 }  // namespace

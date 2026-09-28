@@ -95,13 +95,13 @@ auto main(int argc, char** argv) -> int {
 
   LOG(INFO) << replay_offset;
   AddCameraPipeline("/root/constants/second_bot/front_camera.json",
-                    camera_log_paths[0], replay_offset, 4971, control_loop,
+                    camera_log_paths[0], replay_offset, 5801, control_loop,
                     thread_pool, *solver_node);
   AddCameraPipeline("/root/constants/second_bot/left_camera.json",
-                    camera_log_paths[1], replay_offset, 4972, control_loop,
+                    camera_log_paths[1], replay_offset, 5802, control_loop,
                     thread_pool, *solver_node);
   AddCameraPipeline("/root/constants/second_bot/right_camera.json",
-                    camera_log_paths[2], replay_offset, 4973, control_loop,
+                    camera_log_paths[2], replay_offset, 5803, control_loop,
                     thread_pool, *solver_node);
 
   auto networktables_instance = nt::NetworkTableInstance::Create();
