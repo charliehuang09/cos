@@ -9,7 +9,6 @@
 #include <memory>
 #include <memory_resource>
 #include <opencv2/core/mat.hpp>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -57,7 +56,7 @@ struct ApriltagDetection {
 };
 
 struct WeightedPoint {
-  Coord<int> coord;
+  Coord<float> coord;
   float weight;
 };
 
@@ -187,7 +186,7 @@ class GpuApriltagDetector {
   auto GradientRow(Coord<int> point, ImageView<uint8_t>& apriltag) -> float;
 
   auto GetRefinedPoints(
-      const std::vector<ApriltagDetection>& apriltag_detections,
+      const std::vector<Quad>& quads,
       ImageView<uint8_t>& apriltag)
       -> std::vector<std::array<std::vector<WeightedPoint>, 4>>;
 
@@ -206,7 +205,8 @@ class GpuApriltagDetector {
 
   auto GetRefinedQuads(
       const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
-          refined_points) -> std::vector<Quad>;
+          refined_points,
+      const std::vector<Quad>& original_quads) -> std::vector<Quad>;
   void CreateCudaGraph();
 
   int width_;

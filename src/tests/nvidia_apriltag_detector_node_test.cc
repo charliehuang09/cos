@@ -4,16 +4,25 @@
 #include "absl/log/check.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
+#include "apriltag/gpu_apriltag_detector_lib.h"
 #include "camera/jpeg_disk_camera.h"
 #include "camera/nvjpeg_decode_node.h"
 #include "camera/nvjpeg_fd_decode_node.h"
 #include "control_loop/control_loop.h"
 #include "control_loop/thread_pool.h"
+#include "control_loop/timer.h"
+#include "nvbufsurface.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
 #include "utils/stop.h"
 
+#include <atomic>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -32,6 +41,8 @@ struct DecoderMetrics {
 
 ABSL_FLAG(bool, gpu_decode, true, "");                              // NOLINT
 ABSL_FLAG(bool, hardware_decode, true, "");                         // NOLINT
+ABSL_FLAG(bool, new_gpu_detector, true,  // NOLINT
+          "Run the new GPU detector with hardware JPEG decoding.");
 ABSL_FLAG(uint, max_context, 1, "");                                // NOLINT
 ABSL_FLAG(uint, instances, 1,                                       // NOLINT
           "Number of concurrent decode and detection pipelines.");  // NOLINT
@@ -52,6 +63,7 @@ auto main(int argc, char** argv) -> int {
 
   DecoderMetrics gpu_metrics;
   DecoderMetrics hardware_metrics;
+  DecoderMetrics new_gpu_metrics;
 
   {
     auto log_path = absl::GetFlag(FLAGS_log_path);
@@ -181,6 +193,79 @@ auto main(int argc, char** argv) -> int {
                   detections->tag_detections.size();
             });
       }
+
+      if (absl::GetFlag(FLAGS_new_gpu_detector)) {
+        const std::string decoded_image_channel =
+            "new_gpu_decoded_image" + instance_suffix;
+        const std::string decode_latency_channel =
+            decoded_image_channel + ":latency";
+
+        auto hardware_decode_node = std::make_shared<camera::NvjpegFdDecodeNode>(
+            "jpeg_buffer", decoded_image_channel, thread_pool);
+        control_loop.RegisterNode(hardware_decode_node);
+        hardware_decode_node->EnableTiming(decode_latency_channel);
+
+        const camera::UVCCameraConfig config{
+            "/root/constants/dev-orin/camera.json"};
+        const int width = config.width;
+        const int height = config.height;
+        auto detector =
+            std::make_shared<apriltag::GpuApriltagDetector>(width, height);
+        auto pixels = std::make_shared<std::vector<uint8_t>>(
+            static_cast<size_t>(width) * height);
+        auto detection_mutex = std::make_shared<std::mutex>();
+        hardware_decode_node->RegisterCallback(
+            [&new_gpu_metrics, decoded_image_channel, decode_latency_channel,
+             detector, pixels, detection_mutex, width,
+             height](const control_loop::Context& context) -> void {
+              auto* buffer = context->GetMessage<camera::DecodedJpegFdBuffer>(
+                  decoded_image_channel);
+              if (buffer == nullptr) {
+                return;
+              }
+              auto* latency = context->GetMessage<control_loop::LatencyMessage>(
+                  decode_latency_channel);
+              if (latency != nullptr) {
+                new_gpu_metrics.total_decode_latency += latency->latency.count();
+                new_gpu_metrics.total_decodes++;
+              }
+
+              // Include serialization and input preparation, as the VPI nodes do.
+              control_loop::Timer timer;
+              std::lock_guard lock(*detection_mutex);
+              CHECK_EQ(buffer->width, width);
+              CHECK_EQ(buffer->height, height);
+              CHECK_GE(buffer->stride, static_cast<size_t>(width));
+              NvBufSurface* surface = nullptr;
+              CHECK_EQ(NvBufSurfaceFromFd(buffer->fd,
+                                          reinterpret_cast<void**>(&surface)),
+                       0);
+              CHECK(surface != nullptr);
+              CHECK_EQ(NvBufSurfaceMap(surface, 0, 0, NVBUF_MAP_READ), 0);
+              CHECK_EQ(NvBufSurfaceSyncForCpu(surface, 0, 0), 0);
+              const auto* data = static_cast<const uint8_t*>(
+                  surface->surfaceList[0].mappedAddr.addr[0]);
+              CHECK(data != nullptr);
+
+              // The detector requires packed input; the decoder may pad rows.
+              for (int row = 0; row < height; ++row) {
+                std::memcpy(pixels->data() + static_cast<size_t>(row) * width,
+                            data + static_cast<size_t>(row) * buffer->stride,
+                            static_cast<size_t>(width));
+              }
+              CHECK_EQ(NvBufSurfaceUnMap(surface, 0, 0), 0);
+              const apriltag::ImageView<uint8_t> view{
+                  .data = pixels->data(),
+                  .stride = width,
+                  .height = height,
+                  .width = width};
+              const auto detections = detector->DetectAprilTag(view);
+              new_gpu_metrics.total_detection_latency += timer.Stop().count();
+              new_gpu_metrics.total_detection_timings++;
+              new_gpu_metrics.detection_frames++;
+              new_gpu_metrics.total_tag_detections += detections.size();
+            });
+      }
     }
   }
 
@@ -223,6 +308,23 @@ auto main(int argc, char** argv) -> int {
                      hardware_detection_timings;
     LOG(INFO) << "Hardware average decode latency: "
               << hardware_metrics.total_decode_latency / hardware_decodes;
+  }
+
+  if (absl::GetFlag(FLAGS_new_gpu_detector)) {
+    const size_t decodes = new_gpu_metrics.total_decodes.load();
+    const size_t detection_timings =
+        new_gpu_metrics.total_detection_timings.load();
+    CHECK_GT(decodes, 0U);
+    CHECK_GT(detection_timings, 0U);
+    LOG(INFO) << "New GPU decode count: " << decodes;
+    LOG(INFO) << "New GPU detection frames: "
+              << new_gpu_metrics.detection_frames.load();
+    LOG(INFO) << "New GPU tag detections: "
+              << new_gpu_metrics.total_tag_detections.load();
+    LOG(INFO) << "New GPU average AprilTag detection latency: "
+              << new_gpu_metrics.total_detection_latency / detection_timings;
+    LOG(INFO) << "New GPU average decode latency: "
+              << new_gpu_metrics.total_decode_latency / decodes;
   }
 
   std::fflush(nullptr);

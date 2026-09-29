@@ -35,9 +35,14 @@ target_sources(gpu_apriltag_detector_lib
 target_link_libraries(gpu_apriltag_detector_lib 
   PUBLIC
     apriltag
-    ${OpenCV_LIBS}
+    CUDA::cudart
+    opencv_core
+    opencv_imgproc
+    opencv_imgcodecs
     timer
   PRIVATE
     absl::flat_hash_map
     absl::flat_hash_set
+    absl::check
+    absl::log
 )

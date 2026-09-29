@@ -4,8 +4,10 @@
 #include <tag36h11.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -129,18 +131,21 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
   const size_t pixels = static_cast<size_t>(width_) * height_;
 
   CHECK(cudaMallocManaged(reinterpret_cast<void**>(&graph_input_buffer_),
-                          pixels * sizeof(uint8_t)) == cudaSuccess);
+                          pixels * sizeof(uint8_t),
+                          cudaMemAttachHost) == cudaSuccess);
   graph_input_view_ = {.data = graph_input_buffer_,
                        .stride = width_,
                        .height = height_,
                        .width = width_};
 
   {
-    cudaMallocManaged(reinterpret_cast<void**>(&max_buffer_),
-                      (pixels / 16) * sizeof(uint8_t));
+    CHECK(cudaMallocManaged(reinterpret_cast<void**>(&max_buffer_),
+                            (pixels / 16) * sizeof(uint8_t),
+                            cudaMemAttachHost) == cudaSuccess);
     std::memset(max_buffer_, 0, (pixels / 16) * sizeof(uint8_t));
-    cudaMallocManaged(reinterpret_cast<void**>(&min_buffer_),
-                      (pixels / 16) * sizeof(uint8_t));
+    CHECK(cudaMallocManaged(reinterpret_cast<void**>(&min_buffer_),
+                            (pixels / 16) * sizeof(uint8_t),
+                            cudaMemAttachHost) == cudaSuccess);
     std::memset(min_buffer_, 0, (pixels / 16) * sizeof(uint8_t));
   }
   std::memset(min_buffer_, 0, (pixels / 16) * sizeof(uint8_t));
@@ -151,11 +156,13 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
       static_cast<uint8_t*>(std::malloc((pixels / 16) * sizeof(uint8_t)));
   std::memset(valid_buffer_, 0, (pixels / 16) * sizeof(uint8_t));
   {
-    cudaMallocManaged(reinterpret_cast<void**>(&binarized_apriltag_buffer_),
-                      pixels * sizeof(uint8_t));
+    CHECK(cudaMallocManaged(
+              reinterpret_cast<void**>(&binarized_apriltag_buffer_),
+              pixels * sizeof(uint8_t), cudaMemAttachHost) == cudaSuccess);
     std::memset(binarized_apriltag_buffer_, 0, pixels * sizeof(uint8_t));
-    cudaMallocManaged(reinterpret_cast<void**>(&segmented_apriltag_buffer_),
-                      pixels * sizeof(uint32_t));
+    CHECK(cudaMallocManaged(
+              reinterpret_cast<void**>(&segmented_apriltag_buffer_),
+              pixels * sizeof(uint32_t), cudaMemAttachHost) == cudaSuccess);
     std::memset(segmented_apriltag_buffer_, 0, pixels * sizeof(uint32_t));
   }
   boundary_segmented_apriltag_buffer_ =
@@ -190,10 +197,24 @@ GpuApriltagDetector::GpuApriltagDetector(int width, int height)
   std::memset(debug_b_buffer_, 0, pixels * sizeof(uint8_t));
 
   {
-    cudaMallocManaged(reinterpret_cast<void**>(&dsu_buffer_),
-                      pixels * sizeof(uint32_t));
+    CHECK(cudaMallocManaged(reinterpret_cast<void**>(&dsu_buffer_),
+                            pixels * sizeof(uint32_t),
+                            cudaMemAttachHost) == cudaSuccess);
     std::memset(dsu_buffer_, 0, pixels * sizeof(uint32_t));
   }
+
+  // Only stream_ may access these allocations on the GPU. Once it finishes,
+  // CPU processing is safe even when unrelated CUDA streams are still active.
+  for (void* buffer :
+       {static_cast<void*>(graph_input_buffer_),
+        static_cast<void*>(max_buffer_), static_cast<void*>(min_buffer_),
+        static_cast<void*>(binarized_apriltag_buffer_),
+        static_cast<void*>(segmented_apriltag_buffer_),
+        static_cast<void*>(dsu_buffer_)}) {
+    CHECK(cudaStreamAttachMemAsync(stream_, buffer, 0, cudaMemAttachSingle) ==
+          cudaSuccess);
+  }
+  CHECK(cudaStreamSynchronize(stream_) == cudaSuccess);
 
   // Views borrow the fixed-size buffers allocated above.
   segmented_apriltag_r_view_ = {.data = debug_r_buffer_,
@@ -481,8 +502,9 @@ void GpuApriltagDetector::PopulateSegmentedApriltag(
 auto GpuApriltagDetector::GetSegment(ImageView<uint32_t>& segmented_apriltag,
                                      int16_t row, int16_t col)
     -> std::pmr::vector<Coord<int16_t>> {
-  constexpr size_t min_segment_size = 128;
-  constexpr size_t max_segment_size = 512;
+  // Keep accepted contours longer than GetMses' 50-point fitting window.
+  constexpr size_t min_segment_size = 50;
+  constexpr size_t max_segment_size = 4096;
   constexpr int max_revisited = 4;
   ushort num_revisited = 0;
   uint current_direction = 0;
@@ -731,7 +753,7 @@ auto GpuApriltagDetector::GetCandidatesQuadCorners(
 
       bool peak = true;
       for (size_t j = i; j < i + window_size; j++) {
-        if (middle_mse < mse[(j + (window_size / 2)) % mse.size()]) {
+        if (middle_mse < mse[j % mse.size()]) {
           peak = false;
           break;
         }
@@ -1191,91 +1213,88 @@ auto GpuApriltagDetector::GradientRow(Coord<int> point,
 }
 
 auto GpuApriltagDetector::GetRefinedPoints(
-    const std::vector<ApriltagDetection>& apriltag_detections,
+    const std::vector<Quad>& quads,
     ImageView<uint8_t>& apriltag)
     -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
-
-  constexpr int num_samples = 10;
-  constexpr int search_vector_length = 10;
-  constexpr int quad_size = 4;
-  std::vector<std::array<std::vector<WeightedPoint>, quad_size>> refined_points;
-  for (const auto& apriltag_detection : apriltag_detections) {
-    CHECK(apriltag_detection.quad.corners.size() == quad_size);
-    const auto& quad = apriltag_detection.quad;
-    std::array<std::vector<WeightedPoint>, quad_size> weighted_points;
-    for (size_t i = 0; i < quad.corners.size(); i++) {
-      weighted_points[i].reserve(num_samples);
-      const auto& p1 = quad.corners[i];
-      const auto& p2 = quad.corners[(i + 1) % 4];
-      const auto& p3 = quad.corners[(i + 2) % 4];
-      const std::pair<float, float> v1{
-          static_cast<float>(p2.row - p1.row) / num_samples,
-          static_cast<float>(p2.col - p1.col) / num_samples};
-      const std::pair<float, float> v2{
-          static_cast<float>(p3.row - p2.row) / num_samples,
-          static_cast<float>(p3.col - p2.col) / num_samples};
-      const float v1_cross_v2 = v1.first * v2.second - v1.second * v2.first;
-      const int v1_cross_v2_sign = (v1_cross_v2 < 0.0f) ? -1 : 1;
-
-      std::pair<float, float> search_vector{std::abs(v1.second),
-                                            std::abs(v1.first)};
-      const float magnitude =
-          std::hypot(search_vector.first, search_vector.second);
-      search_vector.first /= magnitude;
-      search_vector.second /= magnitude;
-      search_vector.first *= search_vector_length;
-      search_vector.second *= search_vector_length;
-
-      for (int j = 0; j < num_samples; j++) {
-        const Coord<int> point{.row = static_cast<int>(p1.row + j * v1.first),
-                               .col = static_cast<int>(p1.col + j * v1.second)};
-
-        if (point.row - 2 < 0 || point.col - 2 < 0 ||
-            point.row + 2 >= apriltag.height || point.col + 2 >= apriltag.width)
-            [[unlikely]] {
-          continue;
+  // Bilinear samples retain subpixel edge locations throughout the line fit.
+  auto sample = [&](float row, float col) -> float {
+    const int r = static_cast<int>(row);
+    const int c = static_cast<int>(col);
+    const float dr = row - r;
+    const float dc = col - c;
+    return (1 - dr) * ((1 - dc) * apriltag(r, c) + dc * apriltag(r, c + 1)) +
+           dr * ((1 - dc) * apriltag(r + 1, c) + dc * apriltag(r + 1, c + 1));
+  };
+  std::vector<std::array<std::vector<WeightedPoint>, 4>> refined_points;
+  refined_points.reserve(quads.size());
+  for (const auto& quad : quads) {
+    Coord<float> center{};
+    float shortest_edge = std::numeric_limits<float>::max();
+    for (size_t i = 0; i < 4; ++i) {
+      center.row += quad.corners[i].row / 4.0f;
+      center.col += quad.corners[i].col / 4.0f;
+      const auto& a = quad.corners[i];
+      const auto& b = quad.corners[(i + 1) % 4];
+      shortest_edge = std::min(shortest_edge,
+          std::hypot(static_cast<float>(b.row - a.row),
+                     static_cast<float>(b.col - a.col)));
+    }
+    // Keep the search close to the outer border instead of crossing payload bits.
+    const float radius = std::clamp(shortest_edge / 10.0f, 1.5f, 4.0f);
+    std::array<std::vector<WeightedPoint>, 4> weighted_points;
+    for (size_t i = 0; i < 4; ++i) {
+      const auto& a = quad.corners[i];
+      const auto& b = quad.corners[(i + 1) % 4];
+      const float dr = b.row - a.row;
+      const float dc = b.col - a.col;
+      const float length = std::hypot(dr, dc);
+      if (length < 2) {
+        continue;
+      }
+      float nr = dc / length;
+      float nc = -dr / length;
+      if (nr * (center.row - (a.row + b.row) / 2.0f) +
+          nc * (center.col - (a.col + b.col) / 2.0f) > 0) {
+        nr = -nr;
+        nc = -nc;
+      }
+      const int count = std::clamp(static_cast<int>(length / 4), 8, 64);
+      auto& points = weighted_points[i];
+      points.reserve(count);
+      for (int j = 0; j < count; ++j) {
+        // Avoid corners, where gradients from the adjacent edge interfere.
+        const float t = 0.1f + 0.8f * (j + 0.5f) / count;
+        const float row = a.row + t * dr;
+        const float col = a.col + t * dc;
+        float weight_sum = 0;
+        float offset_sum = 0;
+        for (float offset = -radius; offset <= radius; offset += 0.25f) {
+          const float outer_row = row + (offset + 0.75f) * nr;
+          const float outer_col = col + (offset + 0.75f) * nc;
+          const float inner_row = row + (offset - 0.75f) * nr;
+          const float inner_col = col + (offset - 0.75f) * nc;
+          if (std::min(outer_row, inner_row) < 0 ||
+              std::min(outer_col, inner_col) < 0 ||
+              std::max(outer_row, inner_row) >= apriltag.height - 1 ||
+              std::max(outer_col, inner_col) >= apriltag.width - 1) {
+            continue;
+          }
+          const float gradient = sample(outer_row, outer_col) -
+                                 sample(inner_row, inner_col);
+          if (gradient <= 0) {
+            continue;
+          }
+          const float weight = gradient * gradient;
+          weight_sum += weight;
+          offset_sum += offset * weight;
         }
-
-        const std::pair<float, float> gradient{GradientRow(point, apriltag),
-                                               GradientCol(point, apriltag)};
-        const float v1_cross_gradient =
-            v1.first * gradient.second - v1.second * gradient.first;
-        if ((v1_cross_gradient < 0) != (v1_cross_v2 < 0)) {
-          const Coord<int> start{
-              .row = std::max(static_cast<int>(point.row - search_vector.first),
-                              2),
-              .col = std::max(
-                  static_cast<int>(point.col - search_vector.second), 2)};
-          const Coord<int> end{
-              .row = std::min(static_cast<int>(point.row + search_vector.first),
-                              apriltag.height - 3),
-              .col =
-                  std::min(static_cast<int>(point.col + search_vector.second),
-                           apriltag.width - 3)};
-          float min_cross = std::numeric_limits<float>::max();
-          Coord<int> best_point{.row = -1, .col = -1};
-          for (int row = start.row; row <= end.row; row++) {
-            for (int col = start.col; col <= end.col; col++) {
-              const Coord<int> point{.row = row, .col = col};
-              const std::pair<float, float> candidate_gradient{
-                  GradientRow(point, apriltag), GradientCol(point, apriltag)};
-
-              const float v1_cross_candidate_gradient =
-                  v1.first * candidate_gradient.second -
-                  v1.second * candidate_gradient.first;
-              if (v1_cross_candidate_gradient * v1_cross_v2_sign < min_cross) {
-                min_cross = v1_cross_candidate_gradient * v1_cross_v2_sign;
-                best_point = point;
-              }
-            }
-          }
-          if (min_cross != std::numeric_limits<float>::max() && min_cross < 0) {
-            weighted_points[i].emplace_back(best_point, -min_cross);
-          }
+        if (weight_sum > 0) {
+          const float offset = offset_sum / weight_sum;
+          points.push_back({{row + offset * nr, col + offset * nc}, weight_sum});
         }
       }
     }
-    refined_points.push_back(weighted_points);
+    refined_points.push_back(std::move(weighted_points));
   }
   return refined_points;
 }
@@ -1288,12 +1307,15 @@ void GpuApriltagDetector::PopulateRefinedPointsApriltag(
   for (const auto& quad : refined_points) {
     for (const auto& segment : quad) {
       for (const auto& weighted_point : segment) {
+        const Coord<int> point{
+            .row = static_cast<int>(std::lround(weighted_point.coord.row)),
+            .col = static_cast<int>(std::lround(weighted_point.coord.col))};
         Coord start{
-            .row = std::max(weighted_point.coord.row - marker_half_size, 0),
-            .col = std::max(weighted_point.coord.col - marker_half_size, 0)};
-        Coord end{.row = std::min(weighted_point.coord.row + marker_half_size,
+            .row = std::max(point.row - marker_half_size, 0),
+            .col = std::max(point.col - marker_half_size, 0)};
+        Coord end{.row = std::min(point.row + marker_half_size,
                                   refined_points_apriltag.height - 1),
-                  .col = std::min(weighted_point.coord.col + marker_half_size,
+                  .col = std::min(point.col + marker_half_size,
                                   refined_points_apriltag.width - 1)};
         for (int row = start.row; row <= end.row; row++) {
           for (int col = start.col; col <= end.col; col++) {
@@ -1316,6 +1338,9 @@ auto GpuApriltagDetector::GetIntersection(
     -> Coord<int16_t> {
   const float denominator =
       vector_a.first * vector_b.second - vector_a.second * vector_b.first;
+  if (!std::isfinite(denominator) || std::abs(denominator) < 1e-6f) {
+    return {-1, -1};
+  }
 
   const std::pair<float, float> difference{
       centroid_b.row - centroid_a.row,
@@ -1326,15 +1351,22 @@ auto GpuApriltagDetector::GetIntersection(
                    difference.second * vector_b.first) /
                   denominator;
 
-  return Coord<int16_t>{
-      .row = static_cast<int16_t>(centroid_a.row + t * vector_a.first),
-      .col = static_cast<int16_t>(centroid_a.col + t * vector_a.second),
-  };
+  const float row = centroid_a.row + t * vector_a.first;
+  const float col = centroid_a.col + t * vector_a.second;
+  if (!std::isfinite(row) || !std::isfinite(col) || row < 0 || col < 0 ||
+      row > height_ - 1 || col > width_ - 1 || row > INT16_MAX ||
+      col > INT16_MAX) {
+    return {-1, -1};
+  }
+  return {.row = static_cast<int16_t>(std::lround(row)),
+          .col = static_cast<int16_t>(std::lround(col))};
 }
 
 auto GpuApriltagDetector::GetRefinedQuads(
     const std::vector<std::array<std::vector<WeightedPoint>, 4>>&
-        refined_points) -> std::vector<Quad> {
+        refined_points,
+    const std::vector<Quad>& original_quads) -> std::vector<Quad> {
+  CHECK_EQ(refined_points.size(), original_quads.size());
   std::vector<Quad> refined_quads;
   refined_quads.reserve(refined_points.size());
   std::vector<std::pair<float, float>> vectors;
@@ -1345,30 +1377,46 @@ auto GpuApriltagDetector::GetRefinedQuads(
     vectors.clear();
     centroids.clear();
     for (const auto& segment : tag) {
-      Coord<float> first_moment{.row = 0, .col = 0};
-      Coord<float> second_moment{.row = 0, .col = 0};
-      float xy_moment = 0;
-      float weight_sum = 0;
+      if (segment.size() < 2) {
+        break;
+      }
+      Coord<double> first_moment{.row = 0, .col = 0};
+      Coord<double> second_moment{.row = 0, .col = 0};
+      double xy_moment = 0;
+      double weight_sum = 0;
+      // Center coordinates before accumulating moments to avoid cancellation
+      // for short edges far from the image origin.
+      const auto origin = segment.front().coord;
       for (const auto& point : segment) {
-        first_moment.row += point.coord.row * point.weight;
-        first_moment.col += point.coord.col * point.weight;
+        const double row = static_cast<double>(point.coord.row) - origin.row;
+        const double col = static_cast<double>(point.coord.col) - origin.col;
+        const double weight = point.weight;
+        first_moment.row += row * weight;
+        first_moment.col += col * weight;
 
-        second_moment.row += point.coord.row * point.coord.row * point.weight;
-        second_moment.col += point.coord.col * point.coord.col * point.weight;
+        second_moment.row += row * row * weight;
+        second_moment.col += col * col * weight;
 
-        xy_moment += point.coord.col * point.coord.row * point.weight;
+        xy_moment += col * row * weight;
 
         weight_sum += point.weight;
       }
+      if (!std::isfinite(weight_sum) || weight_sum <= 0) {
+        break;
+      }
 
-      float mean_x = first_moment.row / weight_sum;
-      float mean_y = first_moment.col / weight_sum;
+      double mean_x = first_moment.row / weight_sum;
+      double mean_y = first_moment.col / weight_sum;
 
-      const float cxx = second_moment.row / weight_sum - mean_x * mean_x;
-      const float cyy = second_moment.col / weight_sum - mean_y * mean_y;
-      const float cxy =
+      const double cxx = second_moment.row / weight_sum - mean_x * mean_x;
+      const double cyy = second_moment.col / weight_sum - mean_y * mean_y;
+      const double cxy =
           (xy_moment / weight_sum) -
           ((first_moment.row / weight_sum) * (first_moment.col / weight_sum));
+      if (!std::isfinite(cxx) || !std::isfinite(cyy) || !std::isfinite(cxy) ||
+          (cxx <= 0 && cyy <= 0)) {
+        break;
+      }
 
       const float angle = 0.5f * std::atan2(2.0f * cxy, cxx - cyy);
       const std::pair<float, float> vector{
@@ -1376,17 +1424,41 @@ auto GpuApriltagDetector::GetRefinedQuads(
           std::sin(angle),
       };
       const Coord<float> centroid{
-          .row = first_moment.row / weight_sum,
-          .col = first_moment.col / weight_sum,
+          .row = origin.row + static_cast<float>(first_moment.row / weight_sum),
+          .col = origin.col + static_cast<float>(first_moment.col / weight_sum),
       };
       vectors.push_back(vector);
       centroids.push_back(centroid);
+    }
+    // Unverified candidates may have missing edges or degenerate line fits.
+    // Preserve the original quad when refinement cannot produce a valid one.
+    if (vectors.size() != 4) {
+      refined_quads.push_back(original_quads[refined_quads.size()]);
+      continue;
     }
     Quad quad;
     for (size_t i = 0; i < quad.corners.size(); i++) {
       quad.corners[(i + 1) % quad.corners.size()] = GetIntersection(
           centroids[i], vectors[i], centroids[(i + 1) % quad.corners.size()],
           vectors[(i + 1) % quad.corners.size()]);
+    }
+    bool valid = true;
+    float winding = 0;
+    for (size_t i = 0; i < quad.corners.size(); ++i) {
+      const auto& a = quad.corners[i];
+      const auto& b = quad.corners[(i + 1) % 4];
+      const auto& c = quad.corners[(i + 2) % 4];
+      const float cross = static_cast<float>(b.row - a.row) * (c.col - b.col) -
+                          static_cast<float>(b.col - a.col) * (c.row - b.row);
+      if (a.row < 0 || a.col < 0 || cross == 0 ||
+          (i != 0 && cross * winding <= 0)) {
+        valid = false;
+        break;
+      }
+      winding = cross;
+    }
+    if (!valid) {
+      quad = original_quads[refined_quads.size()];
     }
     refined_quads.push_back(quad);
   }
@@ -1501,6 +1573,23 @@ auto GpuApriltagDetector::DetectAprilTag(
             quad_apriltag_view_);
   }
 
+  // Refine all candidate quads before sampling their bits. Failed decodes
+  // must have the same opportunity for edge refinement as successful tags.
+  refined_points_ = GetRefinedPoints(quads_, apriltag);
+
+  if (!output_directory.empty()) {
+    memcpy(refined_points_apriltag_buffer_,
+           sorted_boundary_segmented_apriltag_buffer_,
+           sizeof(uint8_t) * apriltag.width * apriltag.height);
+    PopulateRefinedPointsApriltag(refined_points_,
+                                  refined_points_apriltag_view_);
+    ImWrite((output_directory / "refined_points_apriltag.png").string(),
+            refined_points_apriltag_view_);
+  }
+
+  refined_quads_ = GetRefinedQuads(refined_points_, quads_);
+  quads_ = refined_quads_;
+
   bit_locations_ =
       GetBitLocationsHomography(quads_, apriltag.width, apriltag.height);
   // bit_locations_ = GetBitLocations(quads_);
@@ -1524,46 +1613,19 @@ auto GpuApriltagDetector::DetectAprilTag(
     }
   }
 
-  refined_points_ = GetRefinedPoints(detections_, apriltag);
-
-  if (!output_directory.empty()) {
-    memcpy(refined_points_apriltag_buffer_,
-           sorted_boundary_segmented_apriltag_buffer_,
-           sizeof(uint8_t) * apriltag.width * apriltag.height);
-    PopulateRefinedPointsApriltag(refined_points_,
-                                  refined_points_apriltag_view_);
-    ImWrite((output_directory / "refined_points_apriltag.png").string(),
-            refined_points_apriltag_view_);
-  }
-
-  refined_quads_ = GetRefinedQuads(refined_points_);
-
-  std::vector<ApriltagDetection> refined_detections;
-  size_t refined_index = 0;
-  for (int& i : tag_ids) {
-    if (i != -1) {
-      refined_detections.emplace_back(refined_quads_[refined_index], i);
-      ++refined_index;
-    }
-  }
-
-  return refined_detections;
+  return detections_;
 }
 
 void GpuApriltagDetector::CreateCudaGraph() {
-  cudaStream_t stream;
-
-  CHECK(cudaStreamCreate(&stream) == cudaSuccess);
-  CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal) ==
+  CHECK(cudaStreamBeginCapture(stream_, cudaStreamCaptureModeGlobal) ==
         cudaSuccess);
 
-  PopulateMinMaxGPU(graph_input_view_, min_view_, max_view_, stream);
+  PopulateMinMaxGPU(graph_input_view_, min_view_, max_view_, stream_);
   PopulateThresholdValidGPU(graph_input_view_, min_view_, max_view_,
-                            binarized_apriltag_view_, stream);
-  PopulateSegmentedApriltagGPU(binarized_apriltag_view_, dsu_view_, stream);
+                            binarized_apriltag_view_, stream_);
+  PopulateSegmentedApriltagGPU(binarized_apriltag_view_, dsu_view_, stream_);
 
-  CHECK(cudaStreamEndCapture(stream, &graph_) == cudaSuccess);
-  CHECK(cudaStreamDestroy(stream) == cudaSuccess);
+  CHECK(cudaStreamEndCapture(stream_, &graph_) == cudaSuccess);
 
   CHECK(cudaGraphInstantiate(&graph_exec_, graph_, 0) == cudaSuccess);
 }

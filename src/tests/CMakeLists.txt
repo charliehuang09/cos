@@ -18,6 +18,7 @@ target_link_libraries(nvidia_apriltag_detector_node_test PRIVATE
   nvjpeg_fd_decode_node
   nvjpeg_decode_node
   control_loop
+  gpu_apriltag_detector_lib
   thread_pool
   stop
   jpeg_disk_camera
