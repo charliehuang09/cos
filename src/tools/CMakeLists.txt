@@ -1,5 +1,7 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools")
 
+add_subdirectory(path_camera_sim)
+
 add_executable(uvc_logger)
 target_sources(uvc_logger
   PRIVATE
