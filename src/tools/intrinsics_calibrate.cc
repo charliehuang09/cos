@@ -75,29 +75,19 @@ auto HasEnoughCorners(const DetectionResult& result) -> bool {
          !result.object_points.empty();
 }
 
-auto IntrinsicsToJson(const cv::Mat& camera_matrix, const cv::Mat& dist_coeffs)
+auto IntrinsicsToJson(const cv::Matx33d& camera_matrix,
+                      const cv::Vec<double, 5>& dist_coeffs)
     -> json {
-  CHECK_EQ(camera_matrix.rows, 3);
-  CHECK_EQ(camera_matrix.cols, 3);
-
-  cv::Mat coeffs = dist_coeffs.reshape(1, 1);
-  auto coeff = [&coeffs](int index) -> double {
-    if (index >= static_cast<int>(coeffs.total())) {
-      return 0.0;
-    }
-    return coeffs.at<double>(0, index);
-  };
-
   json output;
-  output["fx"] = camera_matrix.at<double>(0, 0);
-  output["cx"] = camera_matrix.at<double>(0, 2);
-  output["fy"] = camera_matrix.at<double>(1, 1);
-  output["cy"] = camera_matrix.at<double>(1, 2);
-  output["k1"] = coeff(0);
-  output["k2"] = coeff(1);
-  output["p1"] = coeff(2);
-  output["p2"] = coeff(3);
-  output["k3"] = coeff(4);
+  output["fx"] = camera_matrix(0, 0);
+  output["cx"] = camera_matrix(0, 2);
+  output["fy"] = camera_matrix(1, 1);
+  output["cy"] = camera_matrix(1, 2);
+  output["k1"] = dist_coeffs[0];
+  output["k2"] = dist_coeffs[1];
+  output["p1"] = dist_coeffs[2];
+  output["p2"] = dist_coeffs[3];
+  output["k3"] = dist_coeffs[4];
   return output;
 }
 
@@ -155,8 +145,9 @@ auto DrawDetectionResult(const cv::Mat& frame,
 }
 
 auto CalibrateCamera(const std::vector<DetectionResult>& detection_results,
-                     cv::Size image_size, cv::Mat* camera_matrix,
-                     cv::Mat* dist_coeffs) -> std::optional<double> {
+                     cv::Size image_size, cv::Matx33d* camera_matrix,
+                     cv::Vec<double, 5>* dist_coeffs)
+    -> std::optional<double> {
   std::vector<std::vector<cv::Point2f>> all_image_points;
   std::vector<std::vector<cv::Point3f>> all_object_points;
 
@@ -191,8 +182,8 @@ auto DecodeJpeg(const camera::JpegBuffer& jpeg_buffer) -> cv::Mat {
   return cv::imdecode(encoded, cv::IMREAD_COLOR);
 }
 
-auto WriteIntrinsicsToFile(const cv::Mat& camera_matrix,
-                           const cv::Mat& dist_coeffs,
+auto WriteIntrinsicsToFile(const cv::Matx33d& camera_matrix,
+                           const cv::Vec<double, 5>& dist_coeffs,
                            const std::string& path) -> void {
   std::ofstream intrinsics_file(path);
   CHECK(intrinsics_file.is_open()) << "Failed to open " << path;
@@ -408,8 +399,8 @@ auto main(int argc, char* argv[]) -> int {
   std::cout << "Calibrating with " << results_snapshot.size()
             << " captured frames" << std::endl;
 
-  cv::Mat camera_matrix;
-  cv::Mat dist_coeffs;
+  cv::Matx33d camera_matrix = cv::Matx33d::eye();
+  cv::Vec<double, 5> dist_coeffs{};
   std::optional<double> reprojection_error =
       CalibrateCamera(results_snapshot, image_size, &camera_matrix,
                       &dist_coeffs);

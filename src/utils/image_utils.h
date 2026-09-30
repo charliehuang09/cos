@@ -1,6 +1,6 @@
 #pragma once
 
-#include <opencv4/opencv2/core/mat.hpp>
+#include <opencv2/core/mat.hpp>
 #include <optional>
 #include <vector>
 
@@ -15,13 +15,13 @@ void HSVThreshold(const cv::Mat& bgr_image, int minimum_hue, int maximum_hue,
 
 [[nodiscard]] auto DistortedPinholePointOffset(
     const cv::Point2f& point, float world_relative_vertical,
-    const cv::Matx44f& camera_extrinsics_cv,
-    const cv::Matx33f& camera_intrinsics) -> std::optional<frc::Translation2d>;
+    const cv::Matx44d& camera_extrinsics_cv,
+    const cv::Matx33d& camera_intrinsics) -> std::optional<frc::Translation2d>;
 
 // Takes in points in the focal-length-normalized format used by cv::undistortPoints. If points aren't undistorted, use DistortedPinholePointOffset instead
 [[nodiscard]] auto UndistortedPinholePointOffset(
     const cv::Point2f& point, float world_relative_vertical,
-    const cv::Matx44f& camera_extrinsics_cv)
+    const cv::Matx44d& camera_extrinsics_cv)
     -> std::optional<frc::Translation2d>;
 
 }  // namespace utils
