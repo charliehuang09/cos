@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -154,6 +155,8 @@ FieldRenderer::FieldRenderer(const std::filesystem::path& field_directory,
   const auto [scene, binary] = ReadGlb(field_directory / "model.glb");
   const float length = config.at("widthInches").get<float>() * 0.0254f;
   const float width = config.at("heightInches").get<float>() * 0.0254f;
+  field_length_ = length;
+  field_width_ = width;
   Matrix field_to_world = Matrix::Identity();
   field_to_world(0, 0) = -1;
   field_to_world(1, 1) = -1;
@@ -184,8 +187,7 @@ FieldRenderer::FieldRenderer(const std::filesystem::path& field_directory,
   };
   std::function<void(size_t, const Matrix&)> visit = [&](size_t index, const Matrix& parent) {
     const auto& node = nodes.at(index);
-    // BOS removes the staged Fuel and adds only explicitly configured pieces.
-    if (node.value("name", std::string{}).starts_with("GE-26900: Fuel")) return;
+    const bool is_fuel = node.value("name", std::string{}).starts_with("GE-26900: Fuel");
     const Matrix model = parent * NodeTransform(node);
     if (node.contains("mesh")) {
       for (const auto& primitive : meshes.at(node.at("mesh").get<size_t>()).at("primitives")) {
@@ -208,7 +210,8 @@ FieldRenderer::FieldRenderer(const std::filesystem::path& field_directory,
                   .transparent = material.value("alphaMode", std::string("OPAQUE")) == "BLEND"};
         if (draw.index_type != GL_UNSIGNED_SHORT && draw.index_type != GL_UNSIGNED_INT)
           throw std::runtime_error("Unsupported GLB index type");
-        draws_.push_back(std::move(draw));
+        if (is_fuel) staged_fuel_draws_.push_back(std::move(draw));
+        else draws_.push_back(std::move(draw));
       }
     }
     for (const auto& child : node.value("children", Json::array())) {
@@ -220,6 +223,9 @@ FieldRenderer::FieldRenderer(const std::filesystem::path& field_directory,
     visit(root.get<size_t>(), field_to_world);
   }
   if (draws_.empty()) throw std::runtime_error("Field GLB has no meshes");
+  const size_t expected_fuel = config.at("gamePieces").at(0).at("stagedObjects").size();
+  if (staged_fuel_draws_.size() != expected_fuel)
+    throw std::runtime_error("Staged Fuel mesh count does not match field config");
 
   const float w = image_size.width;
   const float h = image_size.height;
@@ -280,6 +286,37 @@ FieldRenderer::FieldRenderer(const std::filesystem::path& field_directory,
   glViewport(0, 0, image_size.width, image_size.height);
 }
 
+void FieldRenderer::SetFuelLayout(double entropy, uint32_t seed) {
+  if (!std::isfinite(entropy) || entropy < 0.0 || entropy > 1.0)
+    throw std::runtime_error("Fuel entropy must be between 0 and 1");
+  active_fuel_draws_.clear();
+  fuel_positions_.clear();
+  std::mt19937 random(seed);
+  std::uniform_real_distribution<double> removal_score(0.0, 1.0);
+  std::normal_distribution<double> displacement(0.0, 2.0);
+  for (const Draw& staged : staged_fuel_draws_) {
+    const double score = removal_score(random);
+    const double offset_x = displacement(random);
+    const double offset_y = displacement(random);
+    if (score < entropy * 0.5) continue;
+    Draw fuel = staged;
+    if (entropy > 0.0) {
+      fuel.model(0, 3) = std::clamp(
+          static_cast<double>(fuel.model(0, 3)) + entropy * offset_x,
+          0.075, static_cast<double>(field_length_) - 0.075);
+      fuel.model(1, 3) = std::clamp(
+          static_cast<double>(fuel.model(1, 3)) + entropy * offset_y,
+          0.075, static_cast<double>(field_width_) - 0.075);
+    }
+    fuel_positions_.push_back({fuel.model(0, 3), fuel.model(1, 3), fuel.model(2, 3)});
+    active_fuel_draws_.push_back(std::move(fuel));
+  }
+}
+
+auto FieldRenderer::FuelPositions() const -> const std::vector<std::array<double, 3>>& {
+  return fuel_positions_;
+}
+
 FieldRenderer::~FieldRenderer() {
   if (display_ == EGL_NO_DISPLAY) return;
   if (context_ != EGL_NO_CONTEXT) {
@@ -323,8 +360,14 @@ auto FieldRenderer::Render(const Eigen::Matrix4d& world_to_camera) -> cv::Mat {
   for (const auto& draw : draws_) {
     if (!draw.transparent) draw_one(draw);
   }
+  for (const auto& draw : active_fuel_draws_) {
+    if (!draw.transparent) draw_one(draw);
+  }
   std::vector<const Draw*> transparent;
   for (const auto& draw : draws_) {
+    if (draw.transparent) transparent.push_back(&draw);
+  }
+  for (const auto& draw : active_fuel_draws_) {
     if (draw.transparent) transparent.push_back(&draw);
   }
   std::sort(transparent.begin(), transparent.end(), [&](const Draw* a, const Draw* b) {

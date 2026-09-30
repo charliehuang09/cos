@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -6,6 +7,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <Eigen/Core>
@@ -31,6 +33,9 @@ ABSL_FLAG(std::string, field_dir, "constants/field-cad",
           "AdvantageScope field model directory");
 ABSL_FLAG(std::string, output_dir, "sim-output", "Directory for rendered PNGs");
 ABSL_FLAG(bool, apply_distortion, true, "Apply camera lens distortion");
+ABSL_FLAG(double, fuel_entropy, -1.0,
+          "Render staged Fuel and a second layout at this entropy (0 to 1)");
+ABSL_FLAG(uint32_t, fuel_seed, 0, "Seed for the entropic Fuel layout");
 
 namespace {
 
@@ -139,36 +144,62 @@ void Run() {
   const auto field_dir = absl::GetFlag(FLAGS_field_dir);
   path_camera_sim::FieldRenderer renderer(field_dir, image_size, camera_matrix);
   const std::filesystem::path output_dir(absl::GetFlag(FLAGS_output_dir));
-  std::filesystem::create_directories(output_dir);
-  nlohmann::json manifest = {
+  const double entropy = absl::GetFlag(FLAGS_fuel_entropy);
+  if (entropy != -1.0 && (!std::isfinite(entropy) || entropy < 0.0 || entropy > 1.0)) {
+    throw std::runtime_error("--fuel_entropy must be between 0 and 1");
+  }
+  std::vector<std::pair<std::string, double>> layouts;
+  if (entropy == -1.0) layouts.emplace_back("", -1.0);
+  else {
+    layouts.emplace_back("rigid", 0.0);
+    layouts.emplace_back("entropic", entropy);
+  }
+  for (const auto& [name, layout_entropy] : layouts) {
+    if (layout_entropy >= 0.0) {
+      renderer.SetFuelLayout(layout_entropy, absl::GetFlag(FLAGS_fuel_seed));
+    }
+    const auto layout_dir = name.empty() ? output_dir : output_dir / name;
+    std::filesystem::create_directories(layout_dir);
+    nlohmann::json manifest = {
       {"camera_config", camera_path},
       {"poses", poses_path},
       {"field_model", (std::filesystem::path(field_dir) / "model.glb").string()},
       {"resolution", {image_size.width, image_size.height}},
       {"frames", nlohmann::json::array()}};
-  for (size_t index = 0; index < poses.size(); ++index) {
-    const auto& item = poses.at(index);
-    const frc::Pose3d pose = ReadPose(item);
-    cv::Mat image = renderer.Render(CameraWorldToOpenCv(pose, camera_to_robot));
-    if (!map_x.empty()) {
-      cv::Mat distorted;
-      cv::remap(image, distorted, map_x, map_y, cv::INTER_LINEAR,
-                cv::BORDER_CONSTANT);
-      image = std::move(distorted);
+    if (layout_entropy >= 0.0) {
+      manifest["fuel_entropy"] = layout_entropy;
+      manifest["fuel_seed"] = absl::GetFlag(FLAGS_fuel_seed);
+      manifest["gamepieces"] = nlohmann::json::array();
+      for (const auto& position : renderer.FuelPositions()) {
+        manifest["gamepieces"].push_back(
+            {{"type", "Fuel"}, {"translation_m", position}});
+      }
     }
-    std::ostringstream filename;
-    filename << "frame_" << std::setw(6) << std::setfill('0') << index << ".png";
-    const auto path = output_dir / filename.str();
-    if (!cv::imwrite(path.string(), image)) {
-      throw std::runtime_error("Cannot write " + path.string());
+    for (size_t index = 0; index < poses.size(); ++index) {
+      const auto& item = poses.at(index);
+      const frc::Pose3d pose = ReadPose(item);
+      cv::Mat image = renderer.Render(CameraWorldToOpenCv(pose, camera_to_robot));
+      if (!map_x.empty()) {
+        cv::Mat distorted;
+        cv::remap(image, distorted, map_x, map_y, cv::INTER_LINEAR,
+                  cv::BORDER_CONSTANT);
+        image = std::move(distorted);
+      }
+      std::ostringstream filename;
+      filename << "frame_" << std::setw(6) << std::setfill('0') << index << ".png";
+      const auto path = layout_dir / filename.str();
+      if (!cv::imwrite(path.string(), image)) {
+        throw std::runtime_error("Cannot write " + path.string());
+      }
+      manifest["frames"].push_back({{"file", filename.str()},
+                                     {"robot_pose", item}});
     }
-    manifest["frames"].push_back({{"file", filename.str()},
-                                   {"robot_pose", item}});
+    std::ofstream output(layout_dir / "manifest.json");
+    if (!output) throw std::runtime_error("Cannot write manifest.json");
+    output << std::setw(2) << manifest << '\n';
+    std::cout << "Rendered " << poses.size() << " "
+              << (name.empty() ? "field" : name) << " frames to " << layout_dir << '\n';
   }
-  std::ofstream output(output_dir / "manifest.json");
-  if (!output) throw std::runtime_error("Cannot write manifest.json");
-  output << std::setw(2) << manifest << '\n';
-  std::cout << "Rendered " << poses.size() << " frames to " << output_dir << '\n';
 }
 
 }  // namespace

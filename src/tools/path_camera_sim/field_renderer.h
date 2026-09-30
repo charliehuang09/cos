@@ -1,6 +1,8 @@
 #pragma once
 
 #include <filesystem>
+#include <array>
+#include <cstdint>
 #include <vector>
 
 #include <EGL/egl.h>
@@ -20,6 +22,8 @@ class FieldRenderer {
   auto operator=(const FieldRenderer&) -> FieldRenderer& = delete;
 
   auto Render(const Eigen::Matrix4d& world_to_camera) -> cv::Mat;
+  void SetFuelLayout(double entropy, uint32_t seed);
+  auto FuelPositions() const -> const std::vector<std::array<double, 3>>&;
 
  private:
   struct Draw {
@@ -37,6 +41,11 @@ class FieldRenderer {
   cv::Size image_size_;
   Eigen::Matrix4f projection_;
   std::vector<Draw> draws_;
+  std::vector<Draw> staged_fuel_draws_;
+  std::vector<Draw> active_fuel_draws_;
+  std::vector<std::array<double, 3>> fuel_positions_;
+  float field_length_ = 0;
+  float field_width_ = 0;
   EGLDisplay display_ = EGL_NO_DISPLAY;
   EGLSurface surface_ = EGL_NO_SURFACE;
   EGLContext context_ = EGL_NO_CONTEXT;
