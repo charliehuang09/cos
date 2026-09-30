@@ -1270,32 +1270,53 @@ auto GpuApriltagDetector::GetRefinedPoints(const std::vector<Quad>& quads,
       const int count = std::clamp(static_cast<int>(length / 4), 8, 64);
       auto& points = weighted_points[i];
       points.reserve(count);
+      // The two gradient samples are six quarter-pixel steps apart. Sample
+      // each location once, then reuse it for both neighboring gradients.
+      constexpr int sample_gap = 6;
+      constexpr int max_offsets = 33;
+      std::array<float, max_offsets> offsets;
+      std::array<Coord<float>, max_offsets + sample_gap> displacements;
+      int offset_count = 0;
+      for (float offset = -radius; offset <= radius; offset += 0.25f) {
+        offsets[offset_count] = offset;
+        if (offset_count < sample_gap) {
+          displacements[offset_count] = {
+              (offset - 0.75f) * nr, (offset - 0.75f) * nc};
+        }
+        displacements[offset_count + sample_gap] = {
+            (offset + 0.75f) * nr, (offset + 0.75f) * nc};
+        ++offset_count;
+      }
       for (int j = 0; j < count; ++j) {
         // Avoid corners, where gradients from the adjacent edge interfere.
         const float t = 0.1f + 0.8f * (j + 0.5f) / count;
         const float row = a.row + t * dr;
         const float col = a.col + t * dc;
+        std::array<float, max_offsets + sample_gap> samples;
+        std::array<bool, max_offsets + sample_gap> valid;
+        for (int k = 0; k < offset_count + sample_gap; ++k) {
+          const float sample_row = row + displacements[k].row;
+          const float sample_col = col + displacements[k].col;
+          valid[k] = sample_row >= 0 && sample_col >= 0 &&
+                     sample_row < apriltag.height - 1 &&
+                     sample_col < apriltag.width - 1;
+          if (valid[k]) {
+            samples[k] = sample(sample_row, sample_col);
+          }
+        }
         float weight_sum = 0;
         float offset_sum = 0;
-        for (float offset = -radius; offset <= radius; offset += 0.25f) {
-          const float outer_row = row + (offset + 0.75f) * nr;
-          const float outer_col = col + (offset + 0.75f) * nc;
-          const float inner_row = row + (offset - 0.75f) * nr;
-          const float inner_col = col + (offset - 0.75f) * nc;
-          if (std::min(outer_row, inner_row) < 0 ||
-              std::min(outer_col, inner_col) < 0 ||
-              std::max(outer_row, inner_row) >= apriltag.height - 1 ||
-              std::max(outer_col, inner_col) >= apriltag.width - 1) {
+        for (int k = 0; k < offset_count; ++k) {
+          if (!valid[k] || !valid[k + sample_gap]) {
             continue;
           }
-          const float gradient =
-              sample(outer_row, outer_col) - sample(inner_row, inner_col);
+          const float gradient = samples[k + sample_gap] - samples[k];
           if (gradient <= 0) {
             continue;
           }
           const float weight = gradient * gradient;
           weight_sum += weight;
-          offset_sum += offset * weight;
+          offset_sum += offsets[k] * weight;
         }
         if (weight_sum > 0) {
           const float offset = offset_sum / weight_sum;
