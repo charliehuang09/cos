@@ -1,12 +1,15 @@
 #pragma once
 
-#include <cstddef>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <queue>
 #include <thread>
 #include <vector>
+
+namespace {}  // namespace
 
 namespace control_loop {
 
@@ -22,7 +25,7 @@ class ThreadPool {
   ThreadPool(ThreadPool&&) = delete;
   auto operator=(ThreadPool&&) -> ThreadPool& = delete;
 
-  void Submit(std::function<void()> task);
+  void Submit(std::function<void()> task, std::uint64_t priority = 0);
 
   // Stops accepting work, finishes queued tasks, and joins all workers.
   // Calling Shutdown more than once is safe.
@@ -33,9 +36,22 @@ class ThreadPool {
  private:
   void WorkerLoop();
 
+ private:
+  struct Task {
+    std::function<void()> task;
+    std::uint64_t priority;
+  };
+
+  struct Compare {
+    auto operator()(const Task& a, const Task& b) const -> bool {
+      return a.priority < b.priority;
+    }
+  };
+
+ private:
   mutable std::mutex mutex_;
   std::condition_variable work_available_;
-  std::queue<std::function<void()>> tasks_;
+  std::priority_queue<Task, std::vector<Task>, Compare> tasks_;
   std::vector<std::thread> workers_;
   bool accepting_tasks_ = true;
 };

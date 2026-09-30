@@ -8,3 +8,5 @@ bos-logs/
 **/*.png
 **/*.pt
 **/__pycache__/
+.cache
+.idea/

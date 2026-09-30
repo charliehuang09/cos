@@ -9,6 +9,7 @@
 #include <opencv2/core/types.hpp>
 
 #include "control_loop/message.h"
+#include "logging/log_registration.h"
 
 namespace apriltag {
 
@@ -16,7 +17,10 @@ class TagDetections final : public control_loop::IMessage {
  public:
   struct tag_detection {
     int tag_id;
+    // Detector outputs are undistorted, in the original camera pixel
+    // coordinate system.
     std::array<cv::Point2d, 4> corners;
+    LOG_FIELDS(tag_detection, tag_id, corners)
   };
 
   explicit TagDetections(std::vector<tag_detection> detections)
@@ -30,6 +34,7 @@ class TagDetections final : public control_loop::IMessage {
   }
 
   std::vector<tag_detection> tag_detections;
+  LOG_FIELDS(TagDetections, tag_detections)
 };
 
 }  // namespace apriltag

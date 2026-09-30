@@ -9,84 +9,101 @@
 #include <frc/geometry/Rotation3d.h>
 
 #include "absl/log/log.h"
+#include "control_loop/control_loop.h"
+
+namespace {
+
+const std::unordered_set<std::type_index> dependency_messages = {
+    typeid(localization::AmbiguousEstimateMessage)};
+
+auto FilterOffFieldCandidates(localization::ambiguous_estimate_t* estimate)
+    -> bool {
+  const bool first_off_field = localization::PoseOffField(estimate->pos1.pose);
+  if (!estimate->pos2.has_value()) {
+    if (first_off_field) {
+      LOG(WARNING) << "Rejecting physically impossible pose: "
+                   << estimate->pos1;
+    }
+    return !first_off_field;
+  }
+
+  const bool second_off_field =
+      localization::PoseOffField(estimate->pos2->pose);
+  if (first_off_field && second_off_field) {
+    LOG(WARNING) << "Rejecting two physically impossible pose candidates: "
+                 << estimate->pos1 << "; " << *estimate->pos2;
+    return false;
+  }
+  if (first_off_field) {
+    VLOG(1) << "Rejecting physically impossible pose candidate: "
+            << estimate->pos1;
+    estimate->pos1 = std::move(*estimate->pos2);
+    estimate->pos2.reset();
+  } else if (second_off_field) {
+    VLOG(1) << "Rejecting physically impossible pose candidate: "
+            << *estimate->pos2;
+    estimate->pos2.reset();
+  }
+  return true;
+}
+}  // namespace
 
 namespace localization {
+using std::weak_ptr;
 
-UnambiguousSolverNode::UnambiguousSolverNode(
-    std::string_view output_channel,
-    const std::vector<camera_constant_t>& camera_constants,
-    const frc::AprilTagFieldLayout& layout)
+UnambiguousSolverNode::UnambiguousSolverNode(std::string_view output_channel,
+                                             frc::AprilTagFieldLayout layout)
     : output_channel_(output_channel),
-      expected_cameras_(camera_constants.size()) {
-  detection_batch_channels_.reserve(camera_constants.size());
-  multitag_solvers_.reserve(camera_constants.size());
-  for (size_t camera_id = 0; camera_id < camera_constants.size();
-       ++camera_id) {
-    const camera_constant_t& constants = camera_constants[camera_id];
-    const std::string detection_batch_channel =
-        DetectionBatchChannel(constants.name);
-    detection_batch_channels_.push_back(detection_batch_channel);
-    dependencies_.emplace_back(detection_batch_channel,
-                               typeid(apriltag::TagDetections));
-    multitag_solvers_.emplace_back(detection_batch_channel,
-                                   output_channel_, constants.intrinsics_path,
-                                   constants.extrinsics_path, layout);
-  }
-  publications_.emplace_back(output_channel_, typeid(PositionEstimate));
-}
+      layout_(std::move(layout)),
+      publications_({control_loop::MessageDescriptor::Publication<
+          PositionEstimateMessage>(output_channel_)}) {}
 
 void UnambiguousSolverNode::RegisterCallback(
     const std::function<void(const control_loop::Context&)>& callback) {
   callbacks_.push_back(callback);
 }
 
+void UnambiguousSolverNode::AddCamera(std::string_view input_channel,
+                                      const camera::Intrinsics& intrinsics,
+                                      const camera::Extrinsics& extrinsics,
+                                      control_loop::ControlLoop& control_loop) {
+  std::string multitag_output_channel =
+      std::string(input_channel) + ":multitag_solver";
+  auto multitag_solver = std::make_shared<MultiTagSolverNode>(
+      input_channel, multitag_output_channel, intrinsics, extrinsics, layout_);
+  multitag_solver->SetRejectFarTags(reject_far_tags_);
+  multitag_solvers_.push_back(multitag_solver);
+  multi_tag_solver_output_channels_.push_back(multitag_output_channel);
+  control_loop.RegisterNode(multitag_solver);
+  dependencies_.emplace_back(multitag_output_channel, dependency_messages);
+}
+
 auto UnambiguousSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
-    {
-      std::lock_guard lock(solve_mutex_);
-      for (auto it = ready_detection_batches_.begin();
-           it != ready_detection_batches_.end();) {
-        if (it->second.context.expired()) {
-          it = ready_detection_batches_.erase(it);
-        } else {
-          ++it;
-        }
-      }
-      auto [it, inserted] = ready_detection_batches_.try_emplace(
-          context.get(), PendingDetectionBatch{context, 0});
-      (void)inserted;
-      PendingDetectionBatch& pending = it->second;
-      ++pending.count;
-      if (pending.count < expected_cameras_) {
+  return [this](const control_loop::Context& context) -> void {
+    std::scoped_lock lock(solve_mutex_);
+    std::vector<ambiguous_estimate_t*> estimates;
+    for (const auto& multi_tag_solver_output_channel :
+         multi_tag_solver_output_channels_) {
+      if (!context->Exists(multi_tag_solver_output_channel)) {
         return;
       }
-      ready_detection_batches_.erase(context.get());
-
-      std::vector<std::vector<tag_detection_t>> detection_batches;
-      detection_batches.reserve(expected_cameras_);
-      for (const std::string& detection_batch_channel :
-           detection_batch_channels_) {
-        auto* maybe_detection_batch =
-            context->GetMessage<apriltag::TagDetections>(
-                detection_batch_channel);
-        if (maybe_detection_batch == nullptr) {
-          detection_batches.emplace_back();
-          continue;
-        }
-
-        detection_batches.push_back(maybe_detection_batch->tag_detections);
+      auto ambiguous_estimate = context->GetMessage<AmbiguousEstimateMessage>(
+          multi_tag_solver_output_channel);
+      if (ambiguous_estimate == nullptr) {
+        continue;
       }
-
-      auto result = Solve(detection_batches);
-      if (!result.has_value()) {
-        VLOG(1) << "Unambiguous solver produced no position estimate";
-      } else {
-        context->SetMessage(
-            output_channel_,
-            std::make_unique<PositionEstimate>(std::move(*result)));
-      }
+      estimates.push_back(&ambiguous_estimate->estimate);
     }
+    auto result = Solve(estimates, reject_far_tags_);
+    if (result.has_value()) {
+      context->SetMessage(
+          output_channel_,
+          std::make_unique<PositionEstimateMessage>(result.value()));
+    } else {
+      context->SetMessage(output_channel_, nullptr);
+    }
+
     for (const auto& callback : callbacks_) {
       callback(context);
     }
@@ -103,8 +120,15 @@ auto UnambiguousSolverNode::GetPublications() const
   return publications_;
 }
 
-auto UnambiguousSolverNode::Cost(const frc::Pose3d& a,
-                                 const frc::Pose3d& b) -> double {
+void UnambiguousSolverNode::SetRejectFarTags(bool reject_far_tags) {
+  reject_far_tags_ = reject_far_tags;
+  for (const auto& multitag_solver : multitag_solvers_) {
+    multitag_solver->SetRejectFarTags(reject_far_tags);
+  }
+}
+
+auto UnambiguousSolverNode::Cost(const frc::Pose3d& a, const frc::Pose3d& b)
+    -> double {
   const double translation = a.Translation().Distance(b.Translation()).value();
   const frc::Rotation3d delta = a.Rotation().RelativeTo(b.Rotation());
   constexpr double kRotationWeight = 0.1;
@@ -112,12 +136,9 @@ auto UnambiguousSolverNode::Cost(const frc::Pose3d& a,
 }
 
 auto UnambiguousSolverNode::ComputeCost(
-    const std::vector<position_estimate_t>& poses) -> double {
+    const std::vector<solver_estimate_t>& poses) -> double {
   double cost = 0.0;
   for (size_t i = 0; i < poses.size(); ++i) {
-    if (poses[i].invalid) {
-      return 1000.0;
-    }
     for (size_t j = i + 1; j < poses.size(); ++j) {
       cost += Cost(poses[i].pose, poses[j].pose);
     }
@@ -129,7 +150,7 @@ auto UnambiguousSolverNode::ComputeCost(
 }
 
 auto UnambiguousSolverNode::WeightedAveragePose(
-    const std::vector<position_estimate_t>& solutions) -> frc::Pose3d {
+    const std::vector<solver_estimate_t>& solutions) -> frc::Pose3d {
   if (solutions.empty()) {
     return frc::Pose3d{};
   }
@@ -172,15 +193,14 @@ auto UnambiguousSolverNode::WeightedAveragePose(
   qy /= norm;
   qz /= norm;
 
-  return frc::Pose3d{
-      units::meter_t{x}, units::meter_t{y}, units::meter_t{z},
-      frc::Rotation3d{frc::Quaternion{qw, qx, qy, qz}}};
+  return frc::Pose3d{units::meter_t{x}, units::meter_t{y}, units::meter_t{z},
+                     frc::Rotation3d{frc::Quaternion{qw, qx, qy, qz}}};
 }
 
 auto UnambiguousSolverNode::SearchSolutions(
-    const std::vector<ambiguous_estimate_t>& all_pose_estimates, size_t index,
-    std::vector<position_estimate_t>& current_solution,
-    std::vector<position_estimate_t>& best_solution, double& best_cost)
+    const std::vector<ambiguous_estimate_t*>& all_pose_estimates, size_t index,
+    std::vector<solver_estimate_t>& current_solution,
+    std::vector<solver_estimate_t>& best_solution, double& best_cost)
     -> double {
   if (index == all_pose_estimates.size()) {
     const double cost = ComputeCost(current_solution);
@@ -191,14 +211,14 @@ auto UnambiguousSolverNode::SearchSolutions(
     return best_cost;
   }
 
-  const ambiguous_estimate_t& maybe_ambiguous = all_pose_estimates[index];
-  current_solution.push_back(maybe_ambiguous.pos1);
+  const ambiguous_estimate_t* maybe_ambiguous = all_pose_estimates[index];
+  current_solution.push_back(maybe_ambiguous->pos1);
   SearchSolutions(all_pose_estimates, index + 1, current_solution,
                   best_solution, best_cost);
   current_solution.pop_back();
 
-  if (maybe_ambiguous.pos2.has_value()) {
-    current_solution.push_back(*maybe_ambiguous.pos2);
+  if (maybe_ambiguous->pos2.has_value()) {
+    current_solution.push_back(*maybe_ambiguous->pos2);
     SearchSolutions(all_pose_estimates, index + 1, current_solution,
                     best_solution, best_cost);
     current_solution.pop_back();
@@ -216,22 +236,13 @@ auto UnambiguousSolverNode::GetAmbiguousEstimates(
     if (detection_batches[i].empty()) {
       continue;
     }
-    auto estimate =
-        multitag_solvers_[i].AmbiguousSolve(detection_batches[i],
-                                            reject_far_tags);
+    auto estimate = multitag_solvers_[i]->AmbiguousSolve(detection_batches[i],
+                                                         reject_far_tags);
     if (!estimate.has_value()) {
       continue;
     }
 
-    const bool first_off_field = PoseOffField(estimate->pos1.pose);
-    if (estimate->pos2.has_value()) {
-      const bool second_off_field = PoseOffField(estimate->pos2->pose);
-      if (first_off_field && second_off_field) {
-        continue;
-      }
-      estimate->pos1.invalid = first_off_field;
-      estimate->pos2->invalid = second_off_field;
-    } else if (first_off_field) {
+    if (reject_far_tags && !FilterOffFieldCandidates(&*estimate)) {
       continue;
     }
 
@@ -241,37 +252,55 @@ auto UnambiguousSolverNode::GetAmbiguousEstimates(
 }
 
 auto UnambiguousSolverNode::Solve(
-    const std::vector<std::vector<tag_detection_t>>& detection_batches,
-    bool reject_far_tags) -> std::optional<position_estimate_t> {
-  const auto ambiguous_estimates =
-      GetAmbiguousEstimates(detection_batches, reject_far_tags);
-  std::vector<position_estimate_t> best_solution;
-  std::vector<position_estimate_t> current_solution;
+    const std::vector<ambiguous_estimate_t*>& estimates, bool reject_far_tags)
+    -> std::optional<position_estimate_t> {
+  std::vector<ambiguous_estimate_t> filtered_estimates;
+  filtered_estimates.reserve(estimates.size());
+  for (const ambiguous_estimate_t* estimate : estimates) {
+    if (estimate == nullptr) {
+      continue;
+    }
+    filtered_estimates.push_back(*estimate);
+    if (reject_far_tags &&
+        !FilterOffFieldCandidates(&filtered_estimates.back())) {
+      filtered_estimates.pop_back();
+    }
+  }
+
+  std::vector<ambiguous_estimate_t*> filtered_estimate_ptrs;
+  filtered_estimate_ptrs.reserve(filtered_estimates.size());
+  for (ambiguous_estimate_t& estimate : filtered_estimates) {
+    filtered_estimate_ptrs.push_back(&estimate);
+  }
+
+  std::vector<solver_estimate_t> best_solution;
+  std::vector<solver_estimate_t> current_solution;
   double best_cost = std::numeric_limits<double>::infinity();
-  const double cost = SearchSolutions(ambiguous_estimates, 0, current_solution,
-                                      best_solution, best_cost);
+  SearchSolutions(filtered_estimate_ptrs, 0, current_solution, best_solution,
+                  best_cost);
 
   if (best_solution.empty()) {
     return std::nullopt;
   }
-
-  double avg_variance = 0.0;
   std::vector<int> tag_ids;
-  for (const position_estimate_t& estimate : best_solution) {
-    avg_variance += estimate.variance;
+  std::vector<double> distances;
+  for (const solver_estimate_t& estimate : best_solution) {
     tag_ids.insert(tag_ids.end(), estimate.tag_ids.begin(),
                    estimate.tag_ids.end());
+    distances.insert(distances.end(), estimate.distances.begin(),
+                     estimate.distances.end());
   }
-  avg_variance /= static_cast<double>(best_solution.size());
-  const int num_tags = static_cast<int>(tag_ids.size());
-
   position_estimate_t estimate;
+  estimate.num_tags = tag_ids.size();
   estimate.tag_ids = std::move(tag_ids);
   estimate.pose = WeightedAveragePose(best_solution);
-  estimate.variance = avg_variance;
-  estimate.num_tags = num_tags;
-  estimate.loss = cost;
-  prev_pose_estimate_ = estimate;
+  estimate.distances = std::move(distances);
+  if (reject_far_tags && PoseOffField(estimate.pose)) {
+    LOG(WARNING) << "Rejecting physically impossible combined pose: "
+                 << estimate;
+    return std::nullopt;
+  }
+  prev_pose_estimate_.emplace(estimate);
   return estimate;
 }
 

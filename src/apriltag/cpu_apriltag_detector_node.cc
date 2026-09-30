@@ -16,7 +16,8 @@ CpuApriltagDetectorNode::CpuApriltagDetectorNode(
       output_channel_(output_channel),
       thread_pool_(thread_pool),
       dependencies_({{input_channel_, typeid(camera::DecodedImageBuffer)}}),
-      publications_({{output_channel_, typeid(TagDetections)}}) {
+      publications_({control_loop::MessageDescriptor::Publication<
+          TagDetections>(output_channel_)}) {
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
   const nlohmann::json config = nlohmann::json::parse(config_file);
@@ -32,20 +33,29 @@ CpuApriltagDetectorNode::CpuApriltagDetectorNode(
 
 auto CpuApriltagDetectorNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
+  return [this](const control_loop::Context& context) -> void {
+    bool exists;
     const auto* image =
-        context->GetMessage<camera::DecodedImageBuffer>(input_channel_);
-    if (image == nullptr) {
-      return;
-    }
+        context->GetMessage<camera::DecodedImageBuffer>(input_channel_, exists);
+    CHECK(exists);
 
-    thread_pool_.Submit([this, context, image] {
-      auto detections = std::make_unique<TagDetections>(Detect(*image));
-      context->SetMessage(output_channel_, std::move(detections));
+    if (image == nullptr) {
+      context->SetMessage(output_channel_, nullptr);
       for (const auto& callback : callbacks_) {
         callback(context);
       }
-    });
+      return;
+    }
+
+    thread_pool_.Submit(
+        [this, context, image] -> void {
+          auto detections = std::make_unique<TagDetections>(Detect(*image));
+          context->SetMessage(output_channel_, std::move(detections));
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+        },
+        context->id);
   };
 }
 
@@ -53,11 +63,10 @@ auto CpuApriltagDetectorNode::Detect(const camera::DecodedImageBuffer& image)
     -> std::vector<TagDetections::tag_detection> {
   CHECK_EQ(image.data.size(), image.stride * static_cast<size_t>(image.height));
   CHECK_EQ(image.stride, static_cast<size_t>(image.width));
-  std::lock_guard lock(detect_mutex_);
+  std::scoped_lock lock(detect_mutex_);
   auto* pixels = const_cast<uint8_t*>(image.data.data());
   auto results = detector_.Detect(image.width, image.height,
-                                  static_cast<int>(image.stride),
-                                  pixels);
+                                  static_cast<int>(image.stride), pixels);
 
   std::vector<TagDetections::tag_detection> detections;
   detections.reserve(results.size());

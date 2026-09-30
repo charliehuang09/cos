@@ -1,6 +1,7 @@
 #include "control_loop/thread_pool.h"
 
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 
 namespace control_loop {
 
@@ -19,20 +20,23 @@ ThreadPool::~ThreadPool() {
   Shutdown();
 }
 
-void ThreadPool::Submit(std::function<void()> task) {
+void ThreadPool::Submit(std::function<void()> task, std::uint64_t priority) {
   CHECK(task) << "Cannot submit an empty task";
+  if (!accepting_tasks_) {
+    LOG(WARNING) << "Cannot submit work to a stopped thread pool";
+    return;
+  }
 
   {
-    std::lock_guard lock(mutex_);
-    CHECK(accepting_tasks_) << "Cannot submit work to a stopped thread pool";
-    tasks_.push(std::move(task));
+    std::scoped_lock lock(mutex_);
+    tasks_.emplace(std::move(task), priority);
   }
   work_available_.notify_one();
 }
 
 void ThreadPool::Shutdown() {
   {
-    std::lock_guard lock(mutex_);
+    std::scoped_lock lock(mutex_);
     accepting_tasks_ = false;
   }
   work_available_.notify_all();
@@ -46,7 +50,7 @@ void ThreadPool::Shutdown() {
 }
 
 auto ThreadPool::Size() const noexcept -> std::size_t {
-  std::lock_guard lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return workers_.size();
 }
 
@@ -63,7 +67,7 @@ void ThreadPool::WorkerLoop() {
         return;
       }
 
-      task = std::move(tasks_.front());
+      task = tasks_.top().task;
       tasks_.pop();
     }
     task();

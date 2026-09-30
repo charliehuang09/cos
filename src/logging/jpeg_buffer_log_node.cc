@@ -1,7 +1,7 @@
 #include <fstream>
 #include <iostream>
 
-#include "camera/uvc_camera_node.h"
+#include "camera/jpeg_buffer.h"
 #include "logging/jpeg_buffer_log_node.h"
 
 namespace logging {
@@ -17,18 +17,23 @@ JpegBufferLogNode::JpegBufferLogNode(std::string_view input_channel,
 auto JpegBufferLogNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
-    thread_pool_.Submit([this, context]() -> void {
-      auto jpeg_buffer =
-          context->GetMessage<camera::JpegBuffer>(input_channel_);
-      if (jpeg_buffer != nullptr) {
-        std::string output_file_path = folder_path_ + "/" +
-                                       std::to_string(jpeg_buffer->timestamp) +
-                                       ".jpg";
-        std::ofstream out(output_file_path, std::ios::binary);
-        out.write(reinterpret_cast<const char*>(jpeg_buffer->ptr),
-                  jpeg_buffer->size);
-      }
-    });
+    thread_pool_.Submit(
+        [this, context]() -> void {
+          auto jpeg_buffer =
+              context->GetMessage<camera::JpegBuffer>(input_channel_);
+          if (jpeg_buffer != nullptr) {
+            std::string output_file_path =
+                folder_path_ + "/" + std::to_string(jpeg_buffer->timestamp) +
+                ".jpg";
+            std::ofstream out(output_file_path, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(jpeg_buffer->ptr),
+                      jpeg_buffer->size);
+          }
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+        },
+        context->id);
   };
 }
 

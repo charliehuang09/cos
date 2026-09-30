@@ -1,11 +1,15 @@
 #include "camera/nvjpeg_fd_decode_node.h"
 
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 #include <vector>
 
 #include "NvBufSurface.h"
-#include "NvJpegDecoder.h"
+#include "camera/safe_nvjpeg_decoder.h"
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "control_loop/timer.h"
 #include "nvbufsurface.h"
 
@@ -33,65 +37,90 @@ NvjpegFdDecodeNode::NvjpegFdDecodeNode(std::string_view input_path,
       output_path_(output_path),
       thread_pool_(thread_pool),
       dependencies_({{input_path_, typeid(JpegBuffer)}}),
-      publications_({{output_path_, typeid(DecodedJpegFdBuffer)}}) {
-  decoder_ = NvJPEGDecoder::createJPEGDecoder("cos-jpeg-fd-decoder");
+      publications_({control_loop::MessageDescriptor::Publication<
+          DecodedJpegFdBuffer>(output_path_)}) {
+  decoder_ = cos_nvjpeg_create();
   CHECK(decoder_ != nullptr);
-  decoder_->setMemType(NVBUF_MEM_SURFACE_ARRAY);
 }
 
 NvjpegFdDecodeNode::~NvjpegFdDecodeNode() {
-  delete decoder_;
+  cos_nvjpeg_destroy(decoder_);
 }
 
 auto NvjpegFdDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
-    auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
-    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr) {
-      return;
-    }
-
-    thread_pool_.Submit([this, context, jpeg_buffer]() -> void {
-      control_loop::Timer timer;
-      std::unique_ptr<control_loop::IMessage> decoded_buffer =
-          std::make_unique<DecodedJpegFdBuffer>(DecodeJpegBuffer(jpeg_buffer));
-      context->SetMessage(output_path_, std::move(decoded_buffer));
-
-      if (latency_channel_.has_value()) {
-        context->SetMessage(
-            latency_channel_.value(),
-            std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
+    bool exists;
+    auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_, exists);
+    CHECK(exists);
+    // Reject invalid start markers without scheduling decoder work. Other
+    // JPEG errors are handled by the decoder's recovery boundary.
+    const bool invalid_header =
+        jpeg_buffer != nullptr && jpeg_buffer->ptr != nullptr &&
+        (jpeg_buffer->size < 2 || jpeg_buffer->ptr[0] != 0xFFU ||
+         jpeg_buffer->ptr[1] != 0xD8U);
+    if (invalid_header) {
+      std::ostringstream header;
+      header << std::hex << std::setfill('0');
+      for (size_t i = 0; i < std::min(jpeg_buffer->size, size_t{2}); ++i) {
+        if (i != 0) {
+          header << ' ';
+        }
+        header << std::setw(2) << static_cast<unsigned int>(jpeg_buffer->ptr[i]);
       }
+      LOG(WARNING)
+          << "Dropping malformed JPEG on " << input_path_
+          << ": size=" << jpeg_buffer->size << " header="
+          << (header.str().empty() ? "<empty>" : header.str());
+    }
+    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr ||
+        invalid_header) {
+      context->SetMessage(output_path_, nullptr);
       for (const auto& callback : callbacks_) {
         callback(context);
       }
-    });
+      return;
+    }
+
+    thread_pool_.Submit(
+        [this, context, jpeg_buffer]() -> void {
+          control_loop::Timer timer;
+          auto decoded = DecodeJpegBuffer(jpeg_buffer);
+          std::unique_ptr<control_loop::IMessage> decoded_buffer;
+          if (decoded.has_value()) {
+            decoded_buffer =
+                std::make_unique<DecodedJpegFdBuffer>(std::move(*decoded));
+          }
+          context->SetMessage(output_path_, std::move(decoded_buffer));
+
+          if (latency_channel_.has_value()) {
+            context->SetMessage(
+                latency_channel_.value(),
+                std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
+          }
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+        },
+        context->id);
   };
 }
 
 auto NvjpegFdDecodeNode::DecodeJpegBuffer(const JpegBuffer* jpeg_buffer)
-    -> DecodedJpegFdBuffer {
-  std::lock_guard lock(decode_mutex_);
-
-  auto* jpeg_data = static_cast<unsigned char*>(jpeg_buffer->ptr);
-  size_t jpeg_size = jpeg_buffer->size;
-  std::vector<unsigned char> terminated_jpeg;
-  if (jpeg_size < 2U || jpeg_data[jpeg_size - 2U] != 0xFFU ||
-      jpeg_data[jpeg_size - 1U] != 0xD9U) {
-    terminated_jpeg.assign(jpeg_data, jpeg_data + jpeg_size);
-    terminated_jpeg.push_back(0xFFU);
-    terminated_jpeg.push_back(0xD9U);
-    jpeg_data = terminated_jpeg.data();
-    jpeg_size = terminated_jpeg.size();
-  }
+    -> std::optional<DecodedJpegFdBuffer> {
+  std::scoped_lock lock(decode_mutex_);
 
   int decoded_fd = -1;
   uint32_t pixel_format = 0;
   uint32_t width = 0;
   uint32_t height = 0;
-  CHECK_EQ(decoder_->decodeToFd(decoded_fd, jpeg_data, jpeg_size, pixel_format,
-                                width, height),
-           0);
+  if (cos_nvjpeg_decode(decoder_, jpeg_buffer->ptr, jpeg_buffer->size,
+                        &decoded_fd, &pixel_format, &width, &height) != 0) {
+    LOG(WARNING)
+        << "Dropping undecodable JPEG on " << input_path_
+        << ": size=" << jpeg_buffer->size << ": " << cos_nvjpeg_error(decoder_);
+    return std::nullopt;
+  }
 
   NvBufSurface* decoded_surface = nullptr;
   CHECK_EQ(NvBufSurfaceFromFd(decoded_fd,
@@ -150,8 +179,8 @@ auto NvjpegFdDecodeNode::GetPublications() const
 }
 
 void NvjpegFdDecodeNode::EnableTiming(std::string_view latency_channel) {
-  publications_.emplace_back(latency_channel,
-                             typeid(control_loop::LatencyMessage));
+  publications_.push_back(control_loop::MessageDescriptor::Publication<
+                          control_loop::LatencyMessage>(latency_channel));
   latency_channel_ = latency_channel;
 }
 

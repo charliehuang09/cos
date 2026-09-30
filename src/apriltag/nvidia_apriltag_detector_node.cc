@@ -1,11 +1,10 @@
 #include "apriltag/nvidia_apriltag_detector_node.h"
 
-#include "NvBufSurface.h"
 #include "absl/log/check.h"
+#include "control_loop/timer.h"
 #include "nvbufsurface.h"
 
 #include <vpi/Array.h>
-#include <vpi/Context.h>
 #include <vpi/Image.h>
 #include <vpi/Stream.h>
 
@@ -17,6 +16,7 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
+#include <opencv2/calib3d.hpp>
 
 namespace apriltag {
 using control_loop::Context;
@@ -29,22 +29,24 @@ auto CheckCuda(cudaError_t status) -> void {
 
 }  // namespace
 
-static const VPIAprilTagDecodeParams params = {                 // NOLINT
-    NULL, 0, 1,                                                 // NOLINT
-    VPIAprilTagFamily::VPI_APRILTAG_36H11};                     // NOLINT
-static const VPIBackend backend = VPIBackend::VPI_BACKEND_PVA;  // NOLINT
+static const VPIAprilTagDecodeParams params = {  // NOLINT
+    NULL, 0, 1,                                  // NOLINT
+    VPIAprilTagFamily::VPI_APRILTAG_36H11};      // NOLINT
 static const int max_detections = 64;
 
 NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
     std::string_view input_channel, std::string_view output_channel,
-    std::string_view config_path, control_loop::ThreadPool& thread_pool)
+    std::string_view config_path, control_loop::ThreadPool& thread_pool,
+    bool PVA)
     : input_channel_(input_channel),
       output_channel_(output_channel),
       thread_pool_(thread_pool),
       dependencies_({{input_channel_,
                       {typeid(camera::DecodedJpegBuffer),
                        typeid(camera::DecodedJpegFdBuffer)}}}),
-      publications_({{output_channel_, typeid(TagDetections)}}) {
+      publications_({control_loop::MessageDescriptor::Publication<
+          TagDetections>(output_channel_)}),
+      backend_(PVA ? VPI_BACKEND_PVA : VPI_BACKEND_CPU) {
   std::ifstream config_file{std::string(config_path)};
   CHECK(config_file.is_open()) << "Failed to open config: " << config_path;
   const nlohmann::json config = nlohmann::json::parse(config_file);
@@ -53,20 +55,17 @@ NvidiaApriltagDetectorNode::NvidiaApriltagDetectorNode(
   CHECK(width_ > 0);
   CHECK(height_ > 0);
 
-  CHECK(!vpiContextCreate(backend | VPI_BACKEND_CPU, &context_));
-  CHECK(!vpiContextSetCurrent(context_));
-
-  CHECK(
-      !vpiCreateAprilTagDetector(backend, width_, height_, &params, &payload_));
+  CHECK(!vpiCreateAprilTagDetector(backend_, width_, height_, &params,
+                                   &payload_));
 
   CHECK(!vpiArrayCreate(max_detections, VPI_ARRAY_TYPE_APRILTAG_DETECTION, 0,
                         &detections_));
   // This detector only submits work to PVA. Enabling every stream backend also
   // initializes VPI's CUDA/EGL stack, whose process-exit finalizers conflict
   // with the CUDA context used by nvJPEG on Jetson.
-  CHECK(!vpiStreamCreate(backend | VPI_BACKEND_CPU, &stream_));
+  CHECK(!vpiStreamCreate(backend_ | VPI_BACKEND_CPU, &stream_));
   CHECK(!vpiImageCreate(width_, height_, VPI_IMAGE_FORMAT_U8,
-                        backend | VPI_BACKEND_CPU, &input_));
+                        backend_ | VPI_BACKEND_CPU, &input_));
 }
 
 NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
@@ -83,15 +82,10 @@ NvidiaApriltagDetectorNode::~NvidiaApriltagDetectorNode() {
   if (payload_ != nullptr) {
     vpiPayloadDestroy(payload_);
   }
-  if (context_ != nullptr) {
-    vpiContextDestroy(context_);
-  }
 }
 
 void NvidiaApriltagDetectorNode::WarmUp() {
-  std::lock_guard lock(detect_mutex_);
-  CHECK(!vpiContextPush(context_));
-
+  std::scoped_lock lock(detect_mutex_);
   VPIImageData image_data{};
   CHECK(!vpiImageLockData(input_, VPI_LOCK_WRITE,
                           VPI_IMAGE_BUFFER_HOST_PITCH_LINEAR, &image_data));
@@ -104,13 +98,10 @@ void NvidiaApriltagDetectorNode::WarmUp() {
   }
   CHECK(!vpiImageUnlock(input_));
 
-  CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
-                                   input_, detections_));
+  CHECK_EQ(vpiSubmitAprilTagDetector(stream_, backend_, payload_,
+                                     max_detections, input_, detections_),
+           VPI_SUCCESS);
   CHECK(!vpiStreamSync(stream_));
-
-  VPIContext popped_context = nullptr;
-  CHECK(!vpiContextPop(&popped_context));
-  CHECK(popped_context == context_);
 }
 
 auto NvidiaApriltagDetectorNode::CreateCallback()
@@ -121,24 +112,34 @@ auto NvidiaApriltagDetectorNode::CreateCallback()
 }
 
 void NvidiaApriltagDetectorNode::Callback(const Context& context) {
+  CHECK(context->Exists(input_channel_));
   auto* cuda_buffer =
       context->GetMessage<camera::DecodedJpegBuffer>(input_channel_);
   auto* fd_buffer =
       context->GetMessage<camera::DecodedJpegFdBuffer>(input_channel_);
   if (cuda_buffer == nullptr && fd_buffer == nullptr) [[unlikely]] {
+    for (const auto& callback : callbacks_) {
+      callback(context);
+    }
     return;
   }
   std::function<void()> task = [this, context, cuda_buffer,
                                 fd_buffer]() -> void {
+    control_loop::Timer timer;
     std::unique_ptr<control_loop::IMessage> detections =
         std::make_unique<TagDetections>(
             cuda_buffer != nullptr ? Detect(*cuda_buffer) : Detect(*fd_buffer));
     context->SetMessage(output_channel_, std::move(detections));
+    if (latency_channel_.has_value()) {
+      context->SetMessage(
+          latency_channel_.value(),
+          std::make_unique<control_loop::LatencyMessage>(timer.Stop()));
+    }
     for (const auto& callback : callbacks_) {
       callback(context);
     }
   };
-  thread_pool_.Submit(task);
+  thread_pool_.Submit(task, context->id);
   return;
 }
 
@@ -174,11 +175,10 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
                                             int width, int height,
                                             size_t stride)
     -> std::vector<TagDetections::tag_detection> {
-  std::lock_guard lock(detect_mutex_);
+  std::scoped_lock lock(detect_mutex_);
   CHECK_EQ(width, width_);
   CHECK_EQ(height, height_);
   CHECK_GE(stride, static_cast<size_t>(width));
-  CHECK(!vpiContextPush(context_));
 
   VPIImageData image_data{};
   CHECK(!vpiImageLockData(input_, VPI_LOCK_WRITE,
@@ -194,16 +194,14 @@ auto NvidiaApriltagDetectorNode::DetectGray(const unsigned char* data,
   CHECK(!vpiImageUnlock(input_));
 
   auto detections = Detect(input_);
-  VPIContext popped_context = nullptr;
-  CHECK(!vpiContextPop(&popped_context));
-  CHECK(popped_context == context_);
   return detections;
 }
 
 auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
     -> std::vector<TagDetections::tag_detection> {
-  CHECK(!vpiSubmitAprilTagDetector(stream_, backend, payload_, max_detections,
-                                   image, detections_));
+  CHECK_EQ(vpiSubmitAprilTagDetector(stream_, backend_, payload_,
+                                     max_detections, image, detections_),
+           VPI_SUCCESS);
 
   CHECK(!vpiStreamSync(stream_));
 
@@ -216,14 +214,19 @@ auto NvidiaApriltagDetectorNode::Detect(VPIImage image)
   int num_detections = *detections_data.buffer.aos.sizePointer;
 
   std::vector<TagDetections::tag_detection> detections;
+  detections.reserve(num_detections);
 
   for (int i = 0; i < num_detections; ++i) {
     TagDetections::tag_detection detection;
     detection.tag_id = detections_vpi[i].id;
 
-    for (int j = 0; j < 4; ++j) {
-      detection.corners[j] = cv::Point2f(detections_vpi[i].corners[j].x,
-                                         detections_vpi[i].corners[j].y);
+    std::vector<cv::Point2d> distorted_corners;
+    distorted_corners.reserve(4);
+    for (auto& corner : detections_vpi[i].corners) {
+      distorted_corners.emplace_back(corner.x, corner.y);
+    }
+    for (size_t corner = 0; corner < detection.corners.size(); ++corner) {
+      detection.corners[corner] = distorted_corners[corner];
     }
     detections.push_back(detection);
   }
@@ -241,6 +244,13 @@ auto NvidiaApriltagDetectorNode::GetDependencies() const
 auto NvidiaApriltagDetectorNode::GetPublications() const
     -> const std::vector<control_loop::MessageDescriptor>& {
   return publications_;
+}
+
+void NvidiaApriltagDetectorNode::EnableTiming(
+    std::string_view latency_channel) {
+  publications_.push_back(control_loop::MessageDescriptor::Publication<
+                          control_loop::LatencyMessage>(latency_channel));
+  latency_channel_ = latency_channel;
 }
 
 }  // namespace apriltag

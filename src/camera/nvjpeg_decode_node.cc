@@ -113,7 +113,8 @@ NvjpegDecodeNode::NvjpegDecodeNode(std::string_view input_path,
       output_format_(output_format),
       thread_pool_(thread_pool),
       dependencies_({{input_path_, typeid(JpegBuffer)}}),
-      publications_({{output_path_, typeid(DecodedJpegBuffer)}}) {
+      publications_({control_loop::MessageDescriptor::Publication<
+          DecodedJpegBuffer>(output_path_)}) {
   CheckCuda(cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync));
   CHECK(nvjpegCreateSimple(&handle_) == NVJPEG_STATUS_SUCCESS);
   CHECK(nvjpegDecoderCreate(handle_, NVJPEG_BACKEND_GPU_HYBRID, &decoder_) ==
@@ -168,8 +169,15 @@ NvjpegDecodeNode::~NvjpegDecodeNode() {
 auto NvjpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
-    auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_);
-    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr) {
+    bool exists;
+    auto* jpeg_buffer = context->GetMessage<JpegBuffer>(input_path_, exists);
+    CHECK(exists) << input_path_;
+    if (jpeg_buffer == nullptr || jpeg_buffer->ptr == nullptr ||
+        jpeg_buffer->size == 0U) {
+      context->SetMessage(output_path_, nullptr);
+      for (const auto& callback : callbacks_) {
+        callback(context);
+      }
       return;
     }
 
@@ -190,13 +198,13 @@ auto NvjpegDecodeNode::CreateCallback()
       }
     };
 
-    thread_pool_.Submit(task);
+    thread_pool_.Submit(task, context->id);
   };
 }
 
 auto NvjpegDecodeNode::DecodeJpegBuffer(const JpegBuffer* const jpeg_buffer)
     -> DecodedJpegBuffer {
-  std::lock_guard lock(decode_mutex_);
+  std::scoped_lock lock(decode_mutex_);
 
   int components = 0;
   nvjpegChromaSubsampling_t subsampling = NVJPEG_CSS_UNKNOWN;
@@ -250,8 +258,8 @@ auto NvjpegDecodeNode::GetPublications() const
 }
 
 void NvjpegDecodeNode::EnableTiming(std::string_view latency_channel) {
-  publications_.emplace_back(latency_channel,
-                             typeid(control_loop::LatencyMessage));
+  publications_.push_back(control_loop::MessageDescriptor::Publication<
+                          control_loop::LatencyMessage>(latency_channel));
   latency_channel_ = latency_channel;
 }
 

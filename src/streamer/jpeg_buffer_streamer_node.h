@@ -1,7 +1,8 @@
 #pragma once
 #include <nadjieb/mjpeg_streamer.hpp>
 
-#include "camera/uvc_camera_node.h"
+#include "camera/jpeg_buffer.h"
+#include "control_loop/node.h"
 
 namespace streamer {
 

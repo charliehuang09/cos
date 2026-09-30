@@ -1,12 +1,13 @@
 #include "control_loop/control_loop.h"
 
 #include <chrono>
+#include <exception>
 #include <unordered_set>
 #include <utility>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "control_loop/timer.h"
+#include "logging/wpilog_writer.h"
 
 using namespace std::chrono_literals;
 
@@ -14,53 +15,92 @@ namespace control_loop {
 
 ContextInternal::ContextInternal(std::chrono::steady_clock::time_point start,
                                  ControlLoop* control_loop,
-                                 std::stop_token stop_token,
-                                 std::atomic<bool>* destructed)
+                                 std::stop_token stop_token, std::uint64_t id,
+                                 std::shared_ptr<logging::WPILogWriter> writer)
     : start(start),
       control_loop(control_loop),
       stop_token(std::move(stop_token)),
-      destructed(destructed) {}
+      id(id),
+      wpilog_writer_(std::move(writer)) {}
 
 ContextInternal::~ContextInternal() {
-  destructed->store(true);
-  destructed->notify_all();
+  if (wpilog_writer_) {
+    try {
+      wpilog_writer_->Log(*this);
+    } catch (const std::exception& error) {
+      LOG(ERROR) << "Failed to write context " << id << " to WPILog: "
+                 << error.what();
+    }
+  }
 }
 
 ControlLoop::ControlLoop(std::chrono::milliseconds period) : period_(period) {}
 
 void ControlLoop::Start() {
   ValidateNodeGraph();
+  if (!wpilog_filename_.empty()) {
+    std::vector<MessageDescriptor> log_publications;
+    const auto collect = [&log_publications](const auto& nodes) {
+      for (const auto& node : nodes) {
+        for (const auto& publication : node->GetPublications()) {
+          // Image payloads retain their original untyped descriptors and are
+          // intentionally excluded. Typed publications have logging metadata.
+          if (publication.GetRegistration().has_value()) {
+            log_publications.push_back(publication);
+          }
+        }
+      }
+    };
+    collect(dependancy_nodes_);
+    collect(nodes_);
+    wpilog_writer_ = std::make_shared<logging::WPILogWriter>(
+        wpilog_filename_, log_publications);
+  }
   RegisterNodeCallbacks();
+
+  contexts_.reserve(max_contexts_);
+  for (size_t i = 0; i < max_contexts_; i++) {
+    contexts_.push_back(nullptr);
+  }
 
   thread_ = std::jthread([this](const std::stop_token& stop_token) -> void {
     while (!stop_token.stop_requested()) {
-      std::stop_source stop_source;
-      std::atomic destructed = false;
+      for (size_t i = 0; i < contexts_.size(); i++) {  // NOLINT
+        if (contexts_[i] == nullptr || contexts_[i].use_count() == 1) {
+          if (contexts_[i] != nullptr && log_latency_) {
+            auto now = std::chrono::steady_clock::now();
+            auto latency =
+                std::chrono::duration<double>(now - contexts_[i]->start);
+            if (contexts_[i]->include_in_perfomance_metrics) {
+              timestamp_queue_.push(now);
+              if (timestamp_queue_.size() > kTimestampQueueMaxSize) {
+                timestamp_queue_.pop();
+                const std::chrono::duration<double> elapsed =
+                    now - timestamp_queue_.front();
+                loops_per_second_ =
+                    static_cast<double>(timestamp_queue_.size() - 1) /
+                    elapsed.count();
+                LOG(INFO) << "Average loops per second: " << loops_per_second_;
+              }
+              LOG(INFO) << "Control loop took " << latency.count() << "s";
+            }
+          }
 
-      Context context(new ContextInternal(std::chrono::steady_clock::now(),
-                                          this, stop_source.get_token(),
-                                          &destructed));
+          std::stop_source stop_source;
+          Context context(new ContextInternal(std::chrono::steady_clock::now(),
+                                              this, stop_source.get_token(),
+                                              ++loop_count_, wpilog_writer_));
+          for (const auto& dependancy : dependencies_) {
+            dependancy(context);
+          }
 
-      for (const auto& dependancy : dependencies_) {
-        dependancy(context);
-      }
-
-      for (const auto& callback : callbacks_) {
-        callback(context);
-      }
-
-      Timer timer;
-      std::this_thread::sleep_for(period_.value_or(0ms));
-      context.reset();
-
-      if (!destructed) {
-        stop_source.request_stop();
-        destructed.wait(false);
-        if (period_.has_value()) {
-          LOG(WARNING) << "Command loop overun! " << timer.Stop().count()
-                       << "s loop";
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+          contexts_[i] = context;
         }
       }
+      std::this_thread::sleep_for(period_);
     }
   });
 }
@@ -70,24 +110,37 @@ void ControlLoop::Stop() {
   if (thread_.joinable()) {
     thread_.join();
   }
+  contexts_.clear();
+  if (wpilog_writer_) {
+    wpilog_writer_->Flush();
+    wpilog_writer_.reset();
+  }
 }
 
 void ControlLoop::RegisterCallback(
-    std::function<void(const Context&)> callback) {
+    const std::function<void(const Context&)>& callback) {
   callbacks_.emplace_back(callback);
 }
 
-void ControlLoop::RegisterDependancy(
-    std::function<void(const Context&)> dependancy) {
+void ControlLoop::RegisterDependency(
+    const std::function<void(const Context&)>& dependancy) {
   dependencies_.emplace_back(dependancy);
 }
 
 void ControlLoop::RegisterNode(const std::shared_ptr<INode>& node) {
   nodes_.emplace_back(node);
 }
-void ControlLoop::RegisterDependancyNode(const std::shared_ptr<INode>& node) {
+void ControlLoop::RegisterDependencyNode(const std::shared_ptr<INode>& node) {
   dependancy_nodes_.emplace_back(node);
   dependencies_.emplace_back(node->CreateCallback());
+}
+
+void ControlLoop::EnableLatencyLog() {
+  log_latency_ = true;
+}
+
+void ControlLoop::EnableWPILog(std::string_view filename) {
+  wpilog_filename_ = filename;
 }
 
 void ControlLoop::ValidateNodeGraph() {
@@ -150,6 +203,14 @@ void ControlLoop::RegisterNodeCallbacks() {
           ->RegisterCallback(node->CreateCallback());
     }
   }
+}
+
+auto ControlLoop::GetLoopsPerSecond() const -> double {
+  return loops_per_second_;
+}
+
+void ControlLoop::SetMaxContext(size_t max_contexts) {
+  max_contexts_ = max_contexts;
 }
 
 }  // namespace control_loop

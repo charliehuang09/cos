@@ -1,6 +1,11 @@
 #include "control_loop/rio_clock.h"
+#include "absl/log/log.h"
 
-#include "frc/Timer.h"
+#include <cstdint>
+#include <limits>
+
+#include "networktables/NetworkTableInstance.h"
+#include "wpi/timestamp.h"
 
 namespace control_loop {
 std::atomic<bool> RioClock::simulation_{false};
@@ -28,7 +33,16 @@ auto RioClock::GetTime() -> double {
     const auto time = std::chrono::steady_clock::now() - start_time_;
     return std::chrono::duration<double>(time).count();
   } else {
-    return frc::Timer::GetFPGATimestamp().to<double>();
+    const auto offset =
+        nt::NetworkTableInstance::GetDefault().GetServerTimeOffset();
+    if (!offset) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    // Both values are microseconds. The offset is signed and can be negative
+    // when translating the Orin's Unix epoch to the roboRIO's FPGA epoch.
+    const auto server_time = static_cast<int64_t>(wpi::Now()) + *offset;
+    const double tmp = static_cast<double>(server_time) / 1'000'000.0;
+    return tmp;
   }
 }
 

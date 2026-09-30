@@ -1,24 +1,20 @@
-if(ENABLE_CLANG_TIDY)
-    set(CMAKE_CXX_CLANG_TIDY
-        clang-tidy;
-        -checks=modernize-*,performance-*;
-        -warnings-as-errors=*;
-    )
-endif()
-
-include_directories(.)
+include_directories(SYSTEM
+  ${CMAKE_SYSROOT}/usr/include/wpimath
+  ${CMAKE_SYSROOT}/usr/include/wpiutil
+  ${CMAKE_SYSROOT}/usr/include/eigen3
+  ${PROJECT_SOURCE_DIR}/third_party/json/include
+)
 
 add_subdirectory(utils)
+add_subdirectory(logging)
 add_subdirectory(control_loop)
 add_subdirectory(apriltag)
 add_subdirectory(camera)
 add_subdirectory(gamepiece)
 add_subdirectory(streamer)
 add_subdirectory(localization)
-add_subdirectory(logging)
 add_subdirectory(tools)
-add_subdirectory(test)
+add_subdirectory(simulation)
+add_subdirectory(tests)
 add_subdirectory(main)
 add_subdirectory(examples)
-
-set(CMAKE_CXX_CLANG_TIDY "")

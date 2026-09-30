@@ -18,7 +18,6 @@
 #include "control_loop/rio_clock.h"
 #include "logging/jpeg_buffer_log_node.h"
 #include "streamer/jpeg_buffer_streamer_node.h"
-#include "utils/cuda.h"
 #include "utils/stop.h"
 
 #include "absl/log/globals.h"
@@ -26,10 +25,9 @@
 ABSL_FLAG(std::string, config_path, "",         // NOLINT
           "path to the uvc config json file");  // NOLINT
 
-ABSL_FLAG(                                                  // NOLINT
-    std::optional<std::string>, stream_path, std::nullopt,  // NOLINT
-    "Path for the stream. eg url is 10.9.71.101:8080/path. No stream if "  // NOLINT
-    "left blank");  // NOLINT
+ABSL_FLAG(                                                     // NOLINT
+    std::string, stream_path, "/stream",                       // NOLINT
+    "Path for the stream. eg url is 10.9.71.101:4971/path.");  // NOLINT
 
 ABSL_FLAG(std::optional<int>, port, std::nullopt,      // NOLINT
           "Streaming port. No stream if left blank");  // NOLINT
@@ -55,7 +53,7 @@ auto main(int argc, char* argv[]) -> int {
 
   auto uvc_camera_node =
       std::make_shared<camera::UVCCameraNode>("jpeg_stream", config);
-  control_loop.RegisterDependancyNode(uvc_camera_node);
+  control_loop.RegisterDependencyNode(uvc_camera_node);
 
   auto nvjpeg_decode_node = std::make_shared<camera::NvjpegDecodeNode>(
       "jpeg_stream", "decoded_buffer", NVJPEG_OUTPUT_BGRI, thread_pool);
@@ -72,11 +70,10 @@ auto main(int argc, char* argv[]) -> int {
     control_loop.RegisterNode(jpeg_buffer_logger_node);
   }
 
-  if (absl::GetFlag(FLAGS_stream_path).has_value() &&
-      absl::GetFlag(FLAGS_port).has_value()) {
+  if (absl::GetFlag(FLAGS_port).has_value()) {
     auto jpeg_buffer_streamer_node =
         std::make_shared<streamer::JpegBufferStreamerNode>(
-            "jpeg_stream", absl::GetFlag(FLAGS_stream_path).value(),
+            "jpeg_stream", absl::GetFlag(FLAGS_stream_path),
             absl::GetFlag(FLAGS_port).value());
     control_loop.RegisterNode(jpeg_buffer_streamer_node);
   }

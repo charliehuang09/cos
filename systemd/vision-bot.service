@@ -1,0 +1,13 @@
+[Unit]
+Description=vision-bot
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/root/main/vision_bot_main --nopva_detection --max_context=2
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

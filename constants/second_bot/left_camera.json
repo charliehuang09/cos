@@ -1,0 +1,31 @@
+{
+  "name": "left",
+  "camera_type": "uvc",
+  "serial_id": "secondleft",
+  "height": 800,
+  "width": 1280,
+  "fps": 120,
+  "exposure_time_ms": 157,
+  "auto_exposure": true,
+  "max_payload_size": 1600,
+  "max_frame_size": 2048589,
+  "extrinsics": {
+    "translation_x": 0.2897,
+    "translation_y": 0.3608,
+    "translation_z": 0.3434,
+    "rotation_x": 0.0,
+    "rotation_y": -15.0,
+    "rotation_z": 45.0
+  },
+  "intrinsics": {
+    "cx": 640.38332,
+    "cy": 420.39068,
+    "fx": 895.53685,
+    "fy": 896.28255,
+    "k1": 0.042990,
+    "k2": −0.091597,
+    "k3": 0.042153,
+    "p1": 0.003594,
+    "p2": 0.000582
+  }
+}

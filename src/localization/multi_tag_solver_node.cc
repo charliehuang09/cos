@@ -1,37 +1,34 @@
 #include "localization/multi_tag_solver_node.h"
 
+#include <cmath>
 #include <numbers>
+#include <string>
 #include <utility>
 
 #include <opencv2/calib3d.hpp>
 
 #include "absl/log/log.h"
-#include "utils/camera_config.h"
 #include "utils/cv_geometry.h"
-#include "utils/json.h"
 
 namespace localization {
 
 MultiTagSolverNode::MultiTagSolverNode(
     std::string_view input_channel, std::string_view output_channel,
-    const std::string& intrinsics_path, const std::string& extrinsics_path,
+    const camera::Intrinsics& intrinsics, const camera::Extrinsics& extrinsics,
     const frc::AprilTagFieldLayout& layout,
     const std::vector<cv::Point3d>& tag_corners)
     : input_channel_(input_channel),
       output_channel_(output_channel),
-      camera_matrix_(
-          utils::CameraMatrixFromJson(utils::ReadJson(intrinsics_path))),
-      distortion_coefficients_(utils::DistortionCoefficientsFromJson(
-          utils::ReadJson(intrinsics_path))),
+      camera_matrix_(intrinsics.ToMatrix()),
+      distortion_coefficients_(intrinsics.ToDistortionCoefficients()),
       camera_to_robot_(utils::Transform3dToCvMat(
-          utils::ExtrinsicsJsonToCameraToRobot(
-              utils::ReadJson(extrinsics_path)))),
-      single_tag_solver_(input_channel, output_channel, intrinsics_path,
-                         extrinsics_path, layout, tag_corners),
+          extrinsics.ToCameraToRobot<frc::Transform3d>())),
+      single_tag_solver_(input_channel, output_channel, intrinsics, extrinsics,
+                         layout, tag_corners),
       dependencies_({control_loop::MessageDescriptor(
           input_channel_, typeid(apriltag::TagDetections))}),
-      publications_({control_loop::MessageDescriptor(
-          output_channel_, typeid(AmbiguousEstimateMessage))}) {
+      publications_({control_loop::MessageDescriptor::Publication<
+          AmbiguousEstimateMessage>(output_channel_)}) {
   cv::Mat rvec = (cv::Mat_<double>(3, 1) << 0, std::numbers::pi, 0);
   cv::Mat tvec = (cv::Mat_<double>(3, 1) << 0, 0, 0);
   cv::Mat rotate_z = utils::MakeTransform(rvec, tvec);
@@ -58,7 +55,7 @@ void MultiTagSolverNode::RegisterCallback(
 
 auto MultiTagSolverNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
+  return [this](const control_loop::Context& context) -> void {
     auto notify_callbacks = [this, &context]() -> void {
       for (const auto& callback : callbacks_) {
         callback(context);
@@ -68,19 +65,19 @@ auto MultiTagSolverNode::CreateCallback()
     auto* detections =
         context->GetMessage<apriltag::TagDetections>(input_channel_);
     if (detections == nullptr) {
+      context->SetMessage(output_channel_, nullptr);
       notify_callbacks();
       return;
     }
 
-    auto estimate = AmbiguousSolve(detections->tag_detections);
+    auto estimate =
+        AmbiguousSolve(detections->tag_detections, reject_far_tags_);
     if (!estimate.has_value()) {
-      VLOG(1) << "Multi-tag solver produced no pose estimate";
+      context->SetMessage(output_channel_, nullptr);
     } else {
-      std::vector<AmbiguousEstimate> estimates;
-      estimates.push_back(std::move(*estimate));
       context->SetMessage(output_channel_,
                           std::make_unique<AmbiguousEstimateMessage>(
-                              std::move(estimates)));
+                              std::move(estimate.value())));
     }
     notify_callbacks();
   };
@@ -96,13 +93,17 @@ auto MultiTagSolverNode::GetPublications() const
   return publications_;
 }
 
+void MultiTagSolverNode::SetRejectFarTags(bool reject_far_tags) {
+  reject_far_tags_ = reject_far_tags;
+}
+
 auto MultiTagSolverNode::AmbiguousSolve(
     const std::vector<tag_detection_t>& detections, bool reject_far_tags)
     -> std::optional<ambiguous_estimate_t> {
   std::vector<cv::Point3d> object_points;
   std::vector<cv::Point2d> image_points;
   std::vector<int> tag_ids;
-  std::vector<int> rejected_tag_ids;
+  std::vector<double> distances;
   std::vector<tag_detection_t> accepted_detections;
   double avg_distance = 0.0;
 
@@ -114,7 +115,6 @@ auto MultiTagSolverNode::AmbiguousSolve(
     }
     if (reject_far_tags &&
         utils::QuadAreaPixels(detection.corners) < kMinTagAreaPixels) {
-      rejected_tag_ids.push_back(detection.tag_id);
       continue;
     }
 
@@ -132,12 +132,13 @@ auto MultiTagSolverNode::AmbiguousSolve(
     }
 
     if (reject_far_tags && cv::norm(tvec_tag) > kMaxTagDistance) {
-      rejected_tag_ids.push_back(detection.tag_id);
       continue;
     }
 
-    avg_distance += cv::norm(tvec_tag);
+    const double distance = cv::norm(tvec_tag);
+    avg_distance += distance;
     tag_ids.push_back(detection.tag_id);
+    distances.push_back(distance);
     accepted_detections.push_back(detection);
     image_points.insert(image_points.end(), detection.corners.begin(),
                         detection.corners.end());
@@ -150,13 +151,10 @@ auto MultiTagSolverNode::AmbiguousSolve(
   }
 
   if (tag_ids.size() == 1) {
-    const std::vector<ambiguous_estimate_t> square_estimates =
-        single_tag_solver_.AmbiguousSolve(accepted_detections,
+    std::optional<ambiguous_estimate_t> square_estimates =
+        single_tag_solver_.AmbiguousSolve(accepted_detections[0],
                                           reject_far_tags);
-    if (square_estimates.empty()) {
-      return std::nullopt;
-    }
-    return square_estimates.front();
+    return square_estimates;
   }
 
   avg_distance /= static_cast<double>(tag_ids.size());
@@ -176,19 +174,40 @@ auto MultiTagSolverNode::AmbiguousSolve(
   cv::Mat field_to_robot = field_to_camera * camera_to_robot_;
   const int num_tags = static_cast<int>(tag_ids.size());
 
-  position_estimate_t estimate;
+  solver_estimate_t estimate;
   estimate.tag_ids = std::move(tag_ids);
-  estimate.rejected_tag_ids = std::move(rejected_tag_ids);
-  estimate.pose = utils::ConvertOpencvTransformationMatrixToWpilibPose(
-      field_to_robot);
+  estimate.distances = std::move(distances);
+  estimate.pose =
+      utils::ConvertOpencvTransformationMatrixToWpilibPose(field_to_robot);
   estimate.variance =
       Variance(num_tags, avg_distance, kVarianceMin, kVarianceScalar);
-  estimate.num_tags = num_tags;
-  estimate.avg_tag_dist = avg_distance;
+  estimate.distance = avg_distance;
 
-  return ambiguous_estimate_t{
-      .pos1 = std::move(estimate),
-      .pos2 = std::nullopt};
+  if (PoseOffField(estimate.pose)) {
+    std::vector<cv::Point2d> projected_points;
+    cv::projectPoints(object_points, rvec, tvec, camera_matrix_,
+                      distortion_coefficients_, projected_points);
+    double squared_error = 0.0;
+    for (std::size_t i = 0; i < image_points.size(); ++i) {
+      const cv::Point2d delta = image_points[i] - projected_points[i];
+      squared_error += delta.dot(delta);
+    }
+    const double reprojection_rmse =
+        std::sqrt(squared_error / static_cast<double>(image_points.size()));
+    std::string tag_list;
+    for (const int tag_id : estimate.tag_ids) {
+      if (!tag_list.empty()) {
+        tag_list += ',';
+      }
+      tag_list += std::to_string(tag_id);
+    }
+    LOG(WARNING) << "SQPnP produced a physically impossible pose from tags ["
+                 << tag_list << "] with reprojection RMSE " << reprojection_rmse
+                 << " px: " << estimate;
+  }
+
+  return ambiguous_estimate_t{.pos1 = std::move(estimate),
+                              .pos2 = std::nullopt};
 }
 
 }  // namespace localization

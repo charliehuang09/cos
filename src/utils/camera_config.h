@@ -9,6 +9,7 @@ namespace utils {
 auto CameraMatrixFromJson(const nlohmann::json& intrinsics) -> cv::Mat;
 auto DistortionCoefficientsFromJson(const nlohmann::json& intrinsics)
     -> cv::Mat;
+// JSON rotations are in degrees; the returned transform uses radians.
 auto ExtrinsicsJsonToCameraToRobot(const nlohmann::json& extrinsics)
     -> frc::Transform3d;
 

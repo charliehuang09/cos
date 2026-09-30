@@ -53,30 +53,16 @@ auto MakeTransform(const cv::Mat& rvec, const cv::Mat& tvec) -> cv::Mat {
   return transform;
 }
 
-auto EigenToCvMat(const Eigen::Matrix4d& mat) -> cv::Mat {
-  cv::Mat cv_mat(mat.rows(), mat.cols(), CV_64F);
-  Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-                           Eigen::RowMajor>>(cv_mat.ptr<double>(),
-                                             mat.rows(), mat.cols()) = mat;
-  return cv_mat;
-}
-
-auto CvMatToEigen(const cv::Mat& mat) -> Eigen::Matrix4d {
-  Eigen::Matrix4d out;
-  for (int row = 0; row < 4; ++row) {
-    for (int col = 0; col < 4; ++col) {
-      out(row, col) = mat.at<double>(row, col);
-    }
-  }
-  return out;
-}
-
 auto ChangeBasis(cv::Mat& mat, Basis basis) -> void {
   const cv::Mat& basis_mat = kCvBases.at(basis);
   mat = basis_mat * mat;
   if (mat.cols == mat.rows) {
     mat = mat * basis_mat.t();
   }
+}
+
+auto BasisMatrix(Basis basis) -> Eigen::Matrix4d {
+  return CvMatToEigen(kCvBases.at(basis));
 }
 
 auto ConvertOpencvTransformationMatrixToWpilibPose(const cv::Mat& matrix)
@@ -109,19 +95,15 @@ auto ComputeRobotPose(const cv::Mat& tvec, const cv::Mat& rvec, int tag_id,
 }
 
 auto Pose3dToCvMat(frc::Pose3d pose) -> cv::Mat {
-  frc::Pose3d opencv_pose(
-      frc::Translation3d(-pose.Y(), -pose.Z(), pose.X()),
-      frc::Rotation3d(-pose.Rotation().Y(), -pose.Rotation().Z(),
-                      pose.Rotation().X()));
-  return EigenToCvMat(opencv_pose.ToMatrix());
+  cv::Mat matrix = EigenToCvMat(pose.ToMatrix());
+  ChangeBasis(matrix, Basis::kWpiToCv);
+  return matrix;
 }
 
 auto Transform3dToCvMat(frc::Transform3d transform) -> cv::Mat {
-  frc::Pose3d opencv_pose(
-      frc::Translation3d(-transform.Y(), -transform.Z(), transform.X()),
-      frc::Rotation3d(-transform.Rotation().Y(),
-                      -transform.Rotation().Z(), transform.Rotation().X()));
-  return EigenToCvMat(opencv_pose.ToMatrix());
+  cv::Mat matrix = EigenToCvMat(transform.ToMatrix());
+  ChangeBasis(matrix, Basis::kWpiToCv);
+  return matrix;
 }
 
 }  // namespace utils

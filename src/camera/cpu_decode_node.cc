@@ -2,7 +2,6 @@
 
 #include <jpeglib.h>
 
-#include <algorithm>
 #include <cstddef>
 #include <memory>
 
@@ -17,23 +16,35 @@ CpuJpegDecodeNode::CpuJpegDecodeNode(std::string_view input_path,
       output_path_(output_path),
       thread_pool_(thread_pool),
       dependencies_({{input_path_, typeid(JpegBuffer)}}),
-      publications_({{output_path_, typeid(DecodedImageBuffer)}}) {}
+      publications_({control_loop::MessageDescriptor::Publication<
+          DecodedImageBuffer>(output_path_)}) {}
 
 auto CpuJpegDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
-  return [this](const control_loop::Context& context) {
-    const auto* jpeg = context->GetMessage<JpegBuffer>(input_path_);
-    if (jpeg == nullptr || jpeg->ptr == nullptr || jpeg->size == 0U) {
-      return;
-    }
-
-    thread_pool_.Submit([this, context, jpeg] {
-      auto decoded = std::make_unique<DecodedImageBuffer>(Decode(jpeg));
-      context->SetMessage(output_path_, std::move(decoded));
+  return [this](const control_loop::Context& context) -> void {
+    auto notify_callbacks = [this, &context] -> void {
       for (const auto& callback : callbacks_) {
         callback(context);
       }
-    });
+    };
+
+    CHECK(context->Exists(input_path_));
+    const auto* jpeg = context->GetMessage<JpegBuffer>(input_path_);
+    if (jpeg == nullptr || jpeg->ptr == nullptr || jpeg->size == 0U) {
+      context->SetMessage(output_path_, nullptr);
+      notify_callbacks();
+      return;
+    }
+
+    thread_pool_.Submit(
+        [this, context, jpeg] -> void {
+          auto decoded = std::make_unique<DecodedImageBuffer>(Decode(jpeg));
+          context->SetMessage(output_path_, std::move(decoded));
+          for (const auto& callback : callbacks_) {
+            callback(context);
+          }
+        },
+        context->id);
   };
 }
 

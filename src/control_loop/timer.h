@@ -8,6 +8,7 @@ class Timer {
  public:
   Timer();
   auto Stop() -> std::chrono::duration<double>;
+  auto GetStart() -> std::chrono::steady_clock::time_point;
 
  private:
   std::chrono::steady_clock::time_point start_;

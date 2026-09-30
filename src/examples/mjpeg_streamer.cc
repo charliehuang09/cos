@@ -22,8 +22,8 @@ auto main() -> int {
 
   // By default std::thread::hardware_concurrency() workers is used for streaming
   // if you want to use 4 workers instead:
-  //   streamer.start(8080, 4);
-  streamer.start(8080);
+  //   streamer.start(4971, 4);
+  streamer.start(4971);
 
   // Visit /shutdown or another defined target to stop the loop and graceful shutdown
   while (streamer.isRunning()) {
@@ -34,7 +34,7 @@ auto main() -> int {
       exit(EXIT_FAILURE);
     }
 
-    // http://localhost:8080/bgr
+    // http://localhost:4971/bgr
     std::vector<uchar> buff_bgr;
     cv::imencode(".jpg", frame, buff_bgr, params);
     streamer.publish("/bgr", std::string(buff_bgr.begin(), buff_bgr.end()));
@@ -42,7 +42,7 @@ auto main() -> int {
     cv::Mat hsv;
     cv::cvtColor(frame, hsv, cv::COLOR_BGR2HSV);
 
-    // http://localhost:8080/hsv
+    // http://localhost:4971/hsv
     std::vector<uchar> buff_hsv;
     cv::imencode(".jpg", hsv, buff_hsv, params);
     streamer.publish("/hsv", std::string(buff_hsv.begin(), buff_hsv.end()));

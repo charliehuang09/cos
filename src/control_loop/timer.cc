@@ -8,4 +8,8 @@ auto Timer::Stop() -> std::chrono::duration<double> {
   return end - start_;
 }
 
+auto Timer::GetStart() -> std::chrono::steady_clock::time_point {
+  return start_;
+}
+
 }  // namespace control_loop
