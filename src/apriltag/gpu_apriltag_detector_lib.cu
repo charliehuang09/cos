@@ -91,18 +91,51 @@ namespace{
     int col_offset = threadIdx.x + blockIdx.x * blockDim.x;
     int row_offset = threadIdx.y + blockIdx.y * blockDim.y;
 
+    // Matches the 32x32 launch in PopulateThresholdValidGPU.
+    constexpr int block_size = 32;
+    constexpr int shared_size = block_size + 2;
+    __shared__ uint8_t min_shared[shared_size][shared_size];
+    __shared__ uint8_t max_shared[shared_size][shared_size];
+
+    // Load every cell, including halos and cells in partial blocks.
+    const int tid = threadIdx.y * block_size + threadIdx.x;
+    for (int i = tid; i < shared_size * shared_size;
+         i += block_size * block_size) {
+      const int sy = i / shared_size;
+      const int sx = i % shared_size;
+      const int row = static_cast<int>(blockIdx.y) * block_size + sy - 1;
+      const int col = static_cast<int>(blockIdx.x) * block_size + sx - 1;
+      const bool inside = row >= 0 && row < min_view.height &&
+                          col >= 0 && col < min_view.width;
+
+      // Neutral values preserve the original clipped-neighborhood reduction.
+      min_shared[sy][sx] = inside ? min_view(row, col) : 255;
+      max_shared[sy][sx] = inside ? max_view(row, col) : 0;
+    }
+    __syncthreads();
+
+    // All threads must participate in loading and reach the barrier first.
     if (row_offset >= min_view.height || col_offset >= min_view.width) {
       return;
     }
 
     uint8_t min_value = 255;
     uint8_t max_value = 0;
-    for (int row = cuda::std::max(0, row_offset - 1); row <= cuda::std::min(min_view.height - 1, row_offset + 1); row++){
-      for (int col = cuda::std::max(0, col_offset - 1); col <= cuda::std::min(min_view.width - 1, col_offset + 1); col++){
-        min_value = cuda::std::min(min_value, min_view(row, col));
-        max_value = cuda::std::max(max_value, max_view(row, col));
-      }
+    int row_begin = static_cast<int>(threadIdx.y);
+    int row_end = row_begin + 2;
+    int col_begin = static_cast<int>(threadIdx.x);
+    int col_end = col_begin + 2;
+
+    for (int row = row_begin; row <= row_end; ++row) {
+        for (int col = col_begin; col <= col_end; ++col) {
+            min_value =
+                cuda::std::min(min_value, min_shared[row][col]);
+
+            max_value =
+                cuda::std::max(max_value, max_shared[row][col]);
+        }
     }
+
     constexpr uint8_t min_contrast = 25;
     uint8_t threshold = (max_value / 2) + (min_value / 2);
     uint8_t valid = max_value - min_value > min_contrast ? 255 : 0;
@@ -220,18 +253,15 @@ namespace{
     }
   }
 
-  __device__ auto GetRoot(uint32_t curr_row, uint32_t curr_col, ImageViewGPU<uint32_t> dsu) -> uint32_t{
+  __device__ auto GetRoot(uint32_t index, ImageViewGPU<uint32_t> dsu) -> uint32_t{
       while (true){
-        uint32_t dsu_value = dsu(curr_row, curr_col);
-        uint32_t next_row = dsu_value / dsu.stride;
-        uint32_t next_col = dsu_value % dsu.stride;
-        if (next_row == curr_row && next_col == curr_col){
+        uint32_t dsu_value = dsu.data[index];
+        if (dsu_value == index){
           break;
         }
-        curr_row = next_row;
-        curr_col = next_col;
+        index = dsu_value;
       }
-      return curr_row * dsu.stride + curr_col;
+      return index;
   }
 
   __global__ void JoinDSUKernel(ImageViewGPU<uint8_t> binarized_apriltag, ImageViewGPU<uint32_t> dsu){
@@ -263,9 +293,9 @@ namespace{
         }
       }
       if (valid_join){
+        uint32_t larger_index = GetRoot(row * dsu.stride + col + 1, dsu);
+        uint32_t smaller_index = GetRoot((row + 1) * dsu.stride + col, dsu);
         while(true){
-          uint32_t larger_index = GetRoot(row, col + 1, dsu);
-          uint32_t smaller_index = GetRoot(row + 1, col, dsu);
           if (larger_index == smaller_index){
             return;
           }
@@ -273,9 +303,10 @@ namespace{
             cuda::std::swap(larger_index, smaller_index);
           }
           if(atomicCAS(dsu.data + smaller_index, smaller_index, larger_index) == smaller_index){
-            // Set succesfully
             break;
           }
+          larger_index = GetRoot(larger_index, dsu);
+          smaller_index = GetRoot(smaller_index, dsu);
         }
       }
     }
@@ -299,7 +330,7 @@ namespace apriltag{
     ImageViewGPU<uint8_t> d_min(min);
     ImageViewGPU<uint8_t> d_max(max);
     ImageViewGPU<uint8_t> d_binarized_apriltag(binarized_apriltag);
-    dim3 threads(8, 8);
+    dim3 threads(32, 32);
     dim3 blocks(ceil_div(min.width, threads.x), ceil_div(min.height, threads.y));
     PopulateBinarizedApriltagKernal<<<blocks, threads, 0, stream>>>(d_apriltag, d_min, d_max, d_binarized_apriltag);
   }

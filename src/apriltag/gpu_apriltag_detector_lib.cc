@@ -1212,9 +1212,8 @@ auto GpuApriltagDetector::GradientRow(Coord<int> point,
   return output;
 }
 
-auto GpuApriltagDetector::GetRefinedPoints(
-    const std::vector<Quad>& quads,
-    ImageView<uint8_t>& apriltag)
+auto GpuApriltagDetector::GetRefinedPoints(const std::vector<Quad>& quads,
+                                           ImageView<uint8_t>& apriltag)
     -> std::vector<std::array<std::vector<WeightedPoint>, 4>> {
   // Bilinear samples retain subpixel edge locations throughout the line fit.
   auto sample = [&](float row, float col) -> float {
@@ -1236,8 +1235,8 @@ auto GpuApriltagDetector::GetRefinedPoints(
       const auto& a = quad.corners[i];
       const auto& b = quad.corners[(i + 1) % 4];
       shortest_edge = std::min(shortest_edge,
-          std::hypot(static_cast<float>(b.row - a.row),
-                     static_cast<float>(b.col - a.col)));
+                               std::hypot(static_cast<float>(b.row - a.row),
+                                          static_cast<float>(b.col - a.col)));
     }
     // Keep the search close to the outer border instead of crossing payload bits.
     const float radius = std::clamp(shortest_edge / 10.0f, 1.5f, 4.0f);
@@ -1254,7 +1253,8 @@ auto GpuApriltagDetector::GetRefinedPoints(
       float nr = dc / length;
       float nc = -dr / length;
       if (nr * (center.row - (a.row + b.row) / 2.0f) +
-          nc * (center.col - (a.col + b.col) / 2.0f) > 0) {
+              nc * (center.col - (a.col + b.col) / 2.0f) >
+          0) {
         nr = -nr;
         nc = -nc;
       }
@@ -1279,8 +1279,8 @@ auto GpuApriltagDetector::GetRefinedPoints(
               std::max(outer_col, inner_col) >= apriltag.width - 1) {
             continue;
           }
-          const float gradient = sample(outer_row, outer_col) -
-                                 sample(inner_row, inner_col);
+          const float gradient =
+              sample(outer_row, outer_col) - sample(inner_row, inner_col);
           if (gradient <= 0) {
             continue;
           }
@@ -1290,7 +1290,8 @@ auto GpuApriltagDetector::GetRefinedPoints(
         }
         if (weight_sum > 0) {
           const float offset = offset_sum / weight_sum;
-          points.push_back({{row + offset * nr, col + offset * nc}, weight_sum});
+          points.push_back(
+              {{row + offset * nr, col + offset * nc}, weight_sum});
         }
       }
     }
@@ -1310,9 +1311,8 @@ void GpuApriltagDetector::PopulateRefinedPointsApriltag(
         const Coord<int> point{
             .row = static_cast<int>(std::lround(weighted_point.coord.row)),
             .col = static_cast<int>(std::lround(weighted_point.coord.col))};
-        Coord start{
-            .row = std::max(point.row - marker_half_size, 0),
-            .col = std::max(point.col - marker_half_size, 0)};
+        Coord start{.row = std::max(point.row - marker_half_size, 0),
+                    .col = std::max(point.col - marker_half_size, 0)};
         Coord end{.row = std::min(point.row + marker_half_size,
                                   refined_points_apriltag.height - 1),
                   .col = std::min(point.col + marker_half_size,
