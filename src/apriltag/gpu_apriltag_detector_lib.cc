@@ -1227,6 +1227,15 @@ auto GpuApriltagDetector::GetRefinedPoints(const std::vector<Quad>& quads,
   std::vector<std::array<std::vector<WeightedPoint>, 4>> refined_points;
   refined_points.reserve(quads.size());
   for (const auto& quad : quads) {
+    // Candidate extraction leaves unfilled corners at (0, 0). Do not
+    // sample artificial edges to the origin; retain the quad's index so
+    // GetRefinedQuads can fall back to the original candidate.
+    if (std::ranges::any_of(quad.corners, [](const auto& corner) -> auto {
+          return corner.row == 0 && corner.col == 0;
+        })) {
+      refined_points.emplace_back();
+      continue;
+    }
     Coord<float> center{};
     float shortest_edge = std::numeric_limits<float>::max();
     for (size_t i = 0; i < 4; ++i) {
@@ -1291,7 +1300,8 @@ auto GpuApriltagDetector::GetRefinedPoints(const std::vector<Quad>& quads,
         if (weight_sum > 0) {
           const float offset = offset_sum / weight_sum;
           points.push_back(
-              {{row + offset * nr, col + offset * nc}, weight_sum});
+              {.coord = {.row = row + offset * nr, .col = col + offset * nc},
+               .weight = weight_sum});
         }
       }
     }
