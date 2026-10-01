@@ -30,151 +30,51 @@
 #include <opencv2/objdetect/charuco_detector.hpp>
 
 #include "camera/uvc_camera_node.h"
-#include "control_loop/control_loop.h"
 #include "control_loop/context.h"
+#include "control_loop/control_loop.h"
 #include "control_loop/rio_clock.h"
+#include "tools/charuco_calibration.h"
 #include "utils/stop.h"
 
-ABSL_FLAG(std::string, config_path, "",         // NOLINT
-          "path to the uvc config json file");  // NOLINT
+ABSL_FLAG(std::string, config_path, "",                 // NOLINT
+          "path to the uvc config json file");          // NOLINT
 ABSL_FLAG(int, port, 5801, "MJPEG stream port");        // NOLINT
 ABSL_FLAG(std::string, stream_path, "/calibration",     // NOLINT
-          "MJPEG stream path");                        // NOLINT
+          "MJPEG stream path");                         // NOLINT
 ABSL_FLAG(std::string, board_output_path,               // NOLINT
-          "calibration_board.png",                     // NOLINT
+          "calibration_board.png",                      // NOLINT
           "path for the generated ChArUco board PNG");  // NOLINT
-ABSL_FLAG(bool, generate_board, false,                   // NOLINT
-          "generate the ChArUco board PNG");             // NOLINT
+ABSL_FLAG(bool, generate_board, false,                  // NOLINT
+          "generate the ChArUco board PNG");            // NOLINT
 ABSL_FLAG(std::string, intrinsics_output_path,          // NOLINT
-          "intrinsics.json",                           // NOLINT
+          "intrinsics.json",                            // NOLINT
           "path for the generated intrinsics JSON");    // NOLINT
-ABSL_FLAG(int, jpeg_quality, 85,                         // NOLINT
-          "annotated MJPEG JPEG quality");               // NOLINT
+ABSL_FLAG(int, jpeg_quality, 85,                        // NOLINT
+          "annotated MJPEG JPEG quality");              // NOLINT
 
 namespace {
 
 using json = nlohmann::json;
 using MJPEGStreamer = nadjieb::MJPEGStreamer;
 
-constexpr static int ksquares_x = 12;
-constexpr static int ksquares_y = 9;
-constexpr static float ksquares_length = 0.025;
-constexpr static float kpixel_per_square = 128;
-constexpr static float kmarker_length = 0.020;
-constexpr static int kmargin_squares = 0;
-
-struct DetectionResult {
-  cv::Mat charuco_corners;
-  cv::Mat charuco_ids;
-  std::vector<cv::Point2f> image_points;
-  std::vector<cv::Point3f> object_points;
-};
-
-auto HasEnoughCorners(const DetectionResult& result) -> bool {
-  return result.charuco_corners.total() > 3U && !result.image_points.empty() &&
-         !result.object_points.empty();
-}
-
-auto IntrinsicsToJson(const cv::Mat& camera_matrix, const cv::Mat& dist_coeffs)
-    -> json {
-  CHECK_EQ(camera_matrix.rows, 3);
-  CHECK_EQ(camera_matrix.cols, 3);
-
-  cv::Mat coeffs = dist_coeffs.reshape(1, 1);
-  auto coeff = [&coeffs](int index) -> double {
-    if (index >= static_cast<int>(coeffs.total())) {
-      return 0.0;
-    }
-    return coeffs.at<double>(0, index);
-  };
-
-  json output;
-  output["fx"] = camera_matrix.at<double>(0, 0);
-  output["cx"] = camera_matrix.at<double>(0, 2);
-  output["fy"] = camera_matrix.at<double>(1, 1);
-  output["cy"] = camera_matrix.at<double>(1, 2);
-  output["k1"] = coeff(0);
-  output["k2"] = coeff(1);
-  output["p1"] = coeff(2);
-  output["p2"] = coeff(3);
-  output["k3"] = coeff(4);
-  return output;
-}
-
-auto CreateBoard() -> cv::aruco::CharucoBoard {
-  return cv::aruco::CharucoBoard(
-      cv::Size(ksquares_x, ksquares_y), ksquares_length, kmarker_length,
-      cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_250));
-}
-
-auto CreateDetector(const cv::aruco::CharucoBoard& board)
-    -> cv::aruco::CharucoDetector {
-  cv::aruco::CharucoParameters charuco_params;
-  cv::aruco::DetectorParameters detector_params;
-  return cv::aruco::CharucoDetector(board, charuco_params, detector_params);
-}
-
-auto GenerateBoardImage(const cv::aruco::CharucoBoard& board) -> cv::Mat {
-  const cv::Size image_size(
-      static_cast<int>((ksquares_x + 2 * kmargin_squares) *
-                       kpixel_per_square),
-      static_cast<int>((ksquares_y + 2 * kmargin_squares) *
-                       kpixel_per_square));
-
-  cv::Mat board_image;
-  board.generateImage(
-      image_size, board_image,
-      static_cast<int>(kmargin_squares * kpixel_per_square), 1);
-  return board_image;
-}
-
-auto DetectCharucoBoard(const cv::Mat& frame,
-                        const cv::aruco::CharucoDetector& detector)
-    -> DetectionResult {
-  DetectionResult result;
-  detector.detectBoard(frame, result.charuco_corners, result.charuco_ids);
-  if (result.charuco_corners.total() > 3U) {
-    detector.getBoard().matchImagePoints(result.charuco_corners,
-                                         result.charuco_ids,
-                                         result.object_points,
-                                         result.image_points);
-  }
-  return result;
-}
+using charuco_calibration::CalibrateCamera;
+using charuco_calibration::CreateBoard;
+using charuco_calibration::CreateDetector;
+using charuco_calibration::DetectCharucoBoard;
+using charuco_calibration::DetectionResult;
+using charuco_calibration::GenerateBoardImage;
+using charuco_calibration::HasEnoughCorners;
+using charuco_calibration::IntrinsicsToJson;
 
 auto DrawDetectionResult(const cv::Mat& frame,
                          const DetectionResult& detection_result) -> cv::Mat {
   cv::Mat result;
   frame.copyTo(result);
   if (detection_result.charuco_corners.total() > 3U) {
-    cv::aruco::drawDetectedCornersCharuco(result,
-                                          detection_result.charuco_corners,
-                                          detection_result.charuco_ids);
+    cv::aruco::drawDetectedCornersCharuco(
+        result, detection_result.charuco_corners, detection_result.charuco_ids);
   }
   return result;
-}
-
-auto CalibrateCamera(const std::vector<DetectionResult>& detection_results,
-                     cv::Size image_size, cv::Mat* camera_matrix,
-                     cv::Mat* dist_coeffs) -> std::optional<double> {
-  std::vector<std::vector<cv::Point2f>> all_image_points;
-  std::vector<std::vector<cv::Point3f>> all_object_points;
-
-  for (const DetectionResult& detection_result : detection_results) {
-    if (HasEnoughCorners(detection_result)) {
-      all_image_points.push_back(detection_result.image_points);
-      all_object_points.push_back(detection_result.object_points);
-    }
-  }
-
-  if (all_image_points.empty()) {
-    return std::nullopt;
-  }
-
-  return cv::calibrateCamera(all_object_points, all_image_points, image_size,
-                             *camera_matrix, *dist_coeffs, cv::noArray(),
-                             cv::noArray(), cv::noArray(), cv::noArray(),
-                             cv::noArray());
 }
 
 auto EncodeJpeg(const cv::Mat& image) -> std::string {
@@ -192,8 +92,8 @@ auto DecodeJpeg(const camera::JpegBuffer& jpeg_buffer) -> cv::Mat {
 }
 
 auto WriteIntrinsicsToFile(const cv::Mat& camera_matrix,
-                           const cv::Mat& dist_coeffs,
-                           const std::string& path) -> void {
+                           const cv::Mat& dist_coeffs, const std::string& path)
+    -> void {
   std::ofstream intrinsics_file(path);
   CHECK(intrinsics_file.is_open()) << "Failed to open " << path;
   const json intrinsics = IntrinsicsToJson(camera_matrix, dist_coeffs);
@@ -220,8 +120,8 @@ auto main(int argc, char* argv[]) -> int {
     const cv::Mat board_image = GenerateBoardImage(board);
     CHECK(cv::imwrite(absl::GetFlag(FLAGS_board_output_path), board_image))
         << "Failed to write " << absl::GetFlag(FLAGS_board_output_path);
-    std::cout << "Wrote board to "
-              << absl::GetFlag(FLAGS_board_output_path) << std::endl;
+    std::cout << "Wrote board to " << absl::GetFlag(FLAGS_board_output_path)
+              << std::endl;
   }
 
   camera::UVCCameraConfig config(absl::GetFlag(FLAGS_config_path));
@@ -282,8 +182,7 @@ auto main(int argc, char* argv[]) -> int {
 
     int pending = pending_captures.load();
     while (pending > 0 &&
-           !pending_captures.compare_exchange_weak(pending, pending - 1)) {
-    }
+           !pending_captures.compare_exchange_weak(pending, pending - 1)) {}
     if (pending > 0) {
       const int entered_count = entered_frames.load();
       if (HasEnoughCorners(detection_result)) {
@@ -410,9 +309,8 @@ auto main(int argc, char* argv[]) -> int {
 
   cv::Mat camera_matrix;
   cv::Mat dist_coeffs;
-  std::optional<double> reprojection_error =
-      CalibrateCamera(results_snapshot, image_size, &camera_matrix,
-                      &dist_coeffs);
+  std::optional<double> reprojection_error = CalibrateCamera(
+      results_snapshot, image_size, &camera_matrix, &dist_coeffs);
   if (!reprojection_error.has_value()) {
     LOG(ERROR) << "No usable detections captured";
     return 1;
