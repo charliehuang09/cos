@@ -50,7 +50,6 @@ class GamepieceNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::mutex detection_mutex_;
-
   float cam_cx_ = 0.0F;
   float cam_cy_ = 0.0F;
   float fx_ = 0.0F;

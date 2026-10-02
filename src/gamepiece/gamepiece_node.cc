@@ -1,6 +1,5 @@
 #include "gamepiece/gamepiece_node.h"
 
-#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <utility>
@@ -61,7 +60,6 @@ auto GamepieceNode::CreateCallback()
     if (frame == nullptr || frame->destination.channel[0] == nullptr) {
       return;
     }
-
     thread_pool_.Submit([this, context, frame] {
       auto detections =
           std::make_unique<GamepieceDetections>(RunDetection(*frame));
@@ -88,7 +86,7 @@ auto GamepieceNode::CreateCallback()
       for (const auto& callback : callbacks_) {
         callback(context);
       }
-    });
+    }, context->id);
   };
 }
 

@@ -19,12 +19,12 @@ target_sources(gamepiece_node PRIVATE
   gamepiece_node.cc
 )
 target_link_libraries(gamepiece_node PUBLIC
-  nvjpeg_decode_node
-  control_loop
-  thread_pool
+  cos::nvjpeg_decode_node
+  cos::control_loop
+  cos::thread_pool
   nlohmann_json::nlohmann_json
   wpimath
-  ${OpenCV_LIBS}
+  opencv_core
   CUDA::cudart
   absl::check
   absl::log
@@ -38,10 +38,11 @@ target_sources(gamepiece_control_loop PRIVATE
   gamepiece_control_loop.cc
 )
 target_link_libraries(gamepiece_control_loop PUBLIC
-  control_loop
-  nvjpeg_decode_node
-  thread_pool
+  cos::control_loop
+  cos::nvjpeg_decode_node
+  cos::thread_pool
   absl::check
+  absl::log
 )
 target_include_directories(gamepiece_control_loop PUBLIC
   ${CMAKE_SOURCE_DIR}/src

@@ -1,7 +1,6 @@
 #include "gamepiece/gamepiece_control_loop.h"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -11,6 +10,7 @@
 #include <utility>
 
 #include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "camera/nvjpeg_decode_node.h"
 
 namespace gamepiece {
@@ -163,6 +163,7 @@ void GamepieceControlLoop::RegisterNodeCallbacks() {
 
 void GamepieceControlLoop::Run(std::stop_token stop_token) {
   auto next_tick = std::chrono::steady_clock::now() + period_;
+  std::uint64_t context_id = 0;
   while (!stop_token.stop_requested()) {
     std::vector<std::shared_ptr<camera::DecodedJpegBuffer>> decoded_buffers;
     std::vector<double> timestamps;
@@ -186,27 +187,28 @@ void GamepieceControlLoop::Run(std::stop_token stop_token) {
       std::ranges::fill(decoded_frame_state_->decoded_buffers, nullptr);
     }
 
-    std::stop_source iteration_stop_source;
-    std::atomic destructed = false;
-    context_ = control_loop::Context(new control_loop::ContextInternal(
-        std::chrono::steady_clock::now(), nullptr,
-        iteration_stop_source.get_token(), &destructed));
+    auto context = control_loop::Context(new control_loop::ContextInternal(
+        std::chrono::steady_clock::now(), nullptr, stop_token, ++context_id));
 
     for (size_t i = 0; i < decoded_buffers.size(); ++i) {
       if (decoded_buffers[i] == nullptr) {
         continue;
       }
       CHECK_EQ(decoded_buffers[i]->timestamp, timestamps[i]);
-      context_->SetMessage(decoded_channels_in_order_[i], decoded_buffers[i]);
+      context->SetMessage(decoded_channels_in_order_[i], decoded_buffers[i]);
       for (const auto& callback : decoded_frame_callbacks_[i]) {
-        callback(context_);
+        callback(context);
       }
     }
 
-    context_.reset();
-    if (!destructed) {
-      iteration_stop_source.request_stop();
-      destructed.wait(false);
+    const auto finished = std::chrono::steady_clock::now();
+    if (finished > next_tick) {
+      LOG(WARNING) << "Gamepiece command loop overran: elapsed since tick "
+                   << std::chrono::duration_cast<std::chrono::milliseconds>(
+                          finished - (next_tick - period_))
+                          .count()
+                   << " ms (period " << period_.count() << " ms)";
+      next_tick += ((finished - next_tick) / period_ + 1) * period_;
     }
   }
 }

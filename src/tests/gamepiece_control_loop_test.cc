@@ -35,11 +35,12 @@ struct TestContext {
   TestContext()
       : context(new control_loop::ContextInternal(
             std::chrono::steady_clock::now(), nullptr, stop_source.get_token(),
-            &destructed)) {}
+            0)),
+        weak_context(context) {}
 
-  std::atomic<bool> destructed = false;
   std::stop_source stop_source;
   control_loop::Context context;
+  std::weak_ptr<control_loop::ContextInternal> weak_context;
 };
 
 class FakeDecoderNode final : public control_loop::INode {
@@ -142,7 +143,7 @@ auto EmitFrame(FakeDecoderNode& decoder, std::string_view channel,
   decoder.Emit(localization.context);
   frame.reset();
   localization.context.reset();
-  EXPECT_TRUE(localization.destructed.load());
+  EXPECT_TRUE(localization.weak_context.expired());
   return weak_frame;
 }
 
@@ -159,7 +160,7 @@ TEST(ContextSharedMessageTest, SharedMessageOutlivesContext) {
   }
 
   owner.context.reset();
-  EXPECT_TRUE(owner.destructed.load());
+  EXPECT_TRUE(owner.weak_context.expired());
   EXPECT_FALSE(weak_message.expired());
   retained.reset();
   EXPECT_TRUE(weak_message.expired());
@@ -235,6 +236,60 @@ TEST(GamepieceControlLoopTest, KeepsInFlightFrameAndConsumesLatestFrame) {
   EXPECT_FALSE(copied_localization_message);
   EXPECT_EQ(std::ranges::find(observed_timestamps, 2.0),
             observed_timestamps.end());
+}
+
+TEST(GamepieceControlLoopTest, RunsNodesSequentiallyWhenOneOverruns) {
+  constexpr std::string_view kChannel = "decoded/front";
+  auto decoder = std::make_shared<FakeDecoderNode>(kChannel);
+
+  std::mutex mutex;
+  std::condition_variable condition;
+  std::vector<double> started_frames;
+  bool release_first_frame = false;
+  auto consumer = std::make_shared<FakeGamepieceNode>(
+      kChannel,
+      [&](const control_loop::Context& context,
+          const std::shared_ptr<camera::DecodedJpegBuffer>& frame) {
+        (void)context;
+        std::unique_lock lock(mutex);
+        started_frames.push_back(frame->timestamp);
+        condition.notify_all();
+        if (frame->timestamp == 1.0) {
+          condition.wait(lock, [&] { return release_first_frame; });
+        }
+      });
+
+  gamepiece::GamepieceControlLoop loop(10ms);
+  loop.RegisterDecodedFrameSource(decoder, kChannel);
+  loop.RegisterNode(consumer);
+  EmitFrame(*decoder, kChannel, 1.0);
+  loop.Start();
+  {
+    std::unique_lock lock(mutex);
+    ASSERT_TRUE(condition.wait_for(lock, 2s, [&] {
+      return started_frames.size() == 1;
+    }));
+  }
+
+  EmitFrame(*decoder, kChannel, 2.0);
+  {
+    std::unique_lock lock(mutex);
+    EXPECT_FALSE(condition.wait_for(lock, 30ms, [&] {
+      return started_frames.size() == 2;
+    }));
+    release_first_frame = true;
+  }
+  condition.notify_all();
+  {
+    std::unique_lock lock(mutex);
+    ASSERT_TRUE(condition.wait_for(lock, 2s, [&] {
+      return started_frames.size() == 2;
+    }));
+    ASSERT_EQ(started_frames.size(), 2U);
+    EXPECT_EQ(started_frames[0], 1.0);
+    EXPECT_EQ(started_frames[1], 2.0);
+  }
+  loop.Stop();
 }
 
 TEST(GamepieceControlLoopTest, KeepsCameraChannelsIndependent) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <concepts>
 #include <cstdint>
@@ -9,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
 #include "control_loop/message.h"
 
@@ -69,7 +71,7 @@ struct ContextInternal {
     SetMessage(path, std::shared_ptr<IMessage>(std::move(message)));
   }
 
-  void SetMessage(std::string_view path, std::unique_ptr<IMessage> message) {
+  void SetMessage(std::string_view path, std::shared_ptr<IMessage> message) {
     std::scoped_lock lock(messages_mutex_);
     messages_.emplace(path, std::move(message));
   }
