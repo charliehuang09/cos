@@ -179,6 +179,8 @@ auto MultiTagSolverNode::AmbiguousSolve(
   estimate.distances = std::move(distances);
   estimate.pose =
       utils::ConvertOpencvTransformationMatrixToWpilibPose(field_to_robot);
+  estimate.field_to_camera =
+      utils::ConvertOpencvTransformationMatrixToWpilibPose(field_to_camera);
   estimate.variance =
       Variance(num_tags, avg_distance, kVarianceMin, kVarianceScalar);
   estimate.distance = avg_distance;

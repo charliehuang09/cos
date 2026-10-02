@@ -28,6 +28,9 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode,
                              bool PVA = true);
   ~NvidiaApriltagDetectorNode() override;
   void WarmUp();
+  // Synchronous entry point for offline replay. Completes before returning.
+  auto Detect(const camera::DecodedJpegFdBuffer& buffer)
+      -> std::vector<TagDetections::tag_detection>;
   void RegisterCallback(const std::function<void(const control_loop::Context&)>&
                             callback) override {
     callbacks_.emplace_back(callback);
@@ -43,8 +46,6 @@ class NvidiaApriltagDetectorNode final : public control_loop::INode,
 
  private:
   auto Detect(const camera::DecodedJpegBuffer& buffer)
-      -> std::vector<TagDetections::tag_detection>;
-  auto Detect(const camera::DecodedJpegFdBuffer& buffer)
       -> std::vector<TagDetections::tag_detection>;
   auto DetectGray(const unsigned char* data, int width, int height,
                   size_t stride) -> std::vector<TagDetections::tag_detection>;

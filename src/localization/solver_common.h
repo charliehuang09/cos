@@ -27,7 +27,10 @@ struct SolverEstimate {
   frc::Pose3d pose;
   double variance = 0.0;
   double distance = 0.0;
-  LOG_FIELDS(SolverEstimate, tag_ids, distances, pose, variance, distance)
+  // T_F<-C in WPILib coordinates, from this exact PnP candidate.
+  std::optional<frc::Pose3d> field_to_camera;
+  LOG_FIELDS(SolverEstimate, tag_ids, distances, pose, variance, distance,
+             field_to_camera)
 
   friend auto operator<<(std::ostream& os, const SolverEstimate& estimate)
       -> std::ostream& {

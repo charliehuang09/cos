@@ -72,6 +72,32 @@ TEST_F(NvjpegFdDecodeNodeTest, DropsNullInput) {
   EXPECT_EQ(context->GetMessage<camera::DecodedJpegFdBuffer>("decoded"), nullptr);
 }
 
+TEST_F(NvjpegFdDecodeNodeTest, SynchronousDecodePreservesSurfaceOwnership) {
+  camera::JpegBuffer jpeg{sizeof(kValidJpeg), 123.0};
+  std::memcpy(jpeg.ptr, kValidJpeg, sizeof(kValidJpeg));
+  auto first = node_.Decode(jpeg);
+  ASSERT_TRUE(first);
+  auto second = node_.Decode(jpeg);
+  ASSERT_TRUE(second);
+  EXPECT_NE(first->fd, second->fd);
+  EXPECT_EQ(first->width, 128);
+  EXPECT_EQ(second->height, 128);
+  EXPECT_DOUBLE_EQ(first->timestamp, 123.0);
+  EXPECT_EQ(callback_count_, 0u);
+}
+
+TEST_F(NvjpegFdDecodeNodeTest, SynchronousDecodeRecoversAfterMalformedInput) {
+  camera::JpegBuffer empty;
+  EXPECT_FALSE(node_.Decode(empty));
+  camera::JpegBuffer malformed{4, 0};
+  const std::array<unsigned char, 4> truncated{0xFF, 0xD8, 0xFF, 0xD9};
+  std::memcpy(malformed.ptr, truncated.data(), truncated.size());
+  EXPECT_FALSE(node_.Decode(malformed));
+  camera::JpegBuffer jpeg{sizeof(kValidJpeg), 123.0};
+  std::memcpy(jpeg.ptr, kValidJpeg, sizeof(kValidJpeg));
+  EXPECT_TRUE(node_.Decode(jpeg));
+}
+
 TEST_F(NvjpegFdDecodeNodeTest, DropsNullData) {
   auto context = Decode(std::make_unique<camera::JpegBuffer>());
   EXPECT_EQ(context->GetMessage<camera::DecodedJpegFdBuffer>("decoded"), nullptr);

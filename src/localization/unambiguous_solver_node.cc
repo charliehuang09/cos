@@ -63,6 +63,12 @@ void UnambiguousSolverNode::RegisterCallback(
   callbacks_.push_back(callback);
 }
 
+void UnambiguousSolverNode::RegisterSolutionCallback(
+    std::function<void(const control_loop::Context&,
+                       const UnambiguousSolution&)> callback) {
+  solution_callbacks_.push_back(std::move(callback));
+}
+
 void UnambiguousSolverNode::AddCamera(std::string_view input_channel,
                                       const camera::Intrinsics& intrinsics,
                                       const camera::Extrinsics& extrinsics,
@@ -90,16 +96,19 @@ auto UnambiguousSolverNode::CreateCallback()
       }
       auto ambiguous_estimate = context->GetMessage<AmbiguousEstimateMessage>(
           multi_tag_solver_output_channel);
-      if (ambiguous_estimate == nullptr) {
-        continue;
-      }
-      estimates.push_back(&ambiguous_estimate->estimate);
+      estimates.push_back(ambiguous_estimate == nullptr
+                              ? nullptr
+                              : &ambiguous_estimate->estimate);
     }
-    auto result = Solve(estimates, reject_far_tags_);
+    auto result = SolveSelected(estimates, reject_far_tags_);
     if (result.has_value()) {
+      for (const auto& callback : solution_callbacks_) {
+        callback(context, *result);
+      }
       context->SetMessage(
           output_channel_,
-          std::make_unique<PositionEstimateMessage>(result.value()));
+          std::make_unique<PositionEstimateMessage>(
+              std::move(result->combined)));
     } else {
       context->SetMessage(output_channel_, nullptr);
     }
@@ -254,9 +263,19 @@ auto UnambiguousSolverNode::GetAmbiguousEstimates(
 auto UnambiguousSolverNode::Solve(
     const std::vector<ambiguous_estimate_t*>& estimates, bool reject_far_tags)
     -> std::optional<position_estimate_t> {
+  auto solution = SolveSelected(estimates, reject_far_tags);
+  if (!solution) return std::nullopt;
+  return std::move(solution->combined);
+}
+
+auto UnambiguousSolverNode::SolveSelected(
+    const std::vector<ambiguous_estimate_t*>& estimates, bool reject_far_tags)
+    -> std::optional<UnambiguousSolution> {
   std::vector<ambiguous_estimate_t> filtered_estimates;
+  std::vector<size_t> input_indices;
   filtered_estimates.reserve(estimates.size());
-  for (const ambiguous_estimate_t* estimate : estimates) {
+  for (size_t index = 0; index < estimates.size(); ++index) {
+    const ambiguous_estimate_t* estimate = estimates[index];
     if (estimate == nullptr) {
       continue;
     }
@@ -264,7 +283,9 @@ auto UnambiguousSolverNode::Solve(
     if (reject_far_tags &&
         !FilterOffFieldCandidates(&filtered_estimates.back())) {
       filtered_estimates.pop_back();
+      continue;
     }
+    input_indices.push_back(index);
   }
 
   std::vector<ambiguous_estimate_t*> filtered_estimate_ptrs;
@@ -301,7 +322,11 @@ auto UnambiguousSolverNode::Solve(
     return std::nullopt;
   }
   prev_pose_estimate_.emplace(estimate);
-  return estimate;
+  UnambiguousSolution solution{.combined = std::move(estimate), .selected = {}};
+  for (size_t i = 0; i < best_solution.size(); ++i) {
+    solution.selected.push_back({input_indices[i], std::move(best_solution[i])});
+  }
+  return solution;
 }
 
 }  // namespace localization

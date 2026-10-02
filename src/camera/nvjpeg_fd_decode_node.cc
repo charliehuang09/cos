@@ -47,6 +47,15 @@ NvjpegFdDecodeNode::~NvjpegFdDecodeNode() {
   cos_nvjpeg_destroy(decoder_);
 }
 
+auto NvjpegFdDecodeNode::Decode(const JpegBuffer& jpeg_buffer)
+    -> std::optional<DecodedJpegFdBuffer> {
+  if (jpeg_buffer.ptr == nullptr || jpeg_buffer.size < 2 ||
+      jpeg_buffer.ptr[0] != 0xFFU || jpeg_buffer.ptr[1] != 0xD8U) {
+    return std::nullopt;
+  }
+  return DecodeJpegBuffer(&jpeg_buffer);
+}
+
 auto NvjpegFdDecodeNode::CreateCallback()
     -> std::function<void(const control_loop::Context&)> {
   return [this](const control_loop::Context& context) -> void {
@@ -85,7 +94,7 @@ auto NvjpegFdDecodeNode::CreateCallback()
     thread_pool_.Submit(
         [this, context, jpeg_buffer]() -> void {
           control_loop::Timer timer;
-          auto decoded = DecodeJpegBuffer(jpeg_buffer);
+          auto decoded = Decode(*jpeg_buffer);
           std::unique_ptr<control_loop::IMessage> decoded_buffer;
           if (decoded.has_value()) {
             decoded_buffer =

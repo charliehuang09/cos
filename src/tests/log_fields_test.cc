@@ -183,6 +183,7 @@ TEST(LogFieldsTest, WritesNativeArraysAndOptionalPrimitivesAndPose3d) {
         estimate.pos2->pose = populated_pose;
         estimate.pos2->variance = 3;
         estimate.pos2->distance = 4;
+        estimate.pos2->field_to_camera = populated_pose;
       }
       context.SetMessage(
           "estimate",
@@ -206,7 +207,12 @@ TEST(LogFieldsTest, WritesNativeArraysAndOptionalPrimitivesAndPose3d) {
       bool value = false;
       ASSERT_TRUE(record.GetBoolean(&value));
       EXPECT_EQ(value, present);
-    } else if (field_name == "estimate/pos2/pose") {
+    } else if (field_name == "estimate/pos2/field_to_camera_present") {
+      bool value = false;
+      ASSERT_TRUE(record.GetBoolean(&value));
+      EXPECT_EQ(value, present);
+    } else if (field_name == "estimate/pos2/pose" ||
+               field_name == "estimate/pos2/field_to_camera") {
       ASSERT_EQ(record.GetRaw().size(), 7 * sizeof(double));
       EXPECT_EQ(wpi::UnpackStruct<frc::Pose3d>(record.GetRaw()),
                 present ? populated_pose : frc::Pose3d{});
@@ -231,7 +237,7 @@ TEST(LogFieldsTest, WritesNativeArraysAndOptionalPrimitivesAndPose3d) {
                 present ? std::vector<double>{5} : std::vector<double>{});
     }
   });
-  EXPECT_EQ(counts.size(), 22);
+  EXPECT_EQ(counts.size(), 30);
   for (const auto& [name, count] : counts)
     EXPECT_EQ(count, 3) << name;
   std::filesystem::remove(path);

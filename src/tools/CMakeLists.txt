@@ -67,3 +67,7 @@ target_link_libraries(intrinsics_calibrate PRIVATE
 target_include_directories(intrinsics_calibrate PRIVATE
   ${OpenCV_INCLUDE_DIRS}
 )
+
+add_executable(extrinsics_calibrate extrinsics_calibrate.cc)
+target_link_libraries(extrinsics_calibrate PRIVATE cos::extrinsics_solver
+  absl::flags_parse absl::log_initialize nlohmann_json::nlohmann_json)

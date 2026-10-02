@@ -46,6 +46,11 @@ class NvjpegFdDecodeNode final : public control_loop::INode,
                      control_loop::ThreadPool& thread_pool);
   ~NvjpegFdDecodeNode() override;
 
+  // Synchronous decode with the same recovery boundary and mutex as the live
+  // pipeline. The returned buffer owns its surface independently of the decoder.
+  auto Decode(const JpegBuffer& jpeg_buffer)
+      -> std::optional<DecodedJpegFdBuffer>;
+
   auto CreateCallback()
       -> std::function<void(const control_loop::Context&)> override;
   void RegisterCallback(const std::function<void(const control_loop::Context&)>&

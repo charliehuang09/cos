@@ -16,6 +16,16 @@
 
 namespace localization {
 
+struct SelectedEstimate {
+  size_t input_index;
+  solver_estimate_t estimate;
+};
+
+struct UnambiguousSolution {
+  position_estimate_t combined;
+  std::vector<SelectedEstimate> selected;
+};
+
 class UnambiguousSolverNode final : public control_loop::INode {
  public:
   UnambiguousSolverNode(std::string_view output_channel,
@@ -30,9 +40,16 @@ class UnambiguousSolverNode final : public control_loop::INode {
   [[nodiscard]] auto GetPublications() const
       -> const std::vector<control_loop::MessageDescriptor>& override;
   void SetRejectFarTags(bool reject_far_tags);
+  // Observe the exact candidates selected for a successful live solution.
+  void RegisterSolutionCallback(
+      std::function<void(const control_loop::Context&,
+                         const UnambiguousSolution&)> callback);
 
   auto Solve(const std::vector<ambiguous_estimate_t*>& estimates,
              bool reject_far_tags = true) -> std::optional<position_estimate_t>;
+  auto SolveSelected(const std::vector<ambiguous_estimate_t*>& estimates,
+                     bool reject_far_tags = true)
+      -> std::optional<UnambiguousSolution>;
   void AddCamera(std::string_view input_channel,
                  const camera::Intrinsics& intrinsics,
                  const camera::Extrinsics& extrinsics,
@@ -68,6 +85,9 @@ class UnambiguousSolverNode final : public control_loop::INode {
   std::vector<control_loop::MessageDescriptor> dependencies_;
   std::vector<control_loop::MessageDescriptor> publications_;
   std::vector<std::function<void(const control_loop::Context&)>> callbacks_;
+  std::vector<std::function<void(const control_loop::Context&,
+                                const UnambiguousSolution&)>>
+      solution_callbacks_;
   std::optional<position_estimate_t> prev_pose_estimate_;
   bool reject_far_tags_ = true;
 };

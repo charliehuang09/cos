@@ -111,6 +111,8 @@ auto SquareSolverNode::AmbiguousSolve(const tag_detection_t& detection,
     estimate.distances = {distance};
     estimate.pose = utils::ComputeRobotPose(tvec, rvec, detection.tag_id,
                                             layout_, camera_to_robot_);
+    estimate.field_to_camera = utils::ComputeRobotPose(
+        tvec, rvec, detection.tag_id, layout_, cv::Mat::eye(4, 4, CV_64F));
     estimate.variance = Variance(1, distance, kVarianceMin, kVarianceScalar);
     estimate.distance = distance;
     return estimate;

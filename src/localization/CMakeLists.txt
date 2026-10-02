@@ -69,6 +69,7 @@ target_sources(cos.unambiguous_solver_node
 target_link_libraries(cos.unambiguous_solver_node PUBLIC
   cos::localization_solver_common
   cos::multi_tag_solver_node
+  cos::control_loop
 )
 target_link_libraries(cos.unambiguous_solver_node PRIVATE
   absl::log
