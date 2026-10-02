@@ -1,5 +1,20 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
 
+add_executable(gamepiece_control_loop_test gamepiece_control_loop_test.cc)
+target_link_libraries(gamepiece_control_loop_test PRIVATE
+  gamepiece_control_loop
+  cos::nvjpeg_decode_node
+  GTest::gtest_main
+)
+add_test(NAME gamepiece_control_loop_test COMMAND gamepiece_control_loop_test)
+
+add_executable(gamepiece_node_test gamepiece_node_test.cc)
+target_link_libraries(gamepiece_node_test PRIVATE
+  gamepiece_node
+  GTest::gtest_main
+)
+add_test(NAME gamepiece_node_test COMMAND gamepiece_node_test)
+
 add_executable(log_fields_test log_fields_test.cc)
 target_link_libraries(log_fields_test PRIVATE cos::wpilog_writer
   cos::control_loop GTest::gtest_main GTest::gtest cos::localization_solver_common)
