@@ -22,7 +22,6 @@ ABSL_FLAG(std::vector<std::string>, config_files,
           (std::vector<std::string>{"front_camera.json", "left_camera.json", "right_camera.json"}),
           "Comma-separated JSON filenames, in camera_names order");
 ABSL_FLAG(std::string, anchor_camera, "second_bot_front", "Camera extrinsic to hold fixed");
-ABSL_FLAG(bool, reuse_frames, false, "Allow a JPEG in multiple matched groups");
 ABSL_FLAG(bool, reject_far_tags, true, "Apply existing localization sanity checks");
 
 namespace {
@@ -64,19 +63,19 @@ auto main(int argc, char** argv) -> int {
     }
     if (anchor == names.size()) throw std::invalid_argument("Anchor camera is not in camera_names");
     const auto initial = calibration::LoadExtrinsics(cameras);
-    std::cout << "Replaying every JPEG in capture order..." << std::endl;
+    std::cout << "Replaying synchronized camera batches..." << std::endl;
     const auto replay_result = calibration::ReplayObservations(cameras, absl::GetFlag(FLAGS_reject_far_tags));
-    const auto groups = calibration::MatchObservations(replay_result.observations, absl::GetFlag(FLAGS_reuse_frames));
+    const auto& groups = replay_result.groups;
     const auto split = calibration::SplitGroups(groups);
     const auto result = calibration::SolveExtrinsics(split.training, initial, anchor);
     if (!result.usable) throw std::runtime_error(result.solver_report);
     nlohmann::json report = {
         {"jpegs_processed", replay_result.jpegs_processed},
         {"valid_selected_pnp_observations", replay_result.observations.size()},
-        {"matched_groups", groups.size()},
-        {"matched_pairs", calibration::EvaluatePairErrors(groups, initial).pairs},
+        {"observation_groups", groups.size()},
+        {"observation_pairs", calibration::EvaluatePairErrors(groups, initial).pairs},
         {"training_groups", split.training.size()}, {"held_out_groups", split.held_out.size()},
-        {"anchor_camera", names[anchor]}, {"reuse_frames", absl::GetFlag(FLAGS_reuse_frames)},
+        {"anchor_camera", names[anchor]},
         {"training_initial", Errors(result.initial_errors)},
         {"training_final", Errors(result.final_errors)},
         {"held_out_initial", Errors(calibration::EvaluatePairErrors(split.held_out, initial))},

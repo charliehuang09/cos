@@ -36,24 +36,29 @@ auto TimestampFromFilename(const std::filesystem::path& path) -> double {
 
 namespace camera {
 
-auto GetEarliestTimestamp(std::string_view path) -> double {
-  double earliest_timestamp = std::numeric_limits<double>::infinity();
-  for (const auto& entry :
-       std::filesystem::directory_iterator(std::filesystem::path(path))) {
+auto GetTimestampedJpegs(const std::filesystem::path& path)
+    -> std::vector<std::pair<std::filesystem::path, double>> {
+  std::vector<std::pair<std::filesystem::path, double>> files;
+  for (const auto& entry : std::filesystem::directory_iterator(path)) {
     if (!entry.is_regular_file() || !IsJpeg(entry.path())) {
       continue;
     }
 
-    earliest_timestamp =
-        std::min(earliest_timestamp, TimestampFromFilename(entry.path()));
+    const double timestamp = TimestampFromFilename(entry.path());
+    if (std::isfinite(timestamp)) files.emplace_back(entry.path(), timestamp);
   }
+  std::ranges::sort(files, {}, [](const auto& file) { return file.second; });
+  return files;
+}
 
-  if (!std::isfinite(earliest_timestamp)) {
+auto GetEarliestTimestamp(std::string_view path) -> double {
+  const auto files = GetTimestampedJpegs(std::filesystem::path(path));
+  if (files.empty()) {
     throw std::invalid_argument("No JPEG file with a valid timestamp in " +
                                 std::string(path));
   }
 
-  return earliest_timestamp;
+  return files.front().second;
 }
 
 auto GetEarliestTimestamp(const std::vector<std::string>& paths) -> double {

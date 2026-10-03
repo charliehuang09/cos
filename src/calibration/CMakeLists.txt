@@ -3,7 +3,9 @@ add_library(cos::extrinsics_replay ALIAS cos.extrinsics_replay)
 target_sources(cos.extrinsics_replay PUBLIC FILE_SET HEADERS
   BASE_DIRS ${PROJECT_SOURCE_DIR}/src FILES extrinsics_replay.h)
 target_link_libraries(cos.extrinsics_replay PUBLIC
-  cos::unambiguous_solver_node cos::thread_pool)
+  cos::unambiguous_solver_node cos::thread_pool
+  PRIVATE cos::get_earliest_timestamp cos::nvjpeg_fd_decode_node
+  cos::nvidia_apriltag_detector_node)
 
 add_library(cos.extrinsics_solver extrinsics_solver.cc)
 add_library(cos::extrinsics_solver ALIAS cos.extrinsics_solver)

@@ -1,10 +1,7 @@
 #include "camera/uvc_disk_camera_node.h"
-#include <algorithm>
-#include <cctype>
-#include <cmath>
-#include <filesystem>
 #include <fstream>
 #include "absl/log/log.h"
+#include "camera/get_earliest_timestamp.h"
 #include "control_loop/rio_clock.h"
 #include "utils/stop.h"
 
@@ -16,31 +13,7 @@ UVCDiskCameraNode::UVCDiskCameraNode(std::string_view log_path,
     : publications_({control_loop::MessageDescriptor::Publication<JpegBuffer>(
           output_path)}),
       output_path_(output_path) {
-  for (const auto& entry : std::filesystem::directory_iterator(log_path)) {
-    if (!entry.is_regular_file()) {
-      continue;
-    }
-    std::string extension = entry.path().extension().string();
-    std::ranges::transform(extension, extension.begin(),
-                           [](unsigned char character) -> char {
-                             return static_cast<char>(std::tolower(character));
-                           });
-    if (extension != ".jpg" && extension != ".jpeg") {
-      continue;
-    }
-    try {
-      std::size_t parsed_characters = 0;
-      const std::string stem = entry.path().stem().string();
-      const double timestamp = std::stod(stem, &parsed_characters);
-      if (parsed_characters == stem.size() && std::isfinite(timestamp)) {
-        file_paths_.emplace_back(entry.path(), timestamp);
-      }
-    } catch (const std::invalid_argument&) {
-    } catch (const std::out_of_range&) {}
-  }
-  std::ranges::sort(file_paths_, {},
-                    [](const auto& file) -> auto { return file.second; });
-
+  file_paths_ = GetTimestampedJpegs(std::filesystem::path(log_path));
   thread_ = std::jthread([this,
                           offset](const std::stop_token& stop_token) -> void {
     for (std::size_t index = 0;

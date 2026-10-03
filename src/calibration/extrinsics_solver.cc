@@ -95,18 +95,13 @@ void Validate(const std::vector<ObservationGroup>& groups,
       throw std::invalid_argument("Extrinsics must be finite with unit quaternions");
   }
   for (const auto& group : groups) {
-    if (group.size() < 2) throw std::invalid_argument("A matched group needs two cameras");
-    int64_t first = group.front().capture_ns, last = first;
+    if (group.size() < 2) throw std::invalid_argument("An observation group needs two cameras");
     std::unordered_set<size_t> cameras;
     for (const auto& o : group) {
       if (o.camera >= extrinsics.size() || !cameras.insert(o.camera).second ||
           !o.field_to_camera.ToMatrix().allFinite() || o.capture_ns < 0)
-        throw std::invalid_argument("Invalid matched observation");
-      first = std::min(first, o.capture_ns);
-      last = std::max(last, o.capture_ns);
+        throw std::invalid_argument("Invalid observation");
     }
-    if (last - first >= kMatchWindowNs)
-      throw std::invalid_argument("Matched group exceeds the strict 10 ms window");
   }
 }
 }  // namespace

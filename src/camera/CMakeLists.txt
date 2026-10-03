@@ -175,6 +175,7 @@ target_sources(cos.uvc_disk_camera_node
 )
 target_link_libraries(cos.uvc_disk_camera_node PRIVATE
   absl::log
+  cos::get_earliest_timestamp
   cos::control_loop
   cos::rio_clock
   cos::stop
