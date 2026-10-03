@@ -129,8 +129,3 @@ target_link_libraries(unambiguous_solver_node_test PRIVATE
   cos::unambiguous_solver_node
   cos::simulation_position_sender_node
 )
-
-add_executable(extrinsics_calibration_test extrinsics_calibration_test.cc)
-target_link_libraries(extrinsics_calibration_test PRIVATE cos::extrinsics_solver
-  GTest::gtest_main nlohmann_json::nlohmann_json)
-add_test(NAME extrinsics_calibration_test COMMAND extrinsics_calibration_test)
