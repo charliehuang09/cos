@@ -32,8 +32,12 @@ list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_SYSROOT}/opt/nvidia/vpi4")
 
 find_package(CUDAToolkit REQUIRED)
 find_package(JPEG REQUIRED)
-find_package(OpenCV REQUIRED)
 find_package(wpilib REQUIRED)
+# WPILib's camera packages discover all OpenCV modules and accumulate OpenCV_LIBS.
+# Limit our direct links to the components used by COS and installed on the Orin.
+set(OpenCV_LIBS "")
+find_package(OpenCV REQUIRED COMPONENTS
+  core imgproc imgcodecs calib3d objdetect videoio)
 find_package(Eigen3 REQUIRED)
 find_package(vpi REQUIRED)
 find_package(libuvc REQUIRED)
@@ -58,6 +62,30 @@ FetchContent_MakeAvailable(ixwebsocket)
 target_compile_options(ixwebsocket PRIVATE
     -Wno-array-bounds
 )
+
+# Keep Ceres' dependency options scoped to its subdirectory. This small dense
+# calibration problem needs neither sparse libraries nor CUDA linear algebra.
+function(add_calibration_ceres)
+  set(BUILD_TESTING OFF)
+  set(BUILD_EXAMPLES OFF)
+  set(BUILD_BENCHMARKS OFF)
+  set(BUILD_DOCUMENTATION OFF)
+  set(BUILD_SHARED_LIBS OFF)
+  set(GFLAGS OFF)
+  set(MINIGLOG ON)
+  set(SUITESPARSE OFF)
+  set(LAPACK OFF)
+  set(USE_CUDA OFF)
+  set(EIGENSPARSE OFF)
+  set(SCHUR_SPECIALIZATIONS OFF)
+  FetchContent_Declare(ceres
+    URL https://github.com/ceres-solver/ceres-solver/archive/refs/tags/2.2.0.tar.gz
+    URL_HASH SHA256=12efacfadbfdc1bbfa203c236e96f4d3c210bed96994288b3ff0c8e7c6f350d4
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  FetchContent_MakeAvailable(ceres)
+endfunction()
+add_calibration_ceres()
 
 add_subdirectory(src)
 

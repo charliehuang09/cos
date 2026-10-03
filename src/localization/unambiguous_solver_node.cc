@@ -273,6 +273,7 @@ auto UnambiguousSolverNode::SolveSelected(
     -> std::optional<UnambiguousSolution> {
   std::vector<ambiguous_estimate_t> filtered_estimates;
   std::vector<size_t> input_indices;
+  std::vector<bool> square_solves;
   filtered_estimates.reserve(estimates.size());
   for (size_t index = 0; index < estimates.size(); ++index) {
     const ambiguous_estimate_t* estimate = estimates[index];
@@ -286,6 +287,8 @@ auto UnambiguousSolverNode::SolveSelected(
       continue;
     }
     input_indices.push_back(index);
+    // Single-tag estimates came from IPPE_SQUARE, even if pos2 was removed.
+    square_solves.push_back(estimate->pos1.tag_ids.size() == 1);
   }
 
   std::vector<ambiguous_estimate_t*> filtered_estimate_ptrs;
@@ -299,6 +302,30 @@ auto UnambiguousSolverNode::SolveSelected(
   double best_cost = std::numeric_limits<double>::infinity();
   SearchSolutions(filtered_estimate_ptrs, 0, current_solution, best_solution,
                   best_cost);
+
+  // Decide against the original selected pool before removing any estimates.
+  std::vector<bool> rejected(best_solution.size(), false);
+  for (size_t i = 0; i < best_solution.size(); ++i) {
+    if (!square_solves[i]) continue;
+    for (size_t j = 0; j < best_solution.size(); ++j) {
+      if (i == j) continue;
+      const double disagreement = best_solution[i].pose.Translation()
+                                      .Distance(best_solution[j].pose.Translation())
+                                      .value();
+      if (disagreement > 0.40) {
+        rejected[i] = true;
+        LOG(WARNING) << "Rejecting square solve from input " << input_indices[i]
+                     << " with translation disagreement " << disagreement
+                     << " m: " << best_solution[i];
+        break;
+      }
+    }
+  }
+  for (size_t i = best_solution.size(); i-- > 0;) {
+    if (!rejected[i]) continue;
+    best_solution.erase(best_solution.begin() + i);
+    input_indices.erase(input_indices.begin() + i);
+  }
 
   if (best_solution.empty()) {
     return std::nullopt;

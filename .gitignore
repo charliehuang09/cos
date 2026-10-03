@@ -8,3 +8,5 @@ bos-logs/
 **/*.png
 .cache
 .idea/
+**/__pycache__/
+calibration-results/
